@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Duello v1</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css"></head>
+<body><div id="app">
+  <section id="authScreen" class="screen">
+    <img class="logo-img" src="/assets/logo.png" alt="DUELLO">
+    <h1 class="auth-heading" id="authHeading">Create an account</h1>
+    <form id="authForm">
+      <input id="email" type="email" placeholder="Email" required>
+      <input id="firstName" placeholder="First name">
+      <input id="lastName" placeholder="Last name">
+      <input id="username" placeholder="Username">
+      <input id="password" type="password" placeholder="Password" required>
+      <input id="confirmPassword" type="password" placeholder="Confirm password">
+      <button class="btn primary" id="authSubmit" type="submit">Sign Up</button>
+      <p id="authError" class="error"></p>
+    </form>
+    <button class="link" id="authToggle">Already have an account? Sign in</button>
+    <p class="small">Email/password only for v1. Google/Apple sign-in: TODO (not real OAuth yet).<br>
+    Definitions: WordNet / Open English WordNet (CC BY 4.0) — see ATTRIBUTION.md.</p>
+  </section>
+
+  <section id="homeScreen" class="screen hidden">
+    <img class="logo-img home-logo" src="/assets/logo.png" alt="DUELLO">
+    <div class="modes">
+      <button class="mode" id="playBotsBtn"><span class="sym white">🤖</span><span class="label">Play Bots</span></button>
+      <button class="mode greyed" disabled><span class="sym">👥</span><span class="label">Play Friends</span></button>
+      <button class="mode greyed" disabled><span class="sym">🌐</span><span class="label">Play Online</span></button>
+    </div>
+    <button class="link" id="signOutBtn">Sign out</button>
+  </section>
+
+  <section id="botScreen" class="screen hidden">
+    <img class="logo-img small-logo-img" src="/assets/logo.png" alt="DUELLO">
+    <div class="bot-options">
+      <button class="bot-opt" id="competitiveBtn"><span class="sym red-disc">🤖</span><span class="label">Competitive Bot</span></button>
+      <button class="bot-opt" id="fishstickBtn"><img class="sym fishstick-img" src="/assets/fishstick.jpg" alt="Fishstick"><span class="label">Fishstick</span></button>
+    </div>
+    <button class="back-pill" id="botBackBtn">← Back</button>
+  </section>
+
+  <section id="gameScreen" class="screen hidden">
+    <div id="gameDim">
+      <img class="logo-img small-logo-img" id="gameLogo" src="/assets/logo.png" alt="DUELLO">
+      <div class="scoreboard" id="scoreboard">
+        <div class="side player-side">
+          <div class="pfp">👤</div><div class="name" id="playerName">You</div><div class="elo" id="playerElo">1000</div>
+        </div>
+        <div class="score-center">
+          <div class="center-score"><span id="scoreHuman">0</span>–<span id="scoreBot">0</span></div>
+          <div class="clocks"><div class="clock-block"><span id="clockHuman">5:00</span><div class="lastplay" id="lastHuman">—</div></div><div class="clock-block"><span id="clockBot">5:00</span><div class="lastplay" id="lastBot">—</div></div></div>
+        </div>
+        <div class="side bot-side">
+          <div class="pfp" id="botPfp">🤖</div><div class="name" id="botName">Bot</div><div class="elo" id="botElo">1000</div>
+        </div>
+      </div>
+      <div id="board" class="board"></div>
+      <div id="status" class="status">Your move</div>
+      <div id="rack" class="rack"></div>
+      <div class="controls">
+        <button id="shuffleBtn">Shuffle</button><button id="recallBtn">Recall</button>
+        <button id="playBtn" disabled>Play</button><button id="passBtn">Pass</button><button id="forfeitBtn">Forfeit</button>
+      </div>
+      <div id="endButtons" class="controls hidden">
+        <button id="mainMenuBtn">Main Menu</button><button id="playAgainBtn">Play Again</button><button id="gameStatsBtn">Game Stats</button>
+      </div>
+    </div>
+    <div id="statWindow" class="stat-window hidden">
+      <div class="stat-top"><div class="stat-pfp"><div class="pfp big">👤</div><div class="elo-move" id="eloMoveHuman">+0</div></div>
+      <div class="stat-score" id="statScore">0–0</div>
+      <div class="stat-pfp"><div class="pfp big" id="statBotPfp">🤖</div><div class="elo-move" id="eloMoveBot">+0</div></div></div>
+      <div class="stat-reason" id="statReason"></div>
+      <div class="stat-grid" id="statGrid"></div>
+      <div class="controls"><button id="statMainMenu">Main Menu</button><button id="statPlayAgain">Play Again</button><button id="statGameStats">Game Stats</button></div>
+    </div>
+    <div id="defPopover" class="def-popover hidden"></div>
+    <div id="dragGhost" class="drag-ghost hidden"></div>
+  </section>
+</div>
+<script src="/app.js"></script></body></html>

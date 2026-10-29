@@ -1,0 +1,859 @@
+// Duello v1 — standalone production-style app (bot play only).
+// Zero runtime dependencies. Node >= 22 (node:sqlite, node:crypto, node:http).
+// Run: node server.js  (PORT env, default 3000)
+// Data: data/words.txt, data/definitions.json (built by scripts/build-dictionary.js)
+//       data/duello.db (SQLite, created on first run; see README for Postgres swap)
+// OAuth: TODO — email/password only for v1. Google/Apple sign-in is NOT real
+// OAuth here; see README "Not yet production-ready" and the TODO hooks below.
+'use strict';
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { DatabaseSync } = require('node:sqlite');
+
+const PORT = parseInt(process.env.PORT || '3000', 10);
+const ROOT = __dirname;
+const DATA_DIR = path.join(ROOT, 'data');
+fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// ---------- Dictionary ----------
+const WORDS = new Set();
+for (const line of fs.readFileSync(path.join(DATA_DIR, 'words.txt'), 'utf8').split('\n')) {
+  const w = line.trim().toUpperCase();
+  if (w) WORDS.add(w);
+}
+let DEFS = {};
+try { DEFS = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'definitions.json'), 'utf8')); } catch (e) { DEFS = {}; }
+const LETTER_VALUES = { A:1,B:4,C:4,D:3,E:1,F:5,G:3,H:4,I:1,J:9,K:6,L:2,M:4,N:2,O:1,P:4,Q:10,R:1,S:1,T:1,U:2,V:6,W:5,X:8,Y:5,Z:9 };
+const VOWELS = new Set(['A','E','I','O','U']);
+const FREQ = [['A',8.59],['B',2.46],['C',2.39],['D',4.31],['E',9.43],['F',2.16],['G',3.00],['H',2.39],['I',6.26],['J',1.46],['K',1.77],['L',4.51],['M',2.68],['N',5.62],['O',6.43],['P',2.70],['Q',1.38],['R',6.44],['S',6.12],['T',6.17],['U',4.41],['V',1.94],['W',2.20],['X',1.51],['Y',2.20],['Z',1.48]];
+const FREQ_CUM = []; { let s = 0; for (const [l, f] of FREQ) { s += f; FREQ_CUM.push([s, l]); } }
+function drawLetter() { const r = Math.random() * 100; for (const [cum, l] of FREQ_CUM) if (r <= cum) return l; return 'E'; }
+function drawRack() {
+  for (let attempt = 0; attempt < 500; attempt++) {
+    const rack = Array.from({ length: 6 }, drawLetter);
+    const v = rack.filter(c => VOWELS.has(c)).length;
+    const c = 6 - v;
+    if (v >= 2 && c >= 2) return rack;
+  }
+  return ['A','E','B','C','D','F'];
+}
+function refillRack(rack, usedIndices) {
+  const next = rack.slice();
+  for (const idx of usedIndices) next[idx] = drawLetter();
+  // Re-ensure >=2 vowels / >=2 consonants only if the whole rack broke it badly;
+  // refill-in-place is the settled rule: unplayed tiles never move.
+  return next;
+}
+
+// ---------- Database (SQLite) ----------
+// Postgres swap: see db/postgres-schema.sql and README "Deploying / Postgres".
+// The game logic below only uses the helpers in this section, so swapping the
+// driver means re-implementing: getUserByEmail, getUserById, createUser,
+// updateUserElo, createSession, getSessionUser, deleteSession, saveGame,
+// getGame, listGamesForUser, addEloHistory. Everything else is unchanged.
+const db = new DatabaseSync(path.join(DATA_DIR, 'duello.db'));
+db.exec(`CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL,
+  username TEXT UNIQUE NOT NULL, first_name TEXT NOT NULL, last_name TEXT NOT NULL,
+  password_salt TEXT NOT NULL, password_hash TEXT NOT NULL,
+  elo INTEGER NOT NULL DEFAULT 1000, elo_high INTEGER NOT NULL DEFAULT 1000,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY, user_id INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS games (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+  bot_type TEXT NOT NULL, bot_elo INTEGER NOT NULL, state TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS elo_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, game_id INTEGER,
+  elo_after INTEGER NOT NULL, delta INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);`);
+function hashPassword(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }
+function getUserByEmail(email) { return db.prepare('SELECT * FROM users WHERE email=?').get(email.toLowerCase()); }
+function getUserByUsername(username) { return db.prepare('SELECT * FROM users WHERE username=?').get(username); }
+function getUserById(id) { return db.prepare('SELECT * FROM users WHERE id=?').get(id); }
+function publicUser(u) { return u ? { id: u.id, email: u.email, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, eloHigh: u.elo_high, createdAt: u.created_at } : null; }
+function authUser(req) {
+  const h = req.headers.authorization || '';
+  const m = h.match(/^Bearer\s+(.+)$/);
+  if (!m) return null;
+  const s = db.prepare('SELECT * FROM sessions WHERE token=?').get(m[1]);
+  if (!s) return null;
+  return getUserById(s.user_id);
+}
+
+// ---------- Board / premiums ----------
+const SIZE = 10, INNER = { r0: 2, r1: 7, c0: 2, c1: 7 };
+function isInner(r, c) { return r >= INNER.r0 && r <= INNER.r1 && c >= INNER.c0 && c <= INNER.c1; }
+function isOuter(r, c) { return !isInner(r, c); }
+function makePremiums() {
+  const outer = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) if (isOuter(r, c)) outer.push([r, c]);
+  // Shuffle, then greedily pick 12 cells never touching even diagonally.
+  for (let i = outer.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [outer[i], outer[j]] = [outer[j], outer[i]]; }
+  const picked = [];
+  for (const cell of outer) {
+    if (picked.length >= 12) break;
+    if (picked.some(([r, c]) => Math.abs(r - cell[0]) <= 1 && Math.abs(c - cell[1]) <= 1)) continue;
+    picked.push(cell);
+  }
+  const types = ['DL','DW','TL','TW','DL','DW','TL','TW','DL','DW','TL','TW'];
+  const premiums = {};
+  picked.forEach(([r, c], i) => { premiums[`${r},${c}`] = types[i]; });
+  return premiums;
+}
+function emptyBoard() { return Array.from({ length: SIZE }, () => Array(SIZE).fill(null)); }
+function boardIsEmpty(board) { return board.every(row => row.every(c => !c)); }
+
+// ---------- Validation / scoring ----------
+function wordAt(board, r, c, dir) {
+  // dir 'H': row r, 'V': col c. Return {word, cells} for the maximal contiguous line.
+  let cells = [];
+  if (dir === 'H') {
+    let s = c; while (s > 0 && board[r][s - 1]) s--;
+    let e = c; while (e < SIZE - 1 && board[r][e + 1]) e++;
+    for (let cc = s; cc <= e; cc++) cells.push([r, cc]);
+  } else {
+    let s = r; while (s > 0 && board[s - 1][c]) s--;
+    let e = r; while (e < SIZE - 1 && board[s + 1][c]) e++;
+    for (let rr = s; rr <= e; rr++) cells.push([rr, c]);
+  }
+  const word = cells.map(([rr, cc]) => board[rr][cc]).join('');
+  return { word, cells };
+}
+function scoreWord(board, cells, newCellsSet, premiums) {
+  let sum = 0, wordMult = 1;
+  for (const [r, c] of cells) {
+    let v = LETTER_VALUES[board[r][c]] || 0;
+    if (newCellsSet.has(`${r},${c}`)) {
+      const p = premiums[`${r},${c}`];
+      if (p === 'DL') v *= 2; else if (p === 'TL') v *= 3;
+      else if (p === 'DW') wordMult *= 2; else if (p === 'TW') wordMult *= 3;
+    }
+    sum += v;
+  }
+  return sum * wordMult;
+}
+// Validate a set of placements against board/rack. Returns {valid, error, invalidWords, words, score, mainWord, mainCells, placements}
+function validatePlay(board, rack, placements, premiums, isFirst) {
+  if (!placements || placements.length === 0) return { valid: false, error: 'No tiles placed.' };
+  if (placements.length > 6) return { valid: false, error: 'Too many tiles.' };
+  // Rack multiset check
+  const rackCount = {};
+  for (const l of rack) rackCount[l] = (rackCount[l] || 0) + 1;
+  for (const p of placements) {
+    if (p.row < 0 || p.row >= SIZE || p.col < 0 || p.col >= SIZE) return { valid: false, error: 'Tile off the board.' };
+    if (board[p.row][p.col]) return { valid: false, error: 'Tile on an occupied cell.' };
+    if (!rackCount[p.letter]) return { valid: false, error: 'Tile not in your rack.' };
+    rackCount[p.letter]--;
+  }
+  const sameRow = placements.every(p => p.row === placements[0].row);
+  const sameCol = placements.every(p => p.col === placements[0].col);
+  if (!sameRow && !sameCol) return { valid: false, error: 'all tiles must be connected' };
+  const dir = sameRow ? 'H' : 'V';
+  // No gaps in the main line, and main word must be maximal (no board tile just outside).
+  const sorted = placements.slice().sort((a, b) => dir === 'H' ? a.col - b.col : a.row - b.row);
+  const lineIdx = dir === 'H' ? sorted[0].row : sorted[0].col;
+  const lo = dir === 'H' ? sorted[0].col : sorted[0].row;
+  const hi = dir === 'H' ? sorted[sorted.length - 1].col : sorted[sorted.length - 1].row;
+  if (dir === 'H') {
+    if (lo > 0 && board[lineIdx][lo - 1]) return { valid: false, error: 'all tiles must be connected' };
+    if (hi < SIZE - 1 && board[lineIdx][hi + 1]) return { valid: false, error: 'all tiles must be connected' };
+  } else {
+    if (lo > 0 && board[lo - 1][lineIdx]) return { valid: false, error: 'all tiles must be connected' };
+    if (hi < SIZE - 1 && board[hi + 1][lineIdx]) return { valid: false, error: 'all tiles must be connected' };
+  }
+  // Build trial board
+  const trial = board.map(row => row.slice());
+  for (const p of placements) trial[p.row][p.col] = p.letter;
+  // Gap check: every cell between lo and hi in the main line must be filled in trial.
+  for (let i = lo; i <= hi; i++) {
+    const cell = dir === 'H' ? trial[lineIdx][i] : trial[i][lineIdx];
+    if (!cell) return { valid: false, error: 'all tiles must be connected' };
+  }
+  // First word entirely inside inner 6x6
+  if (isFirst) {
+    for (const p of placements) if (!isInner(p.row, p.col)) return { valid: false, error: 'First word goes entirely inside the glowing 6x6.' };
+    // Main word cells must also be inside (placements are the whole word on an empty board)
+    if (dir === 'H' && (lineIdx < INNER.r0 || lineIdx > INNER.r1)) return { valid: false, error: 'First word goes entirely inside the glowing 6x6.' };
+    if (dir === 'V' && (lineIdx < INNER.c0 || lineIdx > INNER.c1)) return { valid: false, error: 'First word goes entirely inside the glowing 6x6.' };
+  } else {
+    // Connected to existing board: main line includes an existing tile, or a
+    // placed tile is orthogonally adjacent to an existing tile.
+    const mainIncludesExisting = (() => {
+      for (let i = lo; i <= hi; i++) {
+        const was = dir === 'H' ? board[lineIdx][i] : board[i][lineIdx];
+        if (was) return true;
+      }
+      return false;
+    })();
+    let adjacent = false;
+    for (const p of placements) {
+      const neigh = [[p.row - 1, p.col], [p.row + 1, p.col], [p.row, p.col - 1], [p.row, p.col + 1]];
+      if (neigh.some(([r, c]) => r >= 0 && r < SIZE && c >= 0 && c < SIZE && board[r][c])) adjacent = true;
+    }
+    if (!mainIncludesExisting && !adjacent) return { valid: false, error: 'all tiles must be connected' };
+  }
+  // Words formed
+  const main = wordAt(trial, placements[0].row, placements[0].col, dir);
+  if (main.word.length < 2) return { valid: false, error: 'Word too short.' };
+  const words = [{ word: main.word, cells: main.cells }];
+  const crossDir = dir === 'H' ? 'V' : 'H';
+  for (const p of placements) {
+    const cross = wordAt(trial, p.row, p.col, crossDir);
+    if (cross.word.length >= 2 && !words.some(w => w.word === cross.word && w.cells[0][0] === cross.cells[0][0] && w.cells[0][1] === cross.cells[0][1])) {
+      words.push({ word: cross.word, cells: cross.cells });
+    }
+  }
+  const invalidWords = [];
+  for (const w of words) if (!WORDS.has(w.word)) invalidWords.push(w.word);
+  if (invalidWords.length) {
+    const uniq = [...new Set(invalidWords)];
+    return { valid: false, error: 'not a word', invalidWords: uniq, words };
+  }
+  const newSet = new Set(placements.map(p => `${p.row},${p.col}`));
+  let score = 0;
+  const scored = words.map(w => {
+    const s = scoreWord(trial, w.cells, newSet, premiums);
+    score += s;
+    return { word: w.word, cells: w.cells, score: s };
+  });
+  const isDuello = main.word === 'DUELLO';
+  const bingo = placements.length === 6;
+  let bonus = 0;
+  if (isDuello) bonus += 30;
+  if (bingo) bonus += 30;
+  score += bonus;
+  return { valid: true, words: scored, score, mainWord: main.word, mainCells: main.cells, bonus, isDuello, bingo, placements };
+}
+
+// ---------- Solver (exhaustive for Fishstick, full list for Competitive) ----------
+// Index: length -> pos -> letter -> words. Built once at startup.
+const DICT_BY_LEN = new Map();
+const FIXED_INDEX = new Map();
+for (const w of WORDS) {
+  if (!DICT_BY_LEN.has(w.length)) DICT_BY_LEN.set(w.length, []);
+  DICT_BY_LEN.get(w.length).push(w);
+  for (let p = 0; p < w.length; p++) {
+    const key = `${w.length}|${p}|${w[p]}`;
+    if (!FIXED_INDEX.has(key)) FIXED_INDEX.set(key, []);
+    FIXED_INDEX.get(key).push(w);
+  }
+}
+function rackSubset(letters, rack) {
+  const cnt = {};
+  for (const l of rack) cnt[l] = (cnt[l] || 0) + 1;
+  for (const l of letters) { if (!cnt[l]) return false; cnt[l]--; }
+  return true;
+}
+function permutationsFromRack(rack, len) {
+  const cnt = {};
+  for (const l of rack) cnt[l] = (cnt[l] || 0) + 1;
+  const out = new Set();
+  const letters = Object.keys(cnt);
+  function rec(cur) {
+    if (cur.length === len) { out.add(cur); return; }
+    for (const l of letters) {
+      if (cnt[l] > 0) { cnt[l]--; rec(cur + l); cnt[l]++; }
+    }
+  }
+  rec('');
+  return out;
+}
+function findMoves(board, rack, isFirst, wantAll) {
+  const moves = [];
+  let best = null;
+  const consider = (move) => {
+    if (!best || move.score > best.score) best = move;
+    if (wantAll) moves.push(move);
+    else if (moves.length === 0) moves.push(move);
+  };
+  // Note: for wantAll=false we still scan everything to find the true best;
+  // moves[0] is replaced at the end with best. This keeps Fishstick honest.
+  for (const dir of ['H', 'V']) {
+    for (let line = 0; line < SIZE; line++) {
+      for (let start = 0; start < SIZE; start++) {
+        for (let len = 2; len <= 10 && start + len <= SIZE; len++) {
+          const cells = [];
+          let fixed = [];
+          for (let i = 0; i < len; i++) {
+            const r = dir === 'H' ? line : start + i;
+            const c = dir === 'H' ? start + i : line;
+            cells.push([r, c]);
+            if (board[r][c]) fixed.push([i, board[r][c]]);
+          }
+          const newCount = len - fixed.length;
+          if (newCount === 0 || newCount > rack.length) continue;
+          // Main word must be maximal: no board tile immediately outside the span.
+          if (dir === 'H') {
+            if (start > 0 && board[line][start - 1]) continue;
+            if (start + len < SIZE && board[line][start + len]) continue;
+          } else {
+            if (start > 0 && board[start - 1][line]) continue;
+            if (start + len < SIZE && board[start + len][line]) continue;
+          }
+          if (isFirst) {
+            if (dir === 'H') { if (line < INNER.r0 || line > INNER.r1 || start < INNER.c0 || start + len - 1 > INNER.c1) continue; }
+            else { if (line < INNER.c0 || line > INNER.c1 || start < INNER.r0 || start + len - 1 > INNER.r1) continue; }
+          } else if (fixed.length === 0) {
+            // Parallel play: at least one span cell must touch an existing tile orthogonally.
+            let touches = false;
+            for (const [r, c] of cells) {
+              const neigh = [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]];
+              if (neigh.some(([rr, cc]) => rr >= 0 && rr < SIZE && cc >= 0 && cc < SIZE && board[rr][cc])) touches = true;
+            }
+            if (!touches) continue;
+          }
+          let candidates = [];
+          if (fixed.length > 0) {
+            let smallest = null;
+            for (const [p, letter] of fixed) {
+              const list = FIXED_INDEX.get(`${len}|${p}|${letter}`) || [];
+              if (!smallest || list.length < smallest.length) smallest = list;
+            }
+            if (!smallest) continue;
+            for (const word of smallest) {
+              let ok = true;
+              const newLetters = [];
+              for (let i = 0; i < len; i++) {
+                const [r, c] = cells[i];
+                if (board[r][c]) { if (word[i] !== board[r][c]) { ok = false; break; } }
+                else newLetters.push(word[i]);
+              }
+              if (!ok) continue;
+              if (!rackSubset(newLetters, rack)) continue;
+              candidates.push(word);
+            }
+          } else {
+            for (const word of permutationsFromRack(rack, len)) {
+              if (WORDS.has(word)) candidates.push(word);
+            }
+          }
+          for (const word of candidates) {
+            const placements = [];
+            for (let i = 0; i < len; i++) {
+              const [r, c] = cells[i];
+              if (!board[r][c]) placements.push({ row: r, col: c, letter: word[i] });
+            }
+            if (placements.length === 0) continue;
+            // Trial board for cross-word checks and scoring
+            const trial = board.map(row => row.slice());
+            for (const p of placements) trial[p.row][p.col] = p.letter;
+            const crossDir = dir === 'H' ? 'V' : 'H';
+            const words = [{ word, cells, score: 0 }];
+            let valid = true;
+            for (const p of placements) {
+              const cross = wordAt(trial, p.row, p.col, crossDir);
+              if (cross.word.length >= 2) {
+                if (!WORDS.has(cross.word)) { valid = false; break; }
+                if (!words.some(w => w.word === cross.word && w.cells[0][0] === cross.cells[0][0] && w.cells[0][1] === cross.cells[0][1])) {
+                  words.push({ word: cross.word, cells: cross.cells, score: 0 });
+                }
+              }
+            }
+            if (!valid) continue;
+            const newSet = new Set(placements.map(p => `${p.row},${p.col}`));
+            // Premiums are stored on the game, not the board; scoring needs them.
+            // findMoves is called with premiums attached to board via a hidden prop.
+            const premiums = board.__premiums || {};
+            let total = 0;
+            for (const w of words) { w.score = scoreWord(trial, w.cells, newSet, premiums); total += w.score; }
+            const isDuello = word === 'DUELLO';
+            const bingo = placements.length === 6;
+            let bonus = 0; if (isDuello) bonus += 30; if (bingo) bonus += 30;
+            total += bonus;
+            // Highlight rule: main word, except a single-tile play generating
+            // multiple words highlights the higher-scoring word.
+            let highlightCells = cells;
+            if (placements.length === 1 && words.length > 1) {
+              let bestW = words[0];
+              for (const w of words) if (w.score > bestW.score) bestW = w;
+              highlightCells = bestW.cells;
+            }
+            consider({ placements, words, score: total, mainWord: word, mainCells: cells, highlightCells, bonus, isDuello, bingo });
+          }
+        }
+      }
+    }
+  }
+  if (!wantAll && best) return [best];
+  moves.sort((a, b) => b.score - a.score);
+  return moves;
+}
+function botSkillRates(elo) {
+  const anchors = [[0, 60, 35, 5], [1000, 40, 50, 10], [2000, 20, 50, 30], [3000, 0, 10, 90]];
+  const e = Math.max(0, Math.min(3000, elo));
+  for (let i = 0; i < anchors.length - 1; i++) {
+    const [e0, b0, a0, g0] = anchors[i];
+    const [e1, b1, a1, g1] = anchors[i + 1];
+    if (e >= e0 && e <= e1) {
+      const t = e1 === e0 ? 0 : (e - e0) / (e1 - e0);
+      return { bad: b0 + (b1 - b0) * t, avg: a0 + (a1 - a0) * t, good: g0 + (g1 - g0) * t };
+    }
+  }
+  return { bad: 0, avg: 10, good: 90 };
+}
+function pickCompetitiveMove(moves, elo) {
+  if (!moves.length) return null;
+  const scores = moves.map(m => m.score);
+  const min = Math.min(...scores), max = Math.max(...scores);
+  const range = max - min || 1;
+  const buckets = { bad: [], avg: [], good: [] };
+  for (const m of moves) {
+    if (m.score <= min + range / 3) buckets.bad.push(m);
+    else if (m.score >= max - range / 3) buckets.good.push(m);
+    else buckets.avg.push(m);
+  }
+  const rates = botSkillRates(elo);
+  const roll = Math.random() * 100;
+  let bucket = buckets.avg;
+  if (roll < rates.bad) bucket = buckets.bad;
+  else if (roll < rates.bad + rates.avg) bucket = buckets.avg;
+  else bucket = buckets.good;
+  if (!bucket.length) bucket = moves;
+  return bucket[Math.floor(Math.random() * bucket.length)];
+}
+
+// ---------- Game state ----------
+function newGame(user, botType) {
+  const botElo = botType === 'fishstick' ? 3000 : user.elo;
+  const premiums = makePremiums();
+  const board = emptyBoard();
+  board.__premiums = premiums; // solver reads premiums from here; stripped on save/serialize
+  const game = {
+    userId: user.id, botType, botElo,
+    board, premiums,
+    humanRack: drawRack(), botRack: drawRack(),
+    scores: { human: 0, bot: 0 },
+    clocks: { human: 300000, bot: 300000 },
+    turn: Math.random() < 0.5 ? 'human' : 'bot',
+    turnStartedAt: Date.now(),
+    status: 'active', reason: null,
+    consecutivePasses: 0, consecutiveNoMoves: 0,
+    moves: { human: [], bot: [] },
+    lastCells: [], lastWord: null, lastScore: null, lastBy: null,
+    lastHuman: null, lastBot: null,
+    eloDeltaHuman: null, eloDeltaBot: null, eloAfterHuman: null,
+  };
+  return game;
+}
+function stripBoard(board) { return board.map(row => row.slice()); }
+function serializeGame(game, user) {
+  const now = Date.now();
+  let clockHuman = game.clocks.human, clockBot = game.clocks.bot;
+  if (game.status === 'active') {
+    const elapsed = now - game.turnStartedAt;
+    if (game.turn === 'human') clockHuman = Math.max(0, clockHuman - elapsed);
+    else clockBot = Math.max(0, clockBot - elapsed);
+  }
+  return {
+    id: game.id, botType: game.botType, botElo: game.botElo,
+    board: stripBoard(game.board), premiums: game.premiums,
+    humanRack: game.humanRack, botRackCount: game.botRack.length,
+    scores: game.scores, clocks: { human: clockHuman, bot: clockBot, turn: game.turn, turnStartedAt: game.turnStartedAt },
+    status: game.status, reason: game.reason,
+    lastCells: game.lastCells, lastWord: game.lastWord, lastScore: game.lastScore, lastBy: game.lastBy,
+    lastHuman: game.lastHuman, lastBot: game.lastBot,
+    eloDeltaHuman: game.eloDeltaHuman, eloDeltaBot: game.eloDeltaBot, eloAfterHuman: game.eloAfterHuman,
+    isFirst: boardIsEmpty(game.board),
+    player: { firstName: user.first_name, username: user.username, elo: user.elo },
+  };
+}
+function saveGameRow(game) {
+  const copy = { ...game, board: stripBoard(game.board) };
+  delete copy.id;
+  const json = JSON.stringify(copy);
+  if (game.id) db.prepare('UPDATE games SET state=?, updated_at=datetime(\'now\') WHERE id=?').run(json, game.id);
+  else { const r = db.prepare('INSERT INTO games (user_id, bot_type, bot_elo, state) VALUES (?,?,?,?)').run(game.userId, game.botType, game.botElo, json); game.id = Number(r.lastInsertRowid); }
+}
+function loadGameRow(row) {
+  const g = JSON.parse(row.state);
+  g.id = row.id;
+  // Re-attach premiums for the solver (solver reads board.__premiums)
+  g.board.__premiums = g.premiums;
+  return g;
+}
+function settleClock(game) {
+  if (game.status !== 'active') return;
+  const elapsed = Date.now() - game.turnStartedAt;
+  if (game.turn === 'human') game.clocks.human = Math.max(0, game.clocks.human - elapsed);
+  else game.clocks.bot = Math.max(0, game.clocks.bot - elapsed);
+  game.turnStartedAt = Date.now();
+}
+function eloDelta(playerElo, oppElo, actual) {
+  const expected = 1 / (1 + Math.pow(10, (oppElo - playerElo) / 400));
+  return Math.round(32 * (actual - expected));
+}
+function updateStatsForMove(game, side, move, bestScoreBefore) {
+  const list = game.moves[side];
+  const isOptimal = bestScoreBefore !== null && move.score === bestScoreBefore;
+  list.push({ words: move.words.map(w => ({ word: w.word, score: w.score })), score: move.score, isOptimal, mainWord: move.mainWord });
+}
+function computeStats(moves) {
+  let best = null, longest = null, optimal = 0, total = 0, unique = new Set(), optimalWords = [];
+  for (const m of moves) {
+    total++;
+    if (m.isOptimal) { optimal++; if (m.mainWord) optimalWords.push(m.mainWord); }
+    for (const w of m.words) {
+      unique.add(w.word);
+      if (!best || w.score > best.score) best = w;
+      if (!longest || w.word.length > longest.word.length) longest = w;
+    }
+  }
+  return { best, longest, optimal, total, uniqueCount: unique.size, optimalWords };
+}
+function endGame(game, user, reason, winnerSide) {
+  // winnerSide: 'human' | 'bot' | 'draw' | null (forfeit handled by caller setting winner)
+  game.status = 'finished';
+  game.reason = reason;
+  game.winner = winnerSide;
+  const actual = winnerSide === 'human' ? 1 : winnerSide === 'bot' ? 0 : 0.5;
+  const delta = eloDelta(user.elo, game.botElo, actual);
+  game.eloDeltaHuman = delta;
+  game.eloDeltaBot = -delta;
+  game.eloAfterHuman = user.elo + delta;
+  db.prepare('UPDATE users SET elo=?, elo_high=MAX(elo_high,?) WHERE id=?').run(game.eloAfterHuman, game.eloAfterHuman, user.id);
+  saveGameRow(game);
+  db.prepare('INSERT INTO elo_history (user_id, game_id, elo_after, delta) VALUES (?,?,?,?)').run(user.id, game.id, game.eloAfterHuman, delta);
+  return game;
+}
+function applyMove(game, side, move, bestScoreBefore) {
+  const isHuman = side === 'human';
+  for (const p of move.placements) game.board[p.row][p.col] = p.letter;
+  if (isHuman) {
+    // Remove used letters from the rack by matching placements, then refill
+    // the exact vacated indices (unplayed tiles never move).
+    const rack = game.humanRack.slice();
+    const usedIndices = [];
+    const remaining = rack.slice();
+    for (const p of move.placements) {
+      const idx = remaining.indexOf(p.letter);
+      if (idx >= 0) { usedIndices.push(idx); remaining[idx] = null; }
+    }
+    const refilled = rack.slice();
+    for (const idx of usedIndices) refilled[idx] = drawLetter();
+    game.humanRack = refilled;
+  } else {
+    const rack = game.botRack.slice();
+    for (const p of move.placements) {
+      const idx = rack.indexOf(p.letter);
+      if (idx >= 0) rack.splice(idx, 1);
+    }
+    while (rack.length < 6) rack.push(drawLetter());
+    game.botRack = rack;
+  }
+  game.scores[side] += move.score;
+  game.lastCells = move.highlightCells;
+  game.lastWord = move.mainWord;
+  game.lastScore = move.score;
+  game.lastBy = side;
+  if (isHuman) game.lastHuman = { word: move.mainWord, points: move.score, bonus: move.bonus, isDuello: move.isDuello, bingo: move.bingo };
+  else game.lastBot = { word: move.mainWord, points: move.score, bonus: move.bonus, isDuello: move.isDuello, bingo: move.bingo };
+  updateStatsForMove(game, side, move, bestScoreBefore);
+  game.consecutivePasses = 0;
+  game.consecutiveNoMoves = 0;
+}
+function runBotTurn(game) {
+  // Called after settleClock, when turn === 'bot' and status is active.
+  // Returns true if the bot moved, false if it passed / was skipped.
+  if (game.status !== 'active' || game.turn !== 'bot') return false;
+  if (game.clocks.bot <= 0) { game.turn = 'human'; game.turnStartedAt = Date.now(); return false; }
+  const isFirst = boardIsEmpty(game.board);
+  const moves = findMoves(game.board, game.botRack, isFirst, true);
+  if (!moves.length) {
+    game.consecutivePasses++;
+    game.consecutiveNoMoves++;
+    game.lastBot = { word: null, points: 0, passed: true, auto: true };
+    game.turn = 'human'; game.turnStartedAt = Date.now();
+    if (game.consecutiveNoMoves >= 2) {
+      // Game ends by score; caller will finish it (needs user for Elo).
+      game._pendingNoMovesEnd = true;
+    }
+    return false;
+  }
+  const bestScore = moves[0].score;
+  const move = game.botType === 'fishstick' ? moves[0] : pickCompetitiveMove(moves, game.botElo);
+  applyMove(game, 'bot', move, bestScore);
+  game.turn = 'human'; game.turnStartedAt = Date.now();
+  return true;
+}
+function finishIfNeeded(game, user) {
+  if (game._pendingNoMovesEnd) {
+    delete game._pendingNoMovesEnd;
+    const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';
+    endGame(game, user, 'No playable moves left', winner);
+    return true;
+  }
+  if (game.clocks.human <= 0 && game.clocks.bot <= 0) {
+    const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';
+    endGame(game, user, 'Final score', winner);
+    return true;
+  }
+  return false;
+}
+function getDefinition(word) {
+  const w = String(word || '').toUpperCase();
+  if (DEFS[w]) return { word: w, pos: DEFS[w].pos || '', definition: DEFS[w].def };
+  if (w.length <= 3) return { word: w, pos: '', definition: 'a valid word in the Duello word list' };
+  return { word: w, pos: '', definition: 'a valid word in the Duello word list' };
+}
+
+// ---------- HTTP API ----------
+function sendJson(res, code, obj) {
+  const body = JSON.stringify(obj);
+  res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+  res.end(body);
+}
+function readBody(req) {
+  return new Promise((resolve) => {
+    let data = '';
+    req.on('data', chunk => { data += chunk; if (data.length > 1e6) req.destroy(); });
+    req.on('end', () => { try { resolve(data ? JSON.parse(data) : {}); } catch { resolve({}); } });
+  });
+}
+function loadGameForUser(user, id) {
+  const row = db.prepare('SELECT * FROM games WHERE id=? AND user_id=?').get(id, user.id);
+  return row ? loadGameRow(row) : null;
+}
+function gameStatsPayload(game) {
+  const h = computeStats(game.moves.human || []);
+  const b = computeStats(game.moves.bot || []);
+  return {
+    reason: game.reason, scores: game.scores,
+    human: { best: h.best, longest: h.longest, optimal: h.optimal, total: h.total, uniqueCount: h.uniqueCount, optimalWords: h.optimalWords },
+    bot: { best: b.best, longest: b.longest, optimal: b.optimal, total: b.total, uniqueCount: b.uniqueCount, optimalWords: b.optimalWords },
+    eloDeltaHuman: game.eloDeltaHuman, eloDeltaBot: game.eloDeltaBot, eloAfterHuman: game.eloAfterHuman,
+  };
+}
+function meStats(user) {
+  const rows = db.prepare("SELECT state FROM games WHERE user_id=? AND json_extract(state,'$.status')='finished'").all(user.id);
+  let played = 0, wins = 0, losses = 0, draws = 0, totalScore = 0;
+  for (const r of rows) {
+    try {
+      const g = JSON.parse(r.state);
+      played++;
+      totalScore += g.scores.human || 0;
+      // Forfeit is a loss regardless of score (the ender loses, per the rules).
+      if (g.winner === 'human') wins++;
+      else if (g.winner === 'bot') losses++;
+      else if (g.winner === 'draw') draws++;
+      else if (g.reason === 'By forfeit') losses++;
+      else if (g.scores.human > g.scores.bot) wins++;
+      else if (g.scores.bot > g.scores.human) losses++;
+      else draws++;
+    } catch {}
+  }
+  const hist = db.prepare('SELECT elo_after, delta, created_at FROM elo_history WHERE user_id=? ORDER BY id DESC LIMIT 50').all(user.id);
+  return { played, wins, losses, draws, avgScore: played ? Math.round(totalScore / played) : 0, eloHistory: hist.reverse() };
+}
+const server = http.createServer(async (req, res) => {
+  try {
+    const url = new URL(req.url, 'http://localhost');
+    const pathname = url.pathname;
+    // Static files
+    if (req.method === 'GET' && (pathname === '/' || pathname.startsWith('/app.js') || pathname.startsWith('/style.css') || pathname.startsWith('/favicon') || pathname.startsWith('/assets/'))) {
+      const file = pathname === '/' ? 'index.html' : pathname.slice(1);
+      const safe = path.join(ROOT, 'public', file);
+      if (!safe.startsWith(path.join(ROOT, 'public'))) { res.writeHead(403); return res.end(); }
+      if (!fs.existsSync(safe)) { res.writeHead(404); return res.end('Not found'); }
+      const ext = path.extname(safe);
+      const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'text/html';
+      res.writeHead(200, { 'Content-Type': type });
+      return fs.createReadStream(safe).pipe(res);
+    }
+    if (pathname === '/api/signup' && req.method === 'POST') {
+      const b = await readBody(req);
+      const email = String(b.email || '').trim().toLowerCase();
+      const username = String(b.username || '').trim();
+      const firstName = String(b.firstName || '').trim();
+      const lastName = String(b.lastName || '').trim();
+      const password = String(b.password || '');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return sendJson(res, 400, { error: 'Enter a valid email.' });
+      if (!/^[a-z0-9_]{3,}$/.test(username)) return sendJson(res, 400, { error: 'Username: lowercase letters, numbers, and underscores only, at least 3 characters.' });
+      if (!firstName || !lastName) return sendJson(res, 400, { error: 'First and last name are required.' });
+      if (password.length < 8) return sendJson(res, 400, { error: 'Password must be at least 8 characters.' });
+      if (getUserByEmail(email)) return sendJson(res, 400, { error: 'That email is already registered.' });
+      if (getUserByUsername(username)) return sendJson(res, 400, { error: 'That username is taken.' });
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = hashPassword(password, salt);
+      const r = db.prepare('INSERT INTO users (email, username, first_name, last_name, password_salt, password_hash, elo, elo_high) VALUES (?,?,?,?,?,?,1000,1000)').run(email, username, firstName, lastName, salt, hash);
+      const user = getUserById(Number(r.lastInsertRowid));
+      const token = crypto.randomBytes(32).toString('hex');
+      db.prepare('INSERT INTO sessions (token, user_id) VALUES (?,?)').run(token, user.id);
+      return sendJson(res, 200, { token, user: publicUser(user) });
+    }
+    if (pathname === '/api/signin' && req.method === 'POST') {
+      const b = await readBody(req);
+      const user = getUserByEmail(String(b.email || '').trim().toLowerCase());
+      if (!user) return sendJson(res, 401, { error: 'Invalid email or password.' });
+      const hash = hashPassword(String(b.password || ''), user.password_salt);
+      if (hash !== user.password_hash) return sendJson(res, 401, { error: 'Invalid email or password.' });
+      const token = crypto.randomBytes(32).toString('hex');
+      db.prepare('INSERT INTO sessions (token, user_id) VALUES (?,?)').run(token, user.id);
+      return sendJson(res, 200, { token, user: publicUser(user) });
+    }
+    if (pathname === '/api/signout' && req.method === 'POST') {
+      const h = req.headers.authorization || '';
+      const m = h.match(/^Bearer\s+(.+)$/);
+      if (m) db.prepare('DELETE FROM sessions WHERE token=?').run(m[1]);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/me' && req.method === 'GET') {
+      const user = authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      return sendJson(res, 200, { user: publicUser(user), stats: meStats(user) });
+    }
+    if (pathname === '/api/define' && req.method === 'GET') {
+      return sendJson(res, 200, getDefinition(url.searchParams.get('word') || ''));
+    }
+    if (pathname === '/api/games' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const botType = b.bot === 'fishstick' ? 'fishstick' : 'competitive';
+      const game = newGame(user, botType);
+      if (game.turn === 'bot') {
+        const t0 = Date.now();
+        runBotTurn(game);
+        game.clocks.bot = Math.max(0, game.clocks.bot - (Date.now() - t0));
+        if (finishIfNeeded(game, user)) { /* finished by no-moves at creation is extremely unlikely */ }
+      }
+      saveGameRow(game);
+      const out = serializeGame(game, user);
+      if (game.status === 'finished') out.stats = gameStatsPayload(game);
+      return sendJson(res, 200, out);
+    }
+    if (pathname === '/api/games' && req.method === 'GET') {
+      const user = authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const rows = db.prepare('SELECT id, bot_type, bot_elo, state, created_at FROM games WHERE user_id=? ORDER BY id DESC LIMIT 20').all(user.id);
+      return sendJson(res, 200, rows.map(r => { const g = JSON.parse(r.state); return { id: r.id, botType: r.bot_type, botElo: r.bot_elo, status: g.status, reason: g.reason, scores: g.scores, createdAt: r.created_at }; }));
+    }
+    const gameMatch = pathname.match(/^\/api\/games\/(\d+)(?:\/(validate|play|pass|forfeit|shuffle))?$/);
+    if (gameMatch) {
+      const user = authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const game = loadGameForUser(user, gameMatch[1]);
+      if (!game) return sendJson(res, 404, { error: 'Game not found.' });
+      const action = gameMatch[2];
+      if (req.method === 'GET' && !action) {
+        // Auto-advance timeout skips on read, so a timed-out player does not block the game.
+        if (game.status === 'active') {
+          settleClock(game);
+          let guard = 0;
+          while (game.status === 'active' && game.clocks[game.turn] <= 0 && guard++ < 5) {
+            if (game.clocks.human <= 0 && game.clocks.bot <= 0) { finishIfNeeded(game, user); break; }
+            game.turn = game.turn === 'human' ? 'bot' : 'human';
+            game.turnStartedAt = Date.now();
+            if (game.turn === 'bot') {
+              const t0 = Date.now();
+              runBotTurn(game);
+              game.clocks.bot = Math.max(0, game.clocks.bot - (Date.now() - t0));
+              if (finishIfNeeded(game, user)) break;
+            }
+          }
+          saveGameRow(game);
+        }
+        const out = serializeGame(game, user);
+        if (game.status === 'finished') out.stats = gameStatsPayload(game);
+        return sendJson(res, 200, out);
+      }
+      if (req.method === 'POST' && action === 'shuffle') {
+        const b = await readBody(req);
+        const rack = b.rack;
+        if (!Array.isArray(rack) || rack.length !== 6) return sendJson(res, 400, { error: 'Rack must have 6 tiles.' });
+        const a = [...game.humanRack].sort().join('');
+        const c = [...rack].sort().join('');
+        if (a !== c) return sendJson(res, 400, { error: 'Rack does not match.' });
+        game.humanRack = rack.map(String);
+        saveGameRow(game);
+        return sendJson(res, 200, serializeGame(game, user));
+      }
+      if (req.method === 'POST' && action === 'validate') {
+        if (game.status !== 'active' || game.turn !== 'human') return sendJson(res, 200, { valid: false, error: 'Not your turn.' });
+        const b = await readBody(req);
+        const placements = (b.placements || []).map(p => ({ row: Number(p.row), col: Number(p.col), letter: String(p.letter || '').toUpperCase() }));
+        const v = validatePlay(game.board, game.humanRack, placements, game.premiums, boardIsEmpty(game.board));
+        return sendJson(res, 200, v);
+      }
+      if (req.method === 'POST' && action === 'play') {
+        if (game.status !== 'active') return sendJson(res, 400, { error: 'Game is finished.' });
+        settleClock(game);
+        if (game.turn !== 'human') return sendJson(res, 400, { error: 'Not your turn.' });
+        if (game.clocks.human <= 0) {
+          // Timed out: skip human, let the bot keep playing (you cannot win on time).
+          game.turn = 'bot'; game.turnStartedAt = Date.now();
+          const t0 = Date.now();
+          runBotTurn(game);
+          game.clocks.bot = Math.max(0, game.clocks.bot - (Date.now() - t0));
+          finishIfNeeded(game, user);
+          saveGameRow(game);
+          const out = serializeGame(game, user);
+          if (game.status === 'finished') out.stats = gameStatsPayload(game);
+          return sendJson(res, 200, { ...out, timedOut: true });
+        }
+        const b = await readBody(req);
+        const placements = (b.placements || []).map(p => ({ row: Number(p.row), col: Number(p.col), letter: String(p.letter || '').toUpperCase() }));
+        const isFirst = boardIsEmpty(game.board);
+        const v = validatePlay(game.board, game.humanRack, placements, game.premiums, isFirst);
+        if (!v.valid) return sendJson(res, 400, v);
+        const bestMoves = findMoves(game.board, game.humanRack, isFirst, false);
+        const bestScore = bestMoves.length ? bestMoves[0].score : null;
+        applyMove(game, 'human', v, bestScore);
+        game.turn = 'bot'; game.turnStartedAt = Date.now();
+        const t0 = Date.now();
+        runBotTurn(game);
+        game.clocks.bot = Math.max(0, game.clocks.bot - (Date.now() - t0));
+        finishIfNeeded(game, user);
+        saveGameRow(game);
+        const out = serializeGame(game, user);
+        if (game.status === 'finished') out.stats = gameStatsPayload(game);
+        return sendJson(res, 200, out);
+      }
+      if (req.method === 'POST' && action === 'pass') {
+        if (game.status !== 'active') return sendJson(res, 400, { error: 'Game is finished.' });
+        settleClock(game);
+        if (game.turn !== 'human') return sendJson(res, 400, { error: 'Not your turn.' });
+        game.clocks.human = Math.max(0, game.clocks.human - 30000);
+        game.consecutivePasses++;
+        game.consecutiveNoMoves = 0;
+        game.lastHuman = { word: null, points: 0, passed: true };
+        game.turn = 'bot'; game.turnStartedAt = Date.now();
+        if (game.consecutivePasses >= 2) {
+          const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';
+          endGame(game, user, 'Final score', winner);
+        } else {
+          const t0 = Date.now();
+          runBotTurn(game);
+          game.clocks.bot = Math.max(0, game.clocks.bot - (Date.now() - t0));
+          finishIfNeeded(game, user);
+        }
+        saveGameRow(game);
+        const out = serializeGame(game, user);
+        if (game.status === 'finished') out.stats = gameStatsPayload(game);
+        return sendJson(res, 200, out);
+      }
+      if (req.method === 'POST' && action === 'forfeit') {
+        if (game.status !== 'active') return sendJson(res, 400, { error: 'Game is finished.' });
+        endGame(game, user, 'By forfeit', 'bot');
+        const out = serializeGame(game, user);
+        out.stats = gameStatsPayload(game);
+        return sendJson(res, 200, out);
+      }
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not found' }));
+  } catch (e) {
+    console.error(e);
+    sendJson(res, 500, { error: 'Server error: ' + e.message });
+  }
+});
+server.listen(PORT, () => {
+  console.log(`Duello v1 listening on http://localhost:${PORT}`);
+  console.log(`Dictionary: ${WORDS.size} words; definitions bundled: ${Object.keys(DEFS).length}`);
+});

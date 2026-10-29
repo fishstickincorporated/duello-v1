@@ -1,0 +1,21 @@
+# Render blueprint for Duello v1 — free playtest service.
+# The simplest route is described in DEPLOY.md: Dashboard > New >
+# Web Service, pick the GitHub repo, Runtime Docker, plan Free.
+# This file records those same settings. Do NOT add a persistent disk
+# here: free Render services cannot attach disks, and Render will
+# reject a free service with one. Persistence on Render therefore
+# needs a paid plan (disk) or, properly, the Postgres code change
+# described in DEPLOY.md — it is not a config switch.
+services:
+  - type: web
+    name: duello-v1
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /
+    # Render sets PORT itself; do not set it here. The server reads
+    # process.env.PORT and defaults to 3000 locally.
+    envVars:
+      - key: NODE_ENV
+        value: production

@@ -1,0 +1,9 @@
+node_modules
+.git
+.gitignore
+data/duello.db
+data/WORD.LST
+*.db
+.env
+local.env
+*.log

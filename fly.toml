@@ -1,0 +1,27 @@
+# Fly.io config for Duello v1 — for LATER, not for the free first step.
+# Fly.io has no free tier for new accounts (see DEPLOY.md): new signups
+# get a short trial, then a card and pay-as-you-go are required.
+# If you use this, change `app` below to your own app name if
+# "duello-v1" is taken, and create the volume first:
+#   fly volumes create duello_data --size 1 --region iad
+# The Dockerfile's entrypoint seeds a fresh volume with the dictionary
+# files, so the first boot on an empty volume still works.
+app = "duello-v1"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[mounts]]
+  source = "duello_data"
+  destination = "/app/data"

@@ -58,7 +58,7 @@ function renderGame() {
   const isFish = game.botType === 'fishstick';
   $('botName').textContent = isFish ? 'Fishstick' : 'Competitive Bot';
   $('botElo').textContent = isFish ? '∞' : game.botElo;
-  if (isFish) $('botPfp').innerHTML = '<img src="/assets/fishstick.jpg" alt="Fishstick">'; else $('botPfp').textContent = '🤖';
+  if (isFish) $('botPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">'; else $('botPfp').textContent = '🤖';
   document.querySelector('.player-side').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'human');
   document.querySelector('.bot-side').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'bot');
   $('scoreHuman').textContent = game.scores.human; $('scoreBot').textContent = game.scores.bot;
@@ -192,7 +192,7 @@ function showStatWindow(stats) {
   const longest = (x) => x.longest ? `${x.longest.word} (${x.longest.word.length} letters)` : '—';
   const opt = (x) => `${x.optimal}/${x.total}` + (x.optimalWords && x.optimalWords.length ? ` (${x.optimalWords.join(', ')})` : '');
   $('statGrid').innerHTML = row('Best word', best(stats.human), best(stats.bot)) + row('Longest word', longest(stats.human), longest(stats.bot)) + row('Optimal moves', opt(stats.human), opt(stats.bot));
-  if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.jpg" alt="Fishstick">'; else $('statBotPfp').textContent = '🤖';
+  if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">'; else $('statBotPfp').textContent = '🤖';
 }
 $('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) { $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); } });
 function goHome() { $('statWindow').classList.add('hidden'); show('homeScreen'); }

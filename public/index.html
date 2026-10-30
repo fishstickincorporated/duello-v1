@@ -7,13 +7,13 @@
     <img class="logo-img" src="/assets/logo.png" alt="DUELLO">
     <h1 class="auth-heading" id="authHeading">Create an account</h1>
     <form id="authForm">
-      <input id="email" type="email" placeholder="Email" required>
-      <input id="firstName" placeholder="First name">
-      <input id="lastName" placeholder="Last name">
-      <input id="username" placeholder="Username">
-      <input id="password" type="password" placeholder="Password" required>
+      <input id="email" type="email" placeholder="Email" autocomplete="email" required>
+      <input id="firstName" placeholder="First name" autocomplete="given-name">
+      <input id="lastName" placeholder="Last name" autocomplete="family-name">
+      <input id="username" placeholder="Username" autocomplete="username">
+      <input id="password" type="password" placeholder="Password" autocomplete="new-password" required>
       <p id="passwordHint" class="hint hidden">Password must be at least 8 characters.</p>
-      <input id="confirmPassword" type="password" placeholder="Confirm password">
+      <input id="confirmPassword" type="password" placeholder="Confirm password" autocomplete="new-password">
       <button class="btn primary" id="authSubmit" type="submit">Sign Up</button>
       <p id="authError" class="error"></p>
     </form>

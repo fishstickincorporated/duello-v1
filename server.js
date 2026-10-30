@@ -39,11 +39,31 @@ function drawRack() {
   }
   return ['A','E','B','C','D','F'];
 }
+function drawVowel() { for (let i = 0; i < 100; i++) { const l = drawLetter(); if (VOWELS.has(l)) return l; } return 'E'; }
+function drawConsonant() { for (let i = 0; i < 100; i++) { const l = drawLetter(); if (!VOWELS.has(l)) return l; } return 'B'; }
 function refillRack(rack, usedIndices) {
+  // Refill in place (unplayed tiles never move) AND guarantee the settled
+  // floor: every rack has at least 2 vowels and at least 2 consonants.
+  // The old code just drew random letters for the used slots, so a rack
+  // could come back with 0-1 vowels or consonants after a play.
   const next = rack.slice();
-  for (const idx of usedIndices) next[idx] = drawLetter();
-  // Re-ensure >=2 vowels / >=2 consonants only if the whole rack broke it badly;
-  // refill-in-place is the settled rule: unplayed tiles never move.
+  const usedSet = new Set(usedIndices);
+  const unplayed = next.filter((_, i) => !usedSet.has(i));
+  let v = unplayed.filter(c => VOWELS.has(c)).length;
+  let c = unplayed.filter(c => !VOWELS.has(c)).length;
+  let needV = Math.max(0, 2 - v), needC = Math.max(0, 2 - c);
+  for (const idx of usedIndices) {
+    if (needV > 0) { next[idx] = drawVowel(); needV--; }
+    else if (needC > 0) { next[idx] = drawConsonant(); needC--; }
+    else next[idx] = drawLetter();
+  }
+  // Fallback for a rack that somehow already broke the floor before the
+  // play (should not happen): change unplayed tiles only as a last resort.
+  for (let i = 0; i < next.length && (needV > 0 || needC > 0); i++) {
+    if (usedSet.has(i)) continue;
+    if (needV > 0 && !VOWELS.has(next[i])) { next[i] = drawVowel(); needV--; }
+    else if (needC > 0 && VOWELS.has(next[i])) { next[i] = drawConsonant(); needC--; }
+  }
   return next;
 }
 
@@ -569,9 +589,7 @@ function applyMove(game, side, move, bestScoreBefore) {
       const idx = remaining.indexOf(p.letter);
       if (idx >= 0) { usedIndices.push(idx); remaining[idx] = null; }
     }
-    const refilled = rack.slice();
-    for (const idx of usedIndices) refilled[idx] = drawLetter();
-    game.humanRack = refilled;
+    game.humanRack = refillRack(rack, usedIndices);
   } else {
     const rack = game.botRack.slice();
     for (const p of move.placements) {
@@ -579,6 +597,13 @@ function applyMove(game, side, move, bestScoreBefore) {
       if (idx >= 0) rack.splice(idx, 1);
     }
     while (rack.length < 6) rack.push(drawLetter());
+    // Bot rack is hidden, but keep the same floor so the bot is never
+    // stranded with no vowels or no consonants to play with.
+    let bv = rack.filter(c => VOWELS.has(c)).length, bc = rack.length - bv;
+    for (let i = 0; i < rack.length && (bv < 2 || bc < 2); i++) {
+      if (bv < 2 && !VOWELS.has(rack[i])) { rack[i] = drawVowel(); bv++; bc--; }
+      else if (bc < 2 && VOWELS.has(rack[i])) { rack[i] = drawConsonant(); bc++; bv--; }
+    }
     game.botRack = rack;
   }
   game.scores[side] += move.score;
@@ -632,6 +657,11 @@ function advanceBotTurnIfReady(game, user) {
   if (moved) stepBotClockTo20sMark(game);
   game.botThinkUntil = null;
   if (finishIfNeeded(game, user)) { /* finished */ }
+  // Timeout loop: if the bot just played and the human's clock is already
+  // at 0, do not hand the turn back to a player who cannot move — start
+  // the next bot think immediately, so the bot keeps playing 5s / play /
+  // 15s runoff / 5s / play … until its own clock hits 0 or the game ends.
+  if (game.status === 'active' && game.turn === 'human' && game.clocks.human <= 0 && game.clocks.bot > 0) startBotTurn(game);
   return moved;
 }
 function startBotTurn(game) {
@@ -855,6 +885,7 @@ const server = http.createServer(async (req, res) => {
             game.turn = game.turn === 'human' ? 'bot' : 'human';
             game.turnStartedAt = Date.now();
             if (game.turn === 'bot') {
+              if (!game.botThinkUntil) game.botThinkUntil = Date.now() + 5000;
               if (Date.now() >= (game.botThinkUntil || game.turnStartedAt + 5000)) {
                 const moved = runBotTurn(game);
                 if (moved) stepBotClockTo20sMark(game);

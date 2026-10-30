@@ -43,6 +43,10 @@ $('authToggle').onclick = () => {
   $('authSubmit').textContent = isSignup ? 'Sign Up' : 'Sign in';
   $('authToggle').textContent = isSignup ? 'Already have an account? Sign in' : "Don't have an account? Create an account";
   $('firstName').style.display = $('lastName').style.display = $('username').style.display = $('confirmPassword').style.display = isSignup ? '' : 'none';
+  // iOS/Safari only offers to save the login when the form declares its
+  // purpose: new-password for sign-up, current-password for sign-in.
+  $('password').setAttribute('autocomplete', isSignup ? 'new-password' : 'current-password');
+  $('confirmPassword').setAttribute('autocomplete', 'new-password');
 };
 $('authToggle').click(); $('authToggle').click(); // start in sign-up mode with fields visible
 $('authForm').onsubmit = async e => {
@@ -65,7 +69,7 @@ $('botBackBtn').onclick = () => show('homeScreen');
 $('competitiveBtn').onclick = () => startGame('competitive');
 $('fishstickBtn').onclick = () => startGame('fishstick');
 async function startGame(bot) {
-  currentBot = bot;
+  currentBot = bot; botTurnTapTime = Date.now();
   game = await api('/api/games', { method: 'POST', body: JSON.stringify({ bot }) });
   gameFetchAt = Date.now(); pending = []; selectedRack = null; armed = {};
   show('gameScreen'); renderGame(); beginBotTurn();
@@ -130,6 +134,16 @@ function renderGame() {
   tickClocks();
   updateStatus();
 }
+let runoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0;
+async function handleHumanTimeout() {
+  if (!game || game.status !== 'active' || timeoutFetching) return;
+  timeoutFetching = true; timeoutLastAttempt = Date.now();
+  try {
+    const next = await api(`/api/games/${game.id}`);
+    game = next; gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
+    if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
+  } catch {} finally { timeoutFetching = false; }
+}
 function tickClocks() {
   if (!game) return;
   const elapsed = Date.now() - gameFetchAt;
@@ -137,30 +151,46 @@ function tickClocks() {
   if (game.status === 'active') {
     if (game.clocks.turn === 'human') h = Math.max(0, h - elapsed); else b = Math.max(0, b - elapsed);
   }
-  $('clockHuman').textContent = fmtClock(h); $('clockBot').textContent = fmtClock(b);
+  $('clockHuman').textContent = fmtClock(h);
+  // During a runoff animation the bot clock is driven by the animation,
+  // not by this 100ms tick — the tick used to jump it straight to the
+  // stepped value and flicker over the animation.
+  if (Date.now() >= runoffUntil) $('clockBot').textContent = fmtClock(b);
+  // Human clock hit 0: do not leave the game sitting on a dead turn.
+  // Fetching flips the server to the bot turn, which then loops on its own.
+  if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0 && !timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleHumanTimeout();
 }
 setInterval(tickClocks, 100);
 
-let botTimer = null, suppressNextClick = false;
+let botTimer = null, suppressNextClick = false, botTurnTapTime = 0;
 function parseClockText(txt) { const m = /^([0-9]+):([0-9]{2})$/.exec((txt || '').trim()); return m ? Number(m[1]) * 60000 + Number(m[2]) * 1000 : null; }
 function animateClockRunoff(fromMs, toMs) {
   if (fromMs === null || toMs === null || fromMs <= toMs) { if (toMs !== null) $('clockBot').textContent = fmtClock(toMs); return; }
   const steps = Math.max(1, Math.round((fromMs - toMs) / 1000));
+  // 50ms per displayed second = ~750ms for the 15s runoff to the 20s mark.
+  runoffUntil = Date.now() + steps * 50 + 100;
   let i = 0;
   const iv = setInterval(() => {
     i++;
     const v = fromMs - Math.round((fromMs - toMs) * i / steps);
     $('clockBot').textContent = fmtClock(Math.max(toMs, v));
-    if (i >= steps) { clearInterval(iv); $('clockBot').textContent = fmtClock(toMs); }
+    if (i >= steps) { clearInterval(iv); $('clockBot').textContent = fmtClock(toMs); runoffUntil = 0; }
   }, 50);
 }
 async function pollBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
   try {
     const fromMs = parseClockText($('clockBot').textContent);
+    const prevBot = game.lastBot ? JSON.stringify(game.lastBot) : '';
+    const prevBotScore = game.scores ? game.scores.bot : 0;
     const next = await api(`/api/games/${game.id}`);
+    const botMoved = (next.lastBot ? JSON.stringify(next.lastBot) : '') !== prevBot || (next.scores && next.scores.bot !== prevBotScore);
+    game = next; gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
+    // Animate the runoff whenever the bot actually played, even if the
+    // server already flipped to the NEXT bot turn (human clock at 0) —
+    // the old code returned early in that case and the runoff never ran.
+    if (botMoved) animateClockRunoff(fromMs, next.clocks.bot);
     if (next.clocks.turn === 'bot' && next.status === 'active') {
-      game = next; gameFetchAt = Date.now(); renderGame();
       // Relative remaining time from the server, never the server's absolute
       // clock: comparing Render time to phone time added a spurious ~2s poll.
       const delay = next.botThinkRemainingMs != null ? Math.max(200, next.botThinkRemainingMs) : 500;
@@ -168,15 +198,26 @@ async function pollBotTurn() {
       botTimer = setTimeout(pollBotTurn, delay);
       return;
     }
-    game = next; gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
-    animateClockRunoff(fromMs, next.clocks.bot);
-    if (next.status === 'active') await loadMe();
+    if (next.status === 'active') {
+      if (next.clocks.human <= 0) handleHumanTimeout();
+      else await loadMe();
+    }
   } catch { /* keep waiting state; a later action / reload will advance it */ }
 }
 function beginBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
   $('status').textContent = 'Bot thinking…';
   if (botTimer) clearTimeout(botTimer);
+  // Perceived think is measured from the tap, not from the server reply:
+  // the Play/Pass POST (including the server's optimal-move scan) used to
+  // stack on top of the 5s, pushing the feel to ~6s. Starting the 5s at the
+  // tap and polling at that mark (the server guard then adds only its
+  // remaining ~network time) lands the word at ~5s, not ~6s.
+  if (botTurnTapTime && Date.now() - botTurnTapTime < 10000) {
+    const delay = Math.max(0, 5000 - (Date.now() - botTurnTapTime));
+    botTimer = setTimeout(pollBotTurn, delay);
+    return;
+  }
   // Relative remaining time, less the time since this game state arrived
   // (network + render), so latencies before the timer starts do not stack
   // on top of the 5s think.
@@ -184,33 +225,52 @@ function beginBotTurn() {
   botTimer = setTimeout(pollBotTurn, delay);
 }
 
+let validateInFlight = null, lastValidate = null, playInFlight = false;
 async function updateStatus() {
   if (!game) return;
   if (game.status === 'finished') { $('status').textContent = game.reason || 'Game over'; return; }
-  if (game.clocks.turn !== 'human') { $('status').textContent = 'Waiting for your opponent…'; $('playBtn').disabled = true; return; }
-  if (!pending.length) { $('status').textContent = game.isFirst ? 'Your move — first word goes entirely inside the glowing 6×6.' : 'Your move'; $('playBtn').disabled = true; return; }
+  if (game.clocks.turn !== 'human') { $('status').textContent = 'Waiting for your opponent…'; $('playBtn').disabled = true; $('playBtn').classList.remove('validating'); return; }
+  if (!pending.length) { $('status').textContent = game.isFirst ? 'Your move — first word goes entirely inside the glowing 6×6.' : 'Your move'; $('playBtn').disabled = true; $('playBtn').classList.remove('validating'); lastValidate = null; return; }
+  // While validation is in flight, Play stays clickable (blue, not green)
+  // instead of greyed out: a tap on a greyed-out button is swallowed, so
+  // users had to tap twice — once while it was still checking, once after
+  // it turned green. The Play handler below waits for this check.
+  $('playBtn').disabled = false; $('playBtn').classList.add('validating');
   try {
     // Guard against a stale validation overwriting the status: if the
     // player moved a tile while this request was in flight, its verdict
     // is about a board arrangement that no longer exists.
     const snapshot = JSON.stringify(pending.map(p => [p.row, p.col, p.letter]));
-    const v = await api(`/api/games/${game.id}/validate`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })) }) });
+    validateInFlight = api(`/api/games/${game.id}/validate`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })) }) });
+    const v = await validateInFlight;
+    validateInFlight = null; lastValidate = v;
     if (JSON.stringify(pending.map(p => [p.row, p.col, p.letter])) !== snapshot) return;
-    if (v.valid) { $('status').textContent = 'Play?'; $('playBtn').disabled = false; showBubble(v.score); }
+    $('playBtn').classList.remove('validating');
+    if (v.valid) { $('status').textContent = 'Play?'; $('playBtn').disabled = false; showBubble(v.score, v.mainCells); }
     else if (v.invalidWords && v.invalidWords.length) {
       const w = v.invalidWords;
       const list = w.length === 1 ? w[0] : w.slice(0, -1).join(', ') + ' and ' + w[w.length - 1];
       $('status').textContent = w.length === 1 ? `${list} is not a word.` : `${list} are not words.`;
       $('playBtn').disabled = true; hideBubble();
     } else { $('status').textContent = v.error ? v.error.charAt(0).toUpperCase() + v.error.slice(1) + (v.error.endsWith('.') ? '' : '.') : 'Invalid play.'; $('playBtn').disabled = true; hideBubble(); }
-  } catch { $('playBtn').disabled = true; }
+  } catch { validateInFlight = null; $('playBtn').classList.remove('validating'); $('playBtn').disabled = true; }
 }
-function showBubble(score) {
+function showBubble(score, mainCells) {
   hideBubble();
   if (!pending.length) return;
-  const last = pending[pending.length - 1];
+  // Bubble goes over the positionally last letter of the word string, not
+  // the last tile the player happened to drop: mainCells are in word order,
+  // so their last cell is the last letter. Fall back to the pending tile
+  // with the largest row/col in the play direction.
+  let target = null;
+  if (mainCells && mainCells.length) target = mainCells[mainCells.length - 1];
+  else {
+    const sameRow = pending.every(p => p.row === pending[0].row);
+    const sorted = pending.slice().sort((a, b) => sameRow ? a.col - b.col : a.row - b.row);
+    target = [sorted[sorted.length - 1].row, sorted[sorted.length - 1].col];
+  }
   const cells = document.querySelectorAll('#board .cell');
-  const cell = cells[last.row * 10 + last.col];
+  const cell = cells[target[0] * 10 + target[1]];
   if (!cell) return;
   const b = document.createElement('div'); b.className = 'play-bubble'; b.textContent = score;
   cell.style.position = 'relative'; cell.appendChild(b);
@@ -237,12 +297,45 @@ $('shuffleBtn').onclick = async () => {
   for (let i = rack.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rack[i], rack[j]] = [rack[j], rack[i]]; }
   const rackEl = $('rack');
   shuffling = true;
-  [...rackEl.querySelectorAll('.tile')].forEach((t, i) => { t.style.animationDelay = (i * 12) + 'ms'; });
-  rackEl.classList.add('shuffling');
-  await new Promise(r => setTimeout(r, 180));
-  rackEl.classList.remove('shuffling');
+  // Fold in: every tile slides toward the rack centre, shrinking, so the
+  // tiles pass around one another instead of just popping in place.
+  const fold = (tiles) => {
+    const centre = rackEl.getBoundingClientRect().left + rackEl.getBoundingClientRect().width / 2;
+    tiles.forEach(t => {
+      const r = t.getBoundingClientRect();
+      const dx = centre - (r.left + r.width / 2);
+      t.style.transition = 'transform 220ms ease-in, opacity 220ms ease-in';
+      t.style.transform = `translateX(${dx}px) scale(0.6)`;
+      t.style.opacity = '0.6';
+    });
+  };
+  fold([...rackEl.querySelectorAll('.tile')]);
+  await new Promise(r => setTimeout(r, 230));
+  try {
+    game = await api(`/api/games/${game.id}/shuffle`, { method: 'POST', body: JSON.stringify({ rack }) }); gameFetchAt = Date.now(); renderGame();
+    // Fold out: new tiles start collapsed at the centre and expand to
+    // their new slots, so the new order is revealed by the unfold.
+    const newTiles = [...$('rack').querySelectorAll('.tile')];
+    const centre2 = $('rack').getBoundingClientRect().left + $('rack').getBoundingClientRect().width / 2;
+    newTiles.forEach(t => {
+      const r = t.getBoundingClientRect();
+      const dx = centre2 - (r.left + r.width / 2);
+      t.style.transition = 'none';
+      t.style.transform = `translateX(${dx}px) scale(0.6)`;
+      t.style.opacity = '0.6';
+    });
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      newTiles.forEach(t => {
+        t.style.transition = 'transform 260ms ease-out, opacity 260ms ease-out';
+        t.style.transform = ''; t.style.opacity = '';
+      });
+      setTimeout(() => newTiles.forEach(t => { t.style.transition = ''; }), 300);
+    }));
+  } catch {
+    // Shuffle failed server-side: unfold the original tiles back out.
+    [...rackEl.querySelectorAll('.tile')].forEach(t => { t.style.transition = 'transform 220ms ease-out, opacity 220ms ease-out'; t.style.transform = ''; t.style.opacity = ''; });
+  }
   shuffling = false;
-  try { game = await api(`/api/games/${game.id}/shuffle`, { method: 'POST', body: JSON.stringify({ rack }) }); gameFetchAt = Date.now(); renderGame(); } catch {}
 };
 function armButton(btn, label, fn) {
   return async () => {
@@ -250,15 +343,23 @@ function armButton(btn, label, fn) {
     armed[btn.id] = false; btn.textContent = label; await fn();
   };
 }
-$('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => { game = await api(`/api/games/${game.id}/pass`, { method: 'POST' }); gameFetchAt = Date.now(); pending = []; renderGame(); beginBotTurn(); });
+$('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => { botTurnTapTime = Date.now(); game = await api(`/api/games/${game.id}/pass`, { method: 'POST' }); gameFetchAt = Date.now(); pending = []; renderGame(); beginBotTurn(); });
 $('forfeitBtn').onclick = armButton($('forfeitBtn'), 'Forfeit', async () => { game = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' }); gameFetchAt = Date.now(); pending = []; renderGame(); });
 $('playBtn').onclick = async () => {
-  if (!pending.length) return;
+  if (!pending.length || playInFlight) return;
+  // Single tap: if validation is still in flight, wait for it instead of
+  // requiring a second tap after Play turns green.
+  if (validateInFlight) { try { await validateInFlight; } catch {} if (lastValidate && !lastValidate.valid) return; }
+  if ($('playBtn').disabled) return;
+  // Grey immediately on tap, so a second tap cannot double-submit.
+  playInFlight = true; $('playBtn').disabled = true; $('playBtn').classList.remove('validating');
   $('status').textContent = 'Bot thinking…';
   try {
+    botTurnTapTime = Date.now();
     game = await api(`/api/games/${game.id}/play`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })) }) });
     gameFetchAt = Date.now(); pending = []; renderGame(); beginBotTurn(); loadMe();
-  } catch (e) { $('status').textContent = e.message; }
+  } catch (e) { $('status').textContent = e.message; renderGame(); }
+  finally { playInFlight = false; }
 };
 function showStatWindow(stats) {
   const w = $('statWindow'); w.classList.remove('hidden');
@@ -346,9 +447,9 @@ function showGhost(letter, x, y) {
   ghost.style.left = x + 'px'; ghost.style.top = y + 'px';
 }
 function enableRackDrag(el, idx) {
-  let dragging = false, moved = false, startX = 0, startY = 0, drop = null;
+  let dragging = false, moved = false, startX = 0, startY = 0, drop = null, rackPreview = false;
   el.addEventListener('pointerdown', e => {
-    dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null;
+    dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null; rackPreview = false;
     try { el.setPointerCapture(e.pointerId); } catch {}
   });
   el.addEventListener('pointermove', e => {
@@ -356,6 +457,7 @@ function enableRackDrag(el, idx) {
     if (Math.hypot(e.clientX - startX, e.clientY - startY) > 8) moved = true;
     if (!moved) return;
     suppressNextClick = true;
+    el.style.opacity = '0.35';
     showGhost(game.humanRack[idx], e.clientX, e.clientY);
     clearDropHighlights();
     const hit = cellAtPoint(e.clientX, e.clientY);
@@ -371,14 +473,24 @@ function enableRackDrag(el, idx) {
     if (e.clientY >= rect.top && e.clientY <= rect.bottom && e.clientX >= rect.left && e.clientX <= rect.right) {
       const rel = (e.clientX - rect.left) / Math.max(1, rect.width);
       drop = { kind: 'rack', hoverIdx: Math.max(0, Math.min(5, Math.floor(rel * 6))) };
-      const tiles = [...rackEl.querySelectorAll('.tile')];
-      tiles.forEach(t => t.style.outline = '');
-      const target = tiles.find(t => Number(t.dataset.idx) === drop.hoverIdx);
-      if (target) target.style.outline = '2px dashed #ffd166';
+      // Phone-app behaviour: as you drag over the deck, the other tiles
+      // slide over to fill the gap and the dragged tile snaps into the
+      // hovered slot live in the DOM (the data order is only committed on
+      // drop, so a cancel restores the original order via renderGame).
+      if (drop.hoverIdx !== idx) {
+        const kids = [...rackEl.children];
+        const at = kids.indexOf(el);
+        if (at >= 0) {
+          kids.splice(at, 1);
+          kids.splice(Math.min(drop.hoverIdx, kids.length), 0, el);
+          rackEl.append(...kids);
+          rackPreview = true;
+        }
+      }
     } else drop = null;
   });
   el.addEventListener('pointerup', async e => {
-    if (!dragging) return; dragging = false; $('dragGhost').classList.add('hidden'); clearDropHighlights();
+    if (!dragging) return; dragging = false; el.style.opacity = ''; $('dragGhost').classList.add('hidden'); clearDropHighlights();
     if (!moved) {
       // Tap (not a drag): click-to-place selection. No re-render here — the
       // old code re-rendered on pointerup and killed the following click.
@@ -396,10 +508,13 @@ function enableRackDrag(el, idx) {
       const [tile] = rack.splice(idx, 1); rack.splice(drop.hoverIdx, 0, tile);
       try { game = await api(`/api/games/${game.id}/shuffle`, { method: 'POST', body: JSON.stringify({ rack }) }); gameFetchAt = Date.now(); } catch {}
       renderGame();
+    } else if (rackPreview) {
+      // Dropped elsewhere after a live preview: restore the original order.
+      renderGame();
     }
     // Dropped elsewhere: cancel, keep the tile where it was.
   });
-  el.addEventListener('pointercancel', () => { dragging = false; $('dragGhost').classList.add('hidden'); clearDropHighlights(); });
+  el.addEventListener('pointercancel', () => { dragging = false; el.style.opacity = ''; $('dragGhost').classList.add('hidden'); clearDropHighlights(); if (rackPreview) renderGame(); });
 }
 // Drag a tile that is already placed on the board to a new cell.
 // Tap (no movement) recalls it, exactly as before; a drag moves it.

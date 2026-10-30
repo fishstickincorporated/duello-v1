@@ -374,7 +374,14 @@ function armButton(btn, label, fn) {
     armed[btn.id] = false; btn.textContent = label; await fn();
   };
 }
-$('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => { botTurnTapTime = Date.now(); game = await api(`/api/games/${game.id}/pass`, { method: 'POST' }); gameFetchAt = Date.now(); pending = []; renderGame(); beginBotTurn(); });
+$('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => {
+  // Same tap-time clock switch as Play: freeze human, start bot now.
+  const tapAt = Date.now(); const clientElapsedMs = Math.max(0, tapAt - gameFetchAt);
+  const prevHuman = game.clocks.human, prevFetchAt = gameFetchAt;
+  game.clocks.human = Math.max(0, game.clocks.human - clientElapsedMs); game.clocks.turn = 'bot'; gameFetchAt = tapAt; tickClocks();
+  try { botTurnTapTime = tapAt; game = await api(`/api/games/${game.id}/pass`, { method: 'POST', body: JSON.stringify({ clientElapsedMs }) }); gameFetchAt = tapAt; pending = []; renderGame(); beginBotTurn(); }
+  catch { game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt; renderGame(); }
+});
 $('forfeitBtn').onclick = armButton($('forfeitBtn'), 'Forfeit', async () => { game = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' }); gameFetchAt = Date.now(); pending = []; renderGame(); });
 async function doPlay() {
   // Unstick first, and clear the drag's click-suppression flag: after a
@@ -388,13 +395,32 @@ async function doPlay() {
   // invalid. Waiting made the first tap look dead (no feedback at all
   // until validate returned), so users tapped again or tapped elsewhere
   // and only then saw the play go through.
+  // Clock switch happens AT THE TAP, not at the server reply: freeze
+  // the human clock at its tap-time value and start the bot clock
+  // ticking from the tap, via tickClocks only (no full render, so no
+  // validation round-trip re-enables Play mid-flight). Before this,
+  // the 100ms interval kept ticking the human clock for the whole
+  // Play POST (sometimes ~1s), and the bot clock only started when
+  // the reply landed.
+  const tapAt = Date.now();
+  const clientElapsedMs = Math.max(0, tapAt - gameFetchAt);
+  const prevHuman = game.clocks.human, prevFetchAt = gameFetchAt;
+  game.clocks.human = Math.max(0, game.clocks.human - clientElapsedMs);
+  game.clocks.turn = 'bot'; gameFetchAt = tapAt;
   playInFlight = true; $('playBtn').disabled = true; $('playBtn').classList.remove('validating', 'play-valid', 'play-invalid');
-  $('status').textContent = 'Bot thinking…';
+  $('status').textContent = 'Bot thinking…'; tickClocks();
   try {
-    botTurnTapTime = Date.now();
-    game = await api(`/api/games/${game.id}/play`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })) }) });
-    gameFetchAt = Date.now(); pending = []; renderGame(); beginBotTurn(); loadMe();
-  } catch (e) { $('status').textContent = e.message; renderGame(); }
+    botTurnTapTime = tapAt;
+    game = await api(`/api/games/${game.id}/play`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })), clientElapsedMs }) });
+    // Keep the bot clock ticking from the tap, not from the reply:
+    // gameFetchAt stays at tapAt, so the bot display does not jump
+    // back up by the POST duration when the reply lands.
+    gameFetchAt = tapAt; pending = []; renderGame(); beginBotTurn(); loadMe();
+  } catch (e) {
+    // Play failed: restore the human turn and its pre-tap clock.
+    game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt;
+    $('status').textContent = e.message; renderGame();
+  }
   finally { playInFlight = false; }
 }
 // Fire on pointerdown, not only on click: after a drag, iOS can swallow

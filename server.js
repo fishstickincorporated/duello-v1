@@ -532,12 +532,24 @@ function loadGameRow(row) {
   g.board.__premiums = g.premiums;
   return g;
 }
-function settleClock(game) {
+function settleClock(game, clientElapsedMs) {
   if (game.status !== 'active') return;
-  const elapsed = Date.now() - game.turnStartedAt;
+  const now = Date.now();
+  const serverElapsed = now - game.turnStartedAt;
+  let elapsed = serverElapsed;
+  // Tap-time settle: the client sends how long had passed since it
+  // received the current turn (its tap time, as a duration, never an
+  // absolute clock — so server/client clock skew cannot matter). If
+  // that duration is just under the server's (the POST network time,
+  // typically <1s), settle at the tap instead of at request arrival,
+  // so the human clock does not tick for another second after the
+  // tap. A duration far under the server's is not trusted (that
+  // would let a client freeze its own clock), so it falls back to
+  // the server elapsed.
+  if (Number.isFinite(clientElapsedMs) && clientElapsedMs >= 0 && serverElapsed - clientElapsedMs >= 0 && serverElapsed - clientElapsedMs <= 2000) elapsed = clientElapsedMs;
   if (game.turn === 'human') game.clocks.human = Math.max(0, game.clocks.human - elapsed);
   else game.clocks.bot = Math.max(0, game.clocks.bot - elapsed);
-  game.turnStartedAt = Date.now();
+  game.turnStartedAt = now;
 }
 function eloDelta(playerElo, oppElo, actual) {
   const expected = 1 / (1 + Math.pow(10, (oppElo - playerElo) / 400));
@@ -948,7 +960,8 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.method === 'POST' && action === 'play') {
         if (game.status !== 'active') return sendJson(res, 400, { error: 'Game is finished.' });
-        settleClock(game);
+        const b0 = await readBody(req);
+        settleClock(game, b0.clientElapsedMs);
         if (game.turn !== 'human') return sendJson(res, 400, { error: 'Not your turn.' });
         if (game.clocks.human <= 0) {
           // Timed out: skip human, let the bot keep playing (you cannot win on time).
@@ -958,7 +971,7 @@ const server = http.createServer(async (req, res) => {
           if (game.status === 'finished') out.stats = gameStatsPayload(game);
           return sendJson(res, 200, { ...out, timedOut: true });
         }
-        const b = await readBody(req);
+        const b = b0;
         const placements = (b.placements || []).map(p => ({ row: Number(p.row), col: Number(p.col), letter: String(p.letter || '').toUpperCase() }));
         const isFirst = boardIsEmpty(game.board);
         const v = validatePlay(game.board, game.humanRack, placements, game.premiums, isFirst);
@@ -974,7 +987,8 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.method === 'POST' && action === 'pass') {
         if (game.status !== 'active') return sendJson(res, 400, { error: 'Game is finished.' });
-        settleClock(game);
+        const bPass = await readBody(req).catch(() => ({}));
+        settleClock(game, bPass.clientElapsedMs);
         if (game.turn !== 'human') return sendJson(res, 400, { error: 'Not your turn.' });
         game.clocks.human = Math.max(0, game.clocks.human - 30000);
         game.consecutivePasses++;

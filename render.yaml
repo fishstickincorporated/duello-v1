@@ -1,14 +1,19 @@
-# Render blueprint for Duello v1 — free playtest service.
-# The simplest route is described in DEPLOY.md: Dashboard > New >
-# Web Service, pick the GitHub repo, Runtime Docker, plan Free.
-# This file records those same settings. Do NOT add a persistent disk
-# here: free Render services cannot attach disks, and Render will
-# reject a free service with one. Persistence on Render therefore
-# needs a paid plan (disk) or, properly, the Postgres code change
-# described in DEPLOY.md — it is not a config switch.
+# Render blueprint for the Duello bot-play slice (Postgres, no login).
+# This file is NOT deployed by this task — see BOTPLAY.md for the later
+# Render step, which Jeff does himself. Notes for that step:
+# - Web Service, Runtime Docker, from the bot-play repo/folder.
+# - DATABASE_URL is REQUIRED. Set it in the Render dashboard to the
+#   Postgres instance Jeff creates there (paid Postgres for permanent
+#   data). The server exits at startup without it; do not put the URL
+#   in this file or in git.
+# - No persistent disk is needed: guest/game data lives in Postgres.
+# - A free web service still sleeps after 15 minutes idle; data in
+#   Postgres survives that, but the first visit after sleep is slow.
+#   A paid Starter web service is the usual choice once this is more
+#   than a test, and it is Jeff's call, not a code change.
 services:
   - type: web
-    name: duello-v1
+    name: duello-botplay
     env: docker
     dockerfilePath: ./Dockerfile
     plan: free
@@ -19,3 +24,5 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: DATABASE_URL
+        sync: false

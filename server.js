@@ -1,16 +1,30 @@
-// Duello v1 — standalone production-style app (bot play only).
-// Zero runtime dependencies. Node >= 22 (node:sqlite, node:crypto, node:http).
-// Run: node server.js  (PORT env, default 3000)
-// Data: data/words.txt, data/definitions.json (built by scripts/build-dictionary.js)
-//       data/duello.db (SQLite, created on first run; see README for Postgres swap)
-// OAuth: TODO — email/password only for v1. Google/Apple sign-in is NOT real
-// OAuth here; see README "Not yet production-ready" and the TODO hooks below.
+// Duello bot-play slice — Postgres, no login.
+// Bot play only. No friends, no profile, no leaderboards in this slice.
+// Run: DATABASE_URL=postgres://... node server.js  (PORT env, default 3000)
+// Data: data/words.txt, data/definitions.json (dictionary files, still required)
+//       Postgres, via DATABASE_URL only. There is NO SQLite fallback in this
+//       slice, so a test run actually proves Postgres works. If DATABASE_URL
+//       is missing the server exits at startup with a clear error.
+// Auth surface for this slice: POST /api/guest only. It creates a per-device
+// guest user (guest_<random>, dummy @guest.local email, random scrypt hash
+// never shown to the user, Elo 1000) plus a session token. The client stores
+// that token in localStorage under the existing 'duello_token' key and
+// reuses it, so Elo follows the device. Real accounts come later.
 'use strict';
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { DatabaseSync } = require('node:sqlite');
+const { Pool } = require('pg');
+if (!process.env.DATABASE_URL) {
+  console.error('DATABASE_URL is required: set it to a Postgres connection string, e.g. postgres://user:pass@localhost:5432/duello_botplay_test');
+  process.exit(1);
+}
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  // Render Postgres external URLs require SSL; local Postgres does not.
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+});
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const ROOT = __dirname;
@@ -67,51 +81,32 @@ function refillRack(rack, usedIndices) {
   return next;
 }
 
-// ---------- Database (SQLite) ----------
-// Postgres swap: see db/postgres-schema.sql and README "Deploying / Postgres".
-// The game logic below only uses the helpers in this section, so swapping the
-// driver means re-implementing: getUserByEmail, getUserById, createUser,
-// updateUserElo, createSession, getSessionUser, deleteSession, saveGame,
-// getGame, listGamesForUser, addEloHistory. Everything else is unchanged.
-const db = new DatabaseSync(path.join(DATA_DIR, 'duello.db'));
-db.exec(`CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL,
-  username TEXT UNIQUE NOT NULL, first_name TEXT NOT NULL, last_name TEXT NOT NULL,
-  password_salt TEXT NOT NULL, password_hash TEXT NOT NULL,
-  elo INTEGER NOT NULL DEFAULT 1000, elo_high INTEGER NOT NULL DEFAULT 1000,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE TABLE IF NOT EXISTS sessions (
-  token TEXT PRIMARY KEY, user_id INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE TABLE IF NOT EXISTS games (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
-  bot_type TEXT NOT NULL, bot_elo INTEGER NOT NULL, state TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE TABLE IF NOT EXISTS friends (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, requester_id INTEGER NOT NULL, addressee_id INTEGER NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(requester_id, addressee_id)
-);
-CREATE TABLE IF NOT EXISTS elo_history (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, game_id INTEGER,
-  elo_after INTEGER NOT NULL, delta INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);`);
-try { db.exec("ALTER TABLE users ADD COLUMN photo_data TEXT"); } catch (e) {}
+// ---------- Database (Postgres) ----------
+async function initDb() {
+  const schema = fs.readFileSync(path.join(ROOT, 'db', 'postgres-schema.sql'), 'utf8');
+  await pool.query(schema);
+  // photo_data is used by publicUser if present; the base schema does not
+  // define it, so add it idempotently for later slices. It is not used by
+  // bot play itself.
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_data TEXT');
+}
+async function q(text, params) { return pool.query(text, params); }
 function hashPassword(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }
-function getUserByEmail(email) { return db.prepare('SELECT * FROM users WHERE email=?').get(email.toLowerCase()); }
-function getUserByUsername(username) { return db.prepare('SELECT * FROM users WHERE username=?').get(username); }
-function getUserById(id) { return db.prepare('SELECT * FROM users WHERE id=?').get(id); }
-function publicUser(u) { return u ? { id: u.id, email: u.email, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, eloHigh: u.elo_high, createdAt: u.created_at, hasPhoto: !!u.photo_data, photoData: u.photo_data || null } : null; }
-function publicUserLite(u) { return u ? { id: u.id, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, hasPhoto: !!u.photo_data, photoData: u.photo_data || null } : null; }
-function authUser(req) {
+async function getUserByEmail(email) { const r = await q('SELECT * FROM users WHERE email=$1', [email.toLowerCase()]); return r.rows[0] || null; }
+async function getUserByUsername(username) { const r = await q('SELECT * FROM users WHERE username=$1', [username]); return r.rows[0] || null; }
+async function getUserById(id) { const r = await q('SELECT * FROM users WHERE id=$1', [id]); return r.rows[0] || null; }
+function publicUser(u) {
+  if (!u) return null;
+  const created = u.created_at instanceof Date ? u.created_at.toISOString() : u.created_at;
+  return { id: u.id, email: u.email, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, eloHigh: u.elo_high, createdAt: created, hasPhoto: !!u.photo_data, photoData: u.photo_data || null };
+}
+async function authUser(req) {
   const h = req.headers.authorization || '';
   const m = h.match(/^Bearer\s+(.+)$/);
   if (!m) return null;
-  const s = db.prepare('SELECT * FROM sessions WHERE token=?').get(m[1]);
-  if (!s) return null;
-  return getUserById(s.user_id);
+  const r = await q('SELECT * FROM sessions WHERE token=$1', [m[1]]);
+  if (!r.rows[0]) return null;
+  return getUserById(r.rows[0].user_id);
 }
 
 // ---------- Board / premiums ----------
@@ -518,15 +513,15 @@ function serializeGame(game, user) {
     player: { firstName: user.first_name, username: user.username, elo: user.elo },
   };
 }
-function saveGameRow(game) {
+async function saveGameRow(game) {
   const copy = { ...game, board: stripBoard(game.board) };
   delete copy.id;
   const json = JSON.stringify(copy);
-  if (game.id) db.prepare('UPDATE games SET state=?, updated_at=datetime(\'now\') WHERE id=?').run(json, game.id);
-  else { const r = db.prepare('INSERT INTO games (user_id, bot_type, bot_elo, state) VALUES (?,?,?,?)').run(game.userId, game.botType, game.botElo, json); game.id = Number(r.lastInsertRowid); }
+  if (game.id) await q('UPDATE games SET state=$1::jsonb, updated_at=now() WHERE id=$2', [json, game.id]);
+  else { const r = await q('INSERT INTO games (user_id, bot_type, bot_elo, state) VALUES ($1,$2,$3,$4::jsonb) RETURNING id', [game.userId, game.botType, game.botElo, json]); game.id = Number(r.rows[0].id); }
 }
 function loadGameRow(row) {
-  const g = JSON.parse(row.state);
+  const g = typeof row.state === 'string' ? JSON.parse(row.state) : row.state;
   g.id = row.id;
   // Re-attach premiums for the solver (solver reads board.__premiums)
   g.board.__premiums = g.premiums;
@@ -573,7 +568,7 @@ function computeStats(moves) {
   }
   return { best, longest, optimal, total, uniqueCount: unique.size, optimalWords };
 }
-function endGame(game, user, reason, winnerSide) {
+async function endGame(game, user, reason, winnerSide) {
   // winnerSide: 'human' | 'bot' | 'draw' | null (forfeit handled by caller setting winner)
   game.status = 'finished';
   game.reason = reason;
@@ -583,9 +578,9 @@ function endGame(game, user, reason, winnerSide) {
   game.eloDeltaHuman = delta;
   game.eloDeltaBot = -delta;
   game.eloAfterHuman = user.elo + delta;
-  db.prepare('UPDATE users SET elo=?, elo_high=MAX(elo_high,?) WHERE id=?').run(game.eloAfterHuman, game.eloAfterHuman, user.id);
-  saveGameRow(game);
-  db.prepare('INSERT INTO elo_history (user_id, game_id, elo_after, delta) VALUES (?,?,?,?)').run(user.id, game.id, game.eloAfterHuman, delta);
+  await q('UPDATE users SET elo=$1, elo_high=GREATEST(elo_high,$2) WHERE id=$3', [game.eloAfterHuman, game.eloAfterHuman, user.id]);
+  await saveGameRow(game);
+  await q('INSERT INTO elo_history (user_id, game_id, elo_after, delta) VALUES ($1,$2,$3,$4)', [user.id, game.id, game.eloAfterHuman, delta]);
   return game;
 }
 function applyMove(game, side, move, bestScoreBefore) {
@@ -658,7 +653,7 @@ function stepBotClockTo20sMark(game) {
   if (game.clocks.bot > 0) game.clocks.bot = Math.floor((game.clocks.bot - 1) / 20000) * 20000;
   else game.clocks.bot = 0;
 }
-function advanceBotTurnIfReady(game, user) {
+async function advanceBotTurnIfReady(game, user) {
   // Returns true if the bot actually moved (clock should step), false otherwise.
   if (game.status !== 'active' || game.turn !== 'bot') return false;
   const until = game.botThinkUntil || (game.turnStartedAt + 5000);
@@ -668,7 +663,7 @@ function advanceBotTurnIfReady(game, user) {
   const moved = runBotTurn(game);
   if (moved) stepBotClockTo20sMark(game);
   game.botThinkUntil = null;
-  if (finishIfNeeded(game, user)) { /* finished */ }
+  if (await finishIfNeeded(game, user)) { /* finished */ }
   // Timeout loop: if the bot just played and the human's clock is already
   // at 0, do not hand the turn back to a player who cannot move — start
   // the next bot think immediately, so the bot keeps playing 5s / play /
@@ -680,16 +675,16 @@ function startBotTurn(game) {
   game.turn = 'bot'; game.turnStartedAt = Date.now(); game.botThinkUntil = Date.now() + 5000;
 }
 
-function finishIfNeeded(game, user) {
+async function finishIfNeeded(game, user) {
   if (game._pendingNoMovesEnd) {
     delete game._pendingNoMovesEnd;
     const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';
-    endGame(game, user, 'No playable moves left', winner);
+    await endGame(game, user, 'No playable moves left', winner);
     return true;
   }
   if (game.clocks.human <= 0 && game.clocks.bot <= 0) {
     const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';
-    endGame(game, user, 'Final score', winner);
+    await endGame(game, user, 'Final score', winner);
     return true;
   }
   return false;
@@ -742,9 +737,9 @@ function readBody(req) {
     req.on('end', () => { try { resolve(data ? JSON.parse(data) : {}); } catch { resolve({}); } });
   });
 }
-function loadGameForUser(user, id) {
-  const row = db.prepare('SELECT * FROM games WHERE id=? AND user_id=?').get(id, user.id);
-  return row ? loadGameRow(row) : null;
+async function loadGameForUser(user, id) {
+  const r = await q('SELECT * FROM games WHERE id=$1 AND user_id=$2', [id, user.id]);
+  return r.rows[0] ? loadGameRow(r.rows[0]) : null;
 }
 function gameStatsPayload(game) {
   const h = computeStats(game.moves.human || []);
@@ -757,77 +752,6 @@ function gameStatsPayload(game) {
   };
 }
 
-function profileStatsFor(userId) {
-  const rows = db.prepare("SELECT state FROM games WHERE user_id=? AND json_extract(state,'$.status')='finished'").all(userId);
-  function empty() { return { gamesPlayed: 0, wins: 0, losses: 0, draws: 0, avgGameScore: 0, highestGameScore: 0, avgWordScore: 0, highestWordScore: 0, longestWord: '', longestWordLen: 0, optimalMoves: 0, totalMoves: 0, optimalPct: 0, uniqueWords: 0 }; }
-  function scope(botOnly) {
-    const st = empty(); let wordScoreSum = 0, wordCount = 0; const uniq = new Set();
-    for (const r of rows) {
-      let g; try { g = JSON.parse(r.state); } catch { continue; }
-      if (botOnly === true && g.botType === undefined && false) continue;
-      // All v1 games are bot games; vsHumans is therefore empty by construction.
-      // Scope filtering: 'bots' = all rows, 'humans' = none (no human-game table in v1).
-      if (botOnly === 'humans') continue;
-      st.gamesPlayed++;
-      st.highestGameScore = Math.max(st.highestGameScore, g.scores.human || 0);
-      if (g.winner === 'human') st.wins++; else if (g.winner === 'bot') st.losses++; else if (g.winner === 'draw') st.draws++;
-      else if (g.reason === 'By forfeit') st.losses++; else if (g.scores.human > g.scores.bot) st.wins++; else if (g.scores.bot > g.scores.human) st.losses++; else st.draws++;
-      const moves = (g.moves && g.moves.human) || [];
-      for (const m of moves) {
-        st.totalMoves++;
-        if (m.isOptimal) st.optimalMoves++;
-        for (const w of (m.words || [])) {
-          wordScoreSum += w.score || 0; wordCount++;
-          if ((w.score || 0) > st.highestWordScore) st.highestWordScore = w.score || 0;
-          if (w.word && w.word.length > st.longestWordLen) { st.longestWordLen = w.word.length; st.longestWord = w.word; }
-          uniq.add(w.word);
-        }
-      }
-    }
-    // avg game score needs total human score, recompute
-    let totalScore = 0, played = 0;
-    for (const r of rows) { let g; try { g = JSON.parse(r.state); } catch { continue; } if (botOnly === 'humans') continue; totalScore += g.scores.human || 0; played++; }
-    st.avgGameScore = played ? Math.round(totalScore / played) : 0;
-    st.avgWordScore = wordCount ? Math.round(wordScoreSum / wordCount) : 0;
-    st.optimalPct = st.totalMoves ? Math.round(st.optimalMoves / st.totalMoves * 100) : 0;
-    st.uniqueWords = uniq.size;
-    st.record = `${st.wins}W-${st.losses}L` + (st.draws ? `-${st.draws}D` : '');
-    return st;
-  }
-  return { aggregate: scope('all'), vsBots: scope('bots'), vsHumans: scope('humans') };
-}
-function friendsOf(userId) {
-  const rows = db.prepare("SELECT * FROM friends WHERE (requester_id=? OR addressee_id=?) AND status='accepted'").all(userId, userId);
-  return rows.map(r => r.requester_id === userId ? r.addressee_id : r.requester_id);
-}
-function friendshipStatus(userId, otherId) {
-  const r = db.prepare("SELECT * FROM friends WHERE (requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?)").get(userId, otherId, otherId, userId);
-  if (!r) return 'none';
-  if (r.status === 'accepted') return 'accepted';
-  return r.requester_id === userId ? 'pending_out' : 'pending_in';
-}
-
-function meStats(user) {
-  const rows = db.prepare("SELECT state FROM games WHERE user_id=? AND json_extract(state,'$.status')='finished'").all(user.id);
-  let played = 0, wins = 0, losses = 0, draws = 0, totalScore = 0;
-  for (const r of rows) {
-    try {
-      const g = JSON.parse(r.state);
-      played++;
-      totalScore += g.scores.human || 0;
-      // Forfeit is a loss regardless of score (the ender loses, per the rules).
-      if (g.winner === 'human') wins++;
-      else if (g.winner === 'bot') losses++;
-      else if (g.winner === 'draw') draws++;
-      else if (g.reason === 'By forfeit') losses++;
-      else if (g.scores.human > g.scores.bot) wins++;
-      else if (g.scores.bot > g.scores.human) losses++;
-      else draws++;
-    } catch {}
-  }
-  const hist = db.prepare('SELECT elo_after, delta, created_at FROM elo_history WHERE user_id=? ORDER BY id DESC LIMIT 50').all(user.id);
-  return { played, wins, losses, draws, avgScore: played ? Math.round(totalScore / played) : 0, eloHistory: hist.reverse() };
-}
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
@@ -843,85 +767,57 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': type });
       return fs.createReadStream(safe).pipe(res);
     }
-    if (pathname === '/api/signup' && req.method === 'POST') {
-      const b = await readBody(req);
-      const email = String(b.email || '').trim().toLowerCase();
-      const username = String(b.username || '').trim();
-      const firstName = String(b.firstName || '').trim();
-      const lastName = String(b.lastName || '').trim();
-      const password = String(b.password || '');
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return sendJson(res, 400, { error: 'Enter a valid email.' });
-      if (!/^[a-z0-9_]{3,}$/.test(username)) return sendJson(res, 400, { error: 'Username: lowercase letters, numbers, and underscores only, at least 3 characters.' });
-      if (!firstName || !lastName) return sendJson(res, 400, { error: 'First and last name are required.' });
-      if (password.length < 8) return sendJson(res, 400, { error: 'Password must be at least 8 characters.' });
-      if (getUserByEmail(email)) return sendJson(res, 400, { error: 'That email is already registered.' });
-      if (getUserByUsername(username)) return sendJson(res, 400, { error: 'That username is taken.' });
-      const salt = crypto.randomBytes(16).toString('hex');
-      const hash = hashPassword(password, salt);
-      const r = db.prepare('INSERT INTO users (email, username, first_name, last_name, password_salt, password_hash, elo, elo_high) VALUES (?,?,?,?,?,?,1000,1000)').run(email, username, firstName, lastName, salt, hash);
-      const user = getUserById(Number(r.lastInsertRowid));
-      const token = crypto.randomBytes(32).toString('hex');
-      db.prepare('INSERT INTO sessions (token, user_id) VALUES (?,?)').run(token, user.id);
-      return sendJson(res, 200, { token, user: publicUser(user) });
-    }
-    if (pathname === '/api/signin' && req.method === 'POST') {
-      const b = await readBody(req);
-      const user = getUserByEmail(String(b.email || '').trim().toLowerCase());
-      if (!user) return sendJson(res, 401, { error: 'Invalid email or password.' });
-      const hash = hashPassword(String(b.password || ''), user.password_salt);
-      if (hash !== user.password_hash) return sendJson(res, 401, { error: 'Invalid email or password.' });
-      const token = crypto.randomBytes(32).toString('hex');
-      db.prepare('INSERT INTO sessions (token, user_id) VALUES (?,?)').run(token, user.id);
-      return sendJson(res, 200, { token, user: publicUser(user) });
-    }
-    if (pathname === '/api/signout' && req.method === 'POST') {
-      const h = req.headers.authorization || '';
-      const m = h.match(/^Bearer\s+(.+)$/);
-      if (m) db.prepare('DELETE FROM sessions WHERE token=?').run(m[1]);
-      return sendJson(res, 200, { ok: true });
-    }
-    if (pathname === '/api/me' && req.method === 'GET') {
-      const user = authUser(req);
-      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      return sendJson(res, 200, { user: publicUser(user), stats: meStats(user), profileStats: profileStatsFor(user.id) });
+    if (pathname === '/api/guest' && req.method === 'POST') {
+      // Per-device guest: no email/password screen in this slice.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const suffix = crypto.randomBytes(6).toString('hex');
+        const username = `guest_${suffix}`;
+        try {
+          const salt = crypto.randomBytes(16).toString('hex');
+          const hash = hashPassword(crypto.randomBytes(32).toString('hex'), salt);
+          const r = await q('INSERT INTO users (email, username, first_name, last_name, password_salt, password_hash, elo, elo_high) VALUES ($1,$2,$3,$4,$5,$6,1000,1000) RETURNING id', [`${username}@guest.local`, username, 'Guest', '', salt, hash]);
+          const user = await getUserById(r.rows[0].id);
+          const token = crypto.randomBytes(32).toString('hex');
+          await q('INSERT INTO sessions (token, user_id) VALUES ($1,$2)', [token, user.id]);
+          return sendJson(res, 200, { token, user: publicUser(user) });
+        } catch (e) {
+          if (e.code === '23505' && attempt < 2) continue;
+          throw e;
+        }
+      }
+      return sendJson(res, 500, { error: 'Could not create guest.' });
     }
     if (pathname === '/api/define' && req.method === 'GET') {
       return sendJson(res, 200, getDefinition(url.searchParams.get('word') || ''));
     }
     if (pathname === '/api/games' && req.method === 'POST') {
-      const user = authUser(req);
+      const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
       const b = await readBody(req);
       const botType = b.bot === 'fishstick' ? 'fishstick' : 'competitive';
       const game = newGame(user, botType);
       // Do NOT run the bot here: the client shows the 5s think, then polls
       // GET, which advances the bot turn (see advanceBotTurnIfReady).
-      saveGameRow(game);
+      await saveGameRow(game);
       const out = serializeGame(game, user);
       if (game.status === 'finished') out.stats = gameStatsPayload(game);
       return sendJson(res, 200, out);
     }
-    if (pathname === '/api/games' && req.method === 'GET') {
-      const user = authUser(req);
-      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      const rows = db.prepare('SELECT id, bot_type, bot_elo, state, created_at FROM games WHERE user_id=? ORDER BY id DESC LIMIT 20').all(user.id);
-      return sendJson(res, 200, rows.map(r => { const g = JSON.parse(r.state); return { id: r.id, botType: r.bot_type, botElo: r.bot_elo, status: g.status, reason: g.reason, scores: g.scores, createdAt: r.created_at }; }));
-    }
     const gameMatch = pathname.match(/^\/api\/games\/(\d+)(?:\/(validate|play|pass|forfeit|shuffle))?$/);
     if (gameMatch) {
-      const user = authUser(req);
+      const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      const game = loadGameForUser(user, gameMatch[1]);
+      const game = await loadGameForUser(user, gameMatch[1]);
       if (!game) return sendJson(res, 404, { error: 'Game not found.' });
       const action = gameMatch[2];
       if (req.method === 'GET' && !action) {
         // Auto-advance timeout skips on read, so a timed-out player does not block the game.
         if (game.status === 'active') {
-          advanceBotTurnIfReady(game, user);
+          await advanceBotTurnIfReady(game, user);
           settleClock(game);
           let guard = 0;
           while (game.status === 'active' && game.clocks[game.turn] <= 0 && guard++ < 5) {
-            if (game.clocks.human <= 0 && game.clocks.bot <= 0) { finishIfNeeded(game, user); break; }
+            if (game.clocks.human <= 0 && game.clocks.bot <= 0) { await finishIfNeeded(game, user); break; }
             game.turn = game.turn === 'human' ? 'bot' : 'human';
             game.turnStartedAt = Date.now();
             if (game.turn === 'bot') {
@@ -931,10 +827,10 @@ const server = http.createServer(async (req, res) => {
                 if (moved) stepBotClockTo20sMark(game);
                 game.botThinkUntil = null;
               }
-              if (finishIfNeeded(game, user)) break;
+              if (await finishIfNeeded(game, user)) break;
             }
           }
-          saveGameRow(game);
+          await saveGameRow(game);
         }
         const out = serializeGame(game, user);
         if (game.status === 'finished') out.stats = gameStatsPayload(game);
@@ -948,7 +844,7 @@ const server = http.createServer(async (req, res) => {
         const c = [...rack].sort().join('');
         if (a !== c) return sendJson(res, 400, { error: 'Rack does not match.' });
         game.humanRack = rack.map(String);
-        saveGameRow(game);
+        await saveGameRow(game);
         return sendJson(res, 200, serializeGame(game, user));
       }
       if (req.method === 'POST' && action === 'validate') {
@@ -966,7 +862,7 @@ const server = http.createServer(async (req, res) => {
         if (game.clocks.human <= 0) {
           // Timed out: skip human, let the bot keep playing (you cannot win on time).
           startBotTurn(game);
-          saveGameRow(game);
+          await saveGameRow(game);
           const out = serializeGame(game, user);
           if (game.status === 'finished') out.stats = gameStatsPayload(game);
           return sendJson(res, 200, { ...out, timedOut: true });
@@ -980,7 +876,7 @@ const server = http.createServer(async (req, res) => {
         const bestScore = bestMoves.length ? bestMoves[0].score : null;
         applyMove(game, 'human', v, bestScore);
         startBotTurn(game);
-        saveGameRow(game);
+        await saveGameRow(game);
         const out = serializeGame(game, user);
         if (game.status === 'finished') out.stats = gameStatsPayload(game);
         return sendJson(res, 200, out);
@@ -998,107 +894,24 @@ const server = http.createServer(async (req, res) => {
         if (game.consecutivePasses >= 2) {
           game.botThinkUntil = null;
           const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';
-          endGame(game, user, 'Final score', winner);
+          await endGame(game, user, 'Final score', winner);
         } else {
           // Bot turn is pending: client shows 5s think, then GET advances it.
         }
-        saveGameRow(game);
+        await saveGameRow(game);
         const out = serializeGame(game, user);
         if (game.status === 'finished') out.stats = gameStatsPayload(game);
         return sendJson(res, 200, out);
       }
       if (req.method === 'POST' && action === 'forfeit') {
         if (game.status !== 'active') return sendJson(res, 400, { error: 'Game is finished.' });
-        endGame(game, user, 'By forfeit', 'bot');
+        await endGame(game, user, 'By forfeit', 'bot');
         const out = serializeGame(game, user);
         out.stats = gameStatsPayload(game);
         return sendJson(res, 200, out);
       }
     }
 
-    // ---- Profile / Friends (v1 tabs; Play Friends games stay disabled) ----
-    if (pathname === '/api/me/update' && req.method === 'POST') {
-      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      const b = await readBody(req);
-      const firstName = String(b.firstName || '').trim(), lastName = String(b.lastName || '').trim();
-      const username = String(b.username || '').trim(), email = String(b.email || '').trim().toLowerCase();
-      if (!firstName || !lastName) return sendJson(res, 400, { error: 'First and last name are required.' });
-      if (!/^[a-z0-9_]{3,}$/.test(username)) return sendJson(res, 400, { error: 'Username: lowercase letters, numbers, and underscores only, at least 3 characters.' });
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return sendJson(res, 400, { error: 'Enter a valid email.' });
-      const byU = getUserByUsername(username); if (byU && byU.id !== user.id) return sendJson(res, 400, { error: 'That username is taken.' });
-      const byE = getUserByEmail(email); if (byE && byE.id !== user.id) return sendJson(res, 400, { error: 'That email is already registered.' });
-      let photo = user.photo_data;
-      if (b.photoData === null) photo = null;
-      else if (typeof b.photoData === 'string' && b.photoData.startsWith('data:image/')) {
-        if (b.photoData.length > 500000) return sendJson(res, 400, { error: 'Photo is too large.' });
-        photo = b.photoData;
-      }
-      db.prepare('UPDATE users SET first_name=?, last_name=?, username=?, email=?, photo_data=? WHERE id=?').run(firstName, lastName, username, email, photo, user.id);
-      return sendJson(res, 200, { user: publicUser(getUserById(user.id)) });
-    }
-    if (pathname === '/api/me/password' && req.method === 'POST') {
-      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      const b = await readBody(req);
-      if (hashPassword(String(b.current || ''), user.password_salt) !== user.password_hash) return sendJson(res, 400, { error: 'Current password is incorrect.' });
-      if (String(b.new || '').length < 8) return sendJson(res, 400, { error: 'New password must be at least 8 characters.' });
-      const salt = crypto.randomBytes(16).toString('hex');
-      db.prepare('UPDATE users SET password_salt=?, password_hash=? WHERE id=?').run(salt, hashPassword(String(b.new), salt), user.id);
-      return sendJson(res, 200, { ok: true });
-    }
-    if (pathname === '/api/friends' && req.method === 'GET') {
-      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      const all = db.prepare("SELECT * FROM friends WHERE requester_id=? OR addressee_id=? ORDER BY id DESC").all(user.id, user.id);
-      const out = all.map(r => {
-        const otherId = r.requester_id === user.id ? r.addressee_id : r.requester_id;
-        const o = getUserById(otherId); if (!o) return null;
-        return { id: otherId, firstName: o.first_name, lastName: o.last_name, username: o.username, elo: o.elo, hasPhoto: !!o.photo_data, photoData: o.photo_data || null, status: r.status, direction: r.requester_id === user.id ? 'out' : 'in' };
-      }).filter(Boolean);
-      return sendJson(res, 200, { friends: out });
-    }
-    if (pathname === '/api/friends/leaderboard' && req.method === 'GET') {
-      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      const scope = url.searchParams.get('scope') === 'friends' ? 'friends' : 'global';
-      let users;
-      if (scope === 'friends') {
-        const ids = new Set([user.id, ...friendsOf(user.id)]);
-        users = db.prepare('SELECT * FROM users ORDER BY elo DESC').all().filter(u => ids.has(u.id));
-      } else {
-        users = db.prepare('SELECT * FROM users ORDER BY elo DESC').all();
-      }
-      const rows = users.map((u, i) => ({ rank: i + 1, id: u.id, firstName: u.first_name, lastName: u.last_name, username: u.username, elo: u.elo, hasPhoto: !!u.photo_data, photoData: u.photo_data || null, isYou: u.id === user.id, friendship: u.id === user.id ? 'you' : friendshipStatus(user.id, u.id) }));
-      return sendJson(res, 200, { scope, rows });
-    }
-    if (pathname === '/api/friends/search' && req.method === 'GET') {
-      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      const q = (url.searchParams.get('q') || '').trim().toLowerCase();
-      if (!q) return sendJson(res, 200, { results: [] });
-      const users = db.prepare("SELECT * FROM users WHERE id != ? AND (LOWER(username) LIKE ? OR LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ?) ORDER BY elo DESC LIMIT 20").all(user.id, `%${q}%`, `%${q}%`, `%${q}%`);
-      return sendJson(res, 200, { results: users.map(u => ({ id: u.id, firstName: u.first_name, lastName: u.last_name, username: u.username, elo: u.elo, hasPhoto: !!u.photo_data, photoData: u.photo_data || null, friendship: friendshipStatus(user.id, u.id) })) });
-    }
-    if (pathname === '/api/friends/request' && req.method === 'POST') {
-      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      const b = await readBody(req); const otherId = Number(b.userId);
-      const other = getUserById(otherId); if (!other || otherId === user.id) return sendJson(res, 400, { error: 'User not found.' });
-      const st = friendshipStatus(user.id, otherId);
-      if (st === 'accepted') return sendJson(res, 200, { ok: true, status: 'accepted' });
-      if (st === 'pending_in') { db.prepare("UPDATE friends SET status='accepted' WHERE requester_id=? AND addressee_id=?").run(otherId, user.id); return sendJson(res, 200, { ok: true, status: 'accepted' }); }
-      if (st === 'pending_out') return sendJson(res, 200, { ok: true, status: 'pending' });
-      db.prepare('INSERT INTO friends (requester_id, addressee_id, status) VALUES (?,?,?)').run(user.id, otherId, 'pending');
-      return sendJson(res, 200, { ok: true, status: 'pending' });
-    }
-    if (pathname === '/api/friends/respond' && req.method === 'POST') {
-      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      const b = await readBody(req); const otherId = Number(b.userId);
-      if (b.accept) db.prepare("UPDATE friends SET status='accepted' WHERE requester_id=? AND addressee_id=? AND status='pending'").run(otherId, user.id);
-      else db.prepare("DELETE FROM friends WHERE requester_id=? AND addressee_id=? AND status='pending'").run(otherId, user.id);
-      return sendJson(res, 200, { ok: true });
-    }
-    if (pathname === '/api/friends/remove' && req.method === 'POST') {
-      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      const b = await readBody(req); const otherId = Number(b.userId);
-      db.prepare("DELETE FROM friends WHERE ((requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?)) AND status='accepted'").run(user.id, otherId, otherId, user.id);
-      return sendJson(res, 200, { ok: true });
-    }
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));
   } catch (e) {
@@ -1106,7 +919,9 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 500, { error: 'Server error: ' + e.message });
   }
 });
-server.listen(PORT, () => {
-  console.log(`Duello v1 listening on http://localhost:${PORT}`);
-  console.log(`Dictionary: ${WORDS.size} words; definitions bundled: ${Object.keys(DEFS).length}`);
-});
+initDb().then(() => {
+  server.listen(PORT, () => {
+    console.log(`Duello bot-play listening on http://localhost:${PORT}`);
+    console.log(`Dictionary: ${WORDS.size} words; definitions bundled: ${Object.keys(DEFS).length}`);
+  });
+}).catch(e => { console.error('Postgres init failed:', e.message); process.exit(1); });

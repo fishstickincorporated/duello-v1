@@ -1,3 +1,13 @@
+# Duello bot-play slice — Postgres, no login (NOT duello-v1)
+
+> This folder is a separate slice, not the live SQLite version in
+> ~/workspace/duello-v1/. Read BOTPLAY.md first — it is the guide for
+> this slice. The rest of this README describes the original v1 and is
+> NOT accurate for this slice where it says SQLite, email/password
+> accounts, friends, or profile: this slice has no login screen, no
+> friends/profile/leaderboard, and its data lives in Postgres via
+> DATABASE_URL only.
+
 # Duello v1 — standalone production app (bot play only)
 
 A standalone Duello 1v1 word game, built outside Muse, with real account

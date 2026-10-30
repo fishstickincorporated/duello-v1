@@ -1,3 +1,8 @@
+# NOTE for the bot-play slice: this guide is a leftover from the v1 copy
+# and is NOT the guide for this slice — see BOTPLAY.md instead. In
+# particular, this slice does NOT use SQLite, does NOT need a persistent
+# disk, and requires DATABASE_URL (Postgres) at startup.
+
 # Deploying Duello v1 — a slow, first-timer guide
 
 This guide is for putting Duello v1 on the internet so you can open it

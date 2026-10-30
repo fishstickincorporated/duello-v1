@@ -1,3 +1,6 @@
+# NOTE for the bot-play slice: this file is NOT used here — see BOTPLAY.md.
+# It is a leftover from the v1 copy. The bot-play slice uses Postgres via
+# DATABASE_URL and needs no volume mount at /app/data.
 # Fly.io config for Duello v1 — for LATER, not for the free first step.
 # Fly.io has no free tier for new accounts (see DEPLOY.md): new signups
 # get a short trial, then a card and pay-as-you-go are required.

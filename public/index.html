@@ -1,24 +1,8 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Duello v1</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css"></head>
+<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css"></head>
 <body><div id="app">
-  <section id="authScreen" class="screen">
-    <img class="logo-img" src="/assets/logo.png" alt="DUELLO">
-    <h1 class="auth-heading" id="authHeading">Create an account</h1>
-    <form id="authForm">
-      <input id="email" type="email" placeholder="Email" autocomplete="email" required>
-      <input id="firstName" placeholder="First name" autocomplete="given-name">
-      <input id="lastName" placeholder="Last name" autocomplete="family-name">
-      <input id="username" placeholder="Username" autocomplete="username">
-      <input id="password" type="password" placeholder="Password" autocomplete="new-password" required>
-      <p id="passwordHint" class="hint hidden">Password must be at least 8 characters.</p>
-      <input id="confirmPassword" type="password" placeholder="Confirm password" autocomplete="new-password">
-      <button class="btn primary" id="authSubmit" type="submit">Sign Up</button>
-      <p id="authError" class="error"></p>
-    </form>
-    <button class="link" id="authToggle">Already have an account? Sign in</button>
-  </section>
 
   <section id="homeScreen" class="screen hidden">
     <img class="logo-img home-logo" src="/assets/logo.png" alt="DUELLO">
@@ -36,79 +20,6 @@
       <button class="bot-opt" id="fishstickBtn"><img class="sym fishstick-img" src="/assets/fishstick.jpeg" alt="Fishstick"><span class="label">Fishstick</span></button>
     </div>
     <button class="back-pill" id="botBackBtn">← Back</button>
-  </section>
-
-  <section id="friendsScreen" class="screen hidden">
-    <div class="search-wrap">
-      <span class="search-icon">🔍</span>
-      <input id="friendSearch" type="text" placeholder="Search players" autocomplete="off">
-    </div>
-    <div id="friendSearchResults" class="search-results"></div>
-    <div id="friendRequests" class="requests"></div>
-    <div class="leaderboard-head">
-      <span class="leaderboard-label">LEADERBOARD</span>
-      <button class="pencil" id="friendsPencil" title="Delete friends">✏️</button>
-    </div>
-    <div class="leaderboard-tabs">
-      <button class="lb-tab active" id="lbFriendsTab">Friends</button>
-      <button class="lb-tab" id="lbGlobalTab">Global</button>
-    </div>
-    <div id="leaderboardList" class="leaderboard"></div>
-    <div id="noFriendsCard" class="no-friends-card hidden">No friends yet…</div>
-    <p class="small">Play Friends challenges are greyed out in v1 — this tab is for your friends list and leaderboard only.</p>
-  </section>
-
-  <section id="profileScreen" class="screen hidden">
-    <div class="profile-top">
-      <div class="pfp huge" id="profilePfp"></div>
-      <div class="profile-name" id="profileName"></div>
-      <div class="profile-username" id="profileUsername"></div>
-      <div class="profile-joined" id="profileJoined"></div>
-      <button class="gear-btn" id="gearBtn" title="Edit profile">⚙️</button>
-    </div>
-    <div class="elo-box">
-      <div><span class="elo-label">Elo</span><div class="elo-big" id="profileElo"></div></div>
-      <div><span class="elo-label">All-time high</span><div class="elo-big" id="profileEloHigh"></div></div>
-      <div class="chart-toggles">
-        <button class="chart-toggle active" data-range="1m">1 month</button>
-        <button class="chart-toggle" data-range="1y">1 year</button>
-        <button class="chart-toggle" data-range="all">All time</button>
-      </div>
-      <canvas id="eloChart" width="340" height="110"></canvas>
-    </div>
-    <div class="stats-board">
-      <div class="stats-tabs">
-        <button class="stats-tab active" data-scope="aggregate">Aggregate</button>
-        <button class="stats-tab" data-scope="vsHumans">Vs Humans</button>
-        <button class="stats-tab" data-scope="vsBots">Vs Bots</button>
-      </div>
-      <div id="statsList" class="stats-list"></div>
-    </div>
-    <button class="link" id="profileSignOutBtn">Sign out</button>
-  </section>
-
-  <section id="profileEditScreen" class="screen hidden">
-    <h1 class="auth-heading">Edit profile</h1>
-    <form id="profileEditForm">
-      <input id="editFirstName" placeholder="First name">
-      <input id="editLastName" placeholder="Last name">
-      <input id="editUsername" placeholder="Username">
-      <div class="email-row"><input id="editEmail" type="email" placeholder="Email"><span class="verified">☑️</span></div>
-      <button class="btn secondary" type="button" id="changePhotoBtn">Change profile picture</button>
-      <input id="photoInput" type="file" accept="image/*" class="hidden">
-      <button class="btn secondary" type="button" id="removePhotoBtn">Remove profile picture</button>
-      <button class="btn secondary" type="button" id="changePasswordBtn">Change password</button>
-      <div id="passwordChangeFields" class="hidden">
-        <input id="currentPassword" type="password" placeholder="Current password">
-        <input id="newPassword" type="password" placeholder="New password">
-        <input id="confirmNewPassword" type="password" placeholder="Confirm new password">
-      </div>
-      <p id="editError" class="error"></p>
-      <div class="edit-actions">
-        <button class="btn cancel" type="button" id="editCancelBtn">Cancel</button>
-        <button class="btn primary" type="submit" id="editSaveBtn">Save</button>
-      </div>
-    </form>
   </section>
 
   <section id="gameScreen" class="screen hidden">
@@ -151,8 +62,6 @@
 
   <nav id="tabBar" class="tab-bar hidden" aria-label="Main navigation">
     <button class="tab-btn active" id="tabHome" aria-label="Home"><svg viewBox="0 0 24 24" width="28" height="28"><path d="M3 11 L12 3 L21 11 L21 21 L14 21 L14 14 L10 14 L10 21 L3 21 Z" fill="#9aa3b2"/><rect x="10.5" y="16" width="3" height="5" fill="#4da3ff"/></svg></button>
-    <button class="tab-btn" id="tabFriends" aria-label="Friends"><svg viewBox="0 0 24 24" width="28" height="28"><circle cx="8" cy="8" r="3" fill="#9aa3b2"/><circle cx="16" cy="8" r="3" fill="#9aa3b2"/><path d="M3 20 C3 16 5 14 8 14 C11 14 13 16 13 20 Z" fill="#9aa3b2"/><path d="M11 20 C11 16 13 14 16 14 C19 14 21 16 21 20 Z" fill="#7d8597"/></svg></button>
-    <button class="tab-btn" id="tabProfile" aria-label="Profile"><span id="tabProfileIcon"><svg viewBox="0 0 24 24" width="28" height="28"><circle cx="12" cy="8" r="4" fill="#9aa3b2"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#4da3ff" opacity="0.85"/></svg></span></button>
   </nav>
 </div>
 <script src="/app.js"></script></body></html>

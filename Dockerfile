@@ -1,19 +1,18 @@
-# Duello v1 — Docker image for hosted deployment (Render, Fly.io, etc.)
-# Runs the existing server exactly as it runs locally:
+# Duello bot-play slice — Docker image for hosted deployment (Render, etc.)
+# Runs the server exactly as it runs locally:
 #   Node 22, `node server.js`, port from $PORT (default 3000),
-#   SQLite database at data/duello.db, dictionary from data/words.txt
-#   and data/definitions.json.
+#   Postgres via DATABASE_URL (REQUIRED — the server exits at startup
+#   without it; there is no SQLite fallback in this slice),
+#   dictionary from data/words.txt and data/definitions.json.
 #
-# Why there is a data-seed copy: a persistent volume (Fly.io) or disk
-# (paid Render) mounted at /app/data would hide the dictionary files
-# copied into the image, because a fresh volume starts empty. The
-# entrypoint below copies the dictionary into the volume on first boot
-# if it is missing, so the app still starts. Without that, the server
-# would fail to load data/words.txt on a fresh volume.
+# No persistent disk is needed in this slice: guest/game data lives in
+# Postgres, not in /app/data. The dictionary files are copied into the
+# image, and the entrypoint only re-copies them if a mount ever hides
+# them. The old SQLite file data/duello.db does not exist here.
 FROM node:22-slim
 WORKDIR /app
 
-# No runtime dependencies (server.js uses only Node built-ins), so
+# Runtime dependency is `pg` (Postgres client) in package.json, so
 # --omit=dev is enough. The dev dependencies in package.json are only
 # for building the dictionary, not for running the game.
 COPY package.json package-lock.json ./
@@ -23,8 +22,8 @@ COPY server.js ./
 COPY public ./public
 COPY db ./db
 # Dictionary data, twice on purpose: /app/data for plain runs,
-# /app/data-seed so a fresh persistent volume can be seeded.
-# data/duello.db and data/WORD.LST are excluded by .dockerignore.
+# /app/data-seed so a mount hiding /app/data can be re-seeded.
+# data/WORD.LST is excluded by .dockerignore; there is no .db file here.
 COPY data ./data
 COPY data ./data-seed
 COPY docker-entrypoint.sh ./

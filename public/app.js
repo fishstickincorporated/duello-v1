@@ -335,13 +335,13 @@ $('shuffleBtn').onclick = async () => {
     tiles.forEach(t => {
       const r = t.getBoundingClientRect();
       const dx = centre - (r.left + r.width / 2);
-      t.style.transition = 'transform 220ms ease-in, opacity 220ms ease-in';
+      t.style.transition = 'transform 90ms ease-in, opacity 90ms ease-in';
       t.style.transform = `translateX(${dx}px) scale(0.6)`;
       t.style.opacity = '0.6';
     });
   };
   fold([...rackEl.querySelectorAll('.tile')]);
-  await new Promise(r => setTimeout(r, 230));
+  await new Promise(r => setTimeout(r, 100));
   try {
     game = await api(`/api/games/${game.id}/shuffle`, { method: 'POST', body: JSON.stringify({ rack }) }); gameFetchAt = Date.now(); renderGame();
     // Fold out: new tiles start collapsed at the centre and expand to
@@ -357,14 +357,14 @@ $('shuffleBtn').onclick = async () => {
     });
     requestAnimationFrame(() => requestAnimationFrame(() => {
       newTiles.forEach(t => {
-        t.style.transition = 'transform 260ms ease-out, opacity 260ms ease-out';
+        t.style.transition = 'transform 120ms ease-out, opacity 120ms ease-out';
         t.style.transform = ''; t.style.opacity = '';
       });
-      setTimeout(() => newTiles.forEach(t => { t.style.transition = ''; }), 300);
+      setTimeout(() => newTiles.forEach(t => { t.style.transition = ''; }), 150);
     }));
   } catch {
     // Shuffle failed server-side: unfold the original tiles back out.
-    [...rackEl.querySelectorAll('.tile')].forEach(t => { t.style.transition = 'transform 220ms ease-out, opacity 220ms ease-out'; t.style.transform = ''; t.style.opacity = ''; });
+    [...rackEl.querySelectorAll('.tile')].forEach(t => { t.style.transition = 'transform 120ms ease-out, opacity 120ms ease-out'; t.style.transform = ''; t.style.opacity = ''; });
   }
   shuffling = false;
 };
@@ -376,20 +376,18 @@ function armButton(btn, label, fn) {
 }
 $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => { botTurnTapTime = Date.now(); game = await api(`/api/games/${game.id}/pass`, { method: 'POST' }); gameFetchAt = Date.now(); pending = []; renderGame(); beginBotTurn(); });
 $('forfeitBtn').onclick = armButton($('forfeitBtn'), 'Forfeit', async () => { game = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' }); gameFetchAt = Date.now(); pending = []; renderGame(); });
-$('playBtn').onclick = async () => {
-  // Unstick first: if a drag ever stranded capture/ghost, this tap would
-  // otherwise go to the captured tile instead of Play, which is exactly
-  // the "tap elsewhere, then Play works" pattern. Cleanup is synchronous,
-  // so the same tap then plays.
-  cleanupStuckDrag();
+async function doPlay() {
+  // Unstick first, and clear the drag's click-suppression flag: after a
+  // drag, suppressNextClick stayed true until an empty cell was tapped,
+  // and the Play tap itself was the thing that had to wait for a
+  // validation round-trip to show any feedback.
+  cleanupStuckDrag(); suppressNextClick = false;
   if (!game || game.clocks.turn !== 'human' || !pending.length || playInFlight) return;
-  // Single tap, always: if a check is in flight, wait for it, but never
-  // refuse the tap based on a possibly stale client verdict — the server
-  // play call validates authoritatively and will error if the play is
-  // truly invalid. That was the second double-tap path: a stale "invalid"
-  // verdict blocking a valid play until a second tap.
-  if (validateInFlight) { try { await validateInFlight; } catch {} }
-  // Grey immediately on tap, so a second tap cannot double-submit.
+  // Do NOT wait for a validation round-trip: the server play call
+  // validates authoritatively and will error if the play is truly
+  // invalid. Waiting made the first tap look dead (no feedback at all
+  // until validate returned), so users tapped again or tapped elsewhere
+  // and only then saw the play go through.
   playInFlight = true; $('playBtn').disabled = true; $('playBtn').classList.remove('validating', 'play-valid', 'play-invalid');
   $('status').textContent = 'Bot thinking…';
   try {
@@ -398,7 +396,14 @@ $('playBtn').onclick = async () => {
     gameFetchAt = Date.now(); pending = []; renderGame(); beginBotTurn(); loadMe();
   } catch (e) { $('status').textContent = e.message; renderGame(); }
   finally { playInFlight = false; }
-};
+}
+// Fire on pointerdown, not only on click: after a drag, iOS can swallow
+// the synthesised click for the first tap, which is exactly the
+// "double-tap or tap elsewhere first" pattern. Pointerdown fires on the
+// first touch, and the following click is ignored so one tap = one play.
+let playPointerAt = 0;
+$('playBtn').addEventListener('pointerdown', e => { playPointerAt = Date.now(); doPlay(); });
+$('playBtn').addEventListener('click', e => { if (Date.now() - playPointerAt < 1000) return; doPlay(); });
 function showStatWindow(stats) {
   const w = $('statWindow'); w.classList.remove('hidden');
   $('gameDim').classList.add('dimmed');
@@ -564,10 +569,26 @@ function enableRackDrag(el, idx) {
       return;
     }
     if (myDrop && myDrop.kind === 'rack' && myDrop.hoverIdx !== idx) {
+      // Optimistic, synchronous reorder: the old code cleared the rack
+      // shift in cleanup(), then awaited the server, then re-rendered —
+      // so for that network round-trip the tiles sat back in their old
+      // order (the split-second revert), then jumped to the new order.
+      // Apply locally and render NOW, so the new order is what the user
+      // sees on release, and sync to the server in the background.
       const rack = [...game.humanRack];
       const [tile] = rack.splice(idx, 1); rack.splice(myDrop.hoverIdx, 0, tile);
-      try { game = await api(`/api/games/${game.id}/shuffle`, { method: 'POST', body: JSON.stringify({ rack }) }); gameFetchAt = Date.now(); } catch {}
-      renderGame();
+      // Keep any already-placed tiles pointing at the right rack slot:
+      // their rackIndex must follow the same move, or the rack spacer
+      // for a placed tile lands on the wrong slot after the reorder.
+      pending.forEach(p => {
+        if (p.rackIndex === idx) p.rackIndex = myDrop.hoverIdx;
+        else if (idx < myDrop.hoverIdx && p.rackIndex > idx && p.rackIndex <= myDrop.hoverIdx) p.rackIndex--;
+        else if (idx > myDrop.hoverIdx && p.rackIndex < idx && p.rackIndex >= myDrop.hoverIdx) p.rackIndex++;
+      });
+      game.humanRack = rack; renderGame();
+      api(`/api/games/${game.id}/shuffle`, { method: 'POST', body: JSON.stringify({ rack }) })
+        .then(d => { game = d; gameFetchAt = Date.now(); renderGame(); })
+        .catch(() => {});
     }
     // Dropped elsewhere: cancel, keep the tile where it was. No render
     // needed — the shift was only a transform, clearing it restores order.

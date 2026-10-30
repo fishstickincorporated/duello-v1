@@ -54,7 +54,7 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .rack .tile{width:52px;height:57px;flex:1;font-size:24px;transition:transform 180ms ease,opacity 180ms ease}
 .rack.greyed{opacity:.55}
 .controls{display:flex;gap:6px;margin-top:10px}
-.controls button{flex:1;padding:11px 4px;background:#2f7de1;color:#fff;font-size:14px}
+.controls button{flex:1;padding:11px 4px;background:#2f7de1;color:#fff;font-size:14px;touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent}
 .controls button:disabled{background:#3a3f4b;color:#9aa3b2}
 #playBtn:not(:disabled){background:#2ea043}
 #playBtn.play-valid{background:#2ea043}

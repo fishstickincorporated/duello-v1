@@ -167,18 +167,16 @@ function validatePlay(board, rack, placements, premiums, isFirst) {
   const sameCol = placements.every(p => p.col === placements[0].col);
   if (!sameRow && !sameCol) return { valid: false, error: 'all tiles must be connected' };
   const dir = sameRow ? 'H' : 'V';
-  // No gaps in the main line, and main word must be maximal (no board tile just outside).
+  // No gaps in the main line. Note: there is deliberately NO "maximal
+  // placements" check here. A board tile immediately outside the placements
+  // is not a disconnection — it is an extension, and wordAt() below expands
+  // through it, so the word actually formed IS maximal. The old check
+  // rejected every extension play (e.g. M to the left of A to make MA, with
+  // EM as a cross word) with the misleading "All tiles must be connected."
   const sorted = placements.slice().sort((a, b) => dir === 'H' ? a.col - b.col : a.row - b.row);
   const lineIdx = dir === 'H' ? sorted[0].row : sorted[0].col;
   const lo = dir === 'H' ? sorted[0].col : sorted[0].row;
   const hi = dir === 'H' ? sorted[sorted.length - 1].col : sorted[sorted.length - 1].row;
-  if (dir === 'H') {
-    if (lo > 0 && board[lineIdx][lo - 1]) return { valid: false, error: 'all tiles must be connected' };
-    if (hi < SIZE - 1 && board[lineIdx][hi + 1]) return { valid: false, error: 'all tiles must be connected' };
-  } else {
-    if (lo > 0 && board[lo - 1][lineIdx]) return { valid: false, error: 'all tiles must be connected' };
-    if (hi < SIZE - 1 && board[hi + 1][lineIdx]) return { valid: false, error: 'all tiles must be connected' };
-  }
   // Build trial board
   const trial = board.map(row => row.slice());
   for (const p of placements) trial[p.row][p.col] = p.letter;

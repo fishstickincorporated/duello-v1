@@ -68,7 +68,7 @@ async function startGame(bot) {
   currentBot = bot;
   game = await api('/api/games', { method: 'POST', body: JSON.stringify({ bot }) });
   gameFetchAt = Date.now(); pending = []; selectedRack = null; armed = {};
-  show('gameScreen'); renderGame();
+  show('gameScreen'); renderGame(); beginBotTurn();
 }
 function boardCell(r, c) { return game.board[r][c]; }
 function renderGame() {
@@ -100,11 +100,11 @@ function renderGame() {
     if (letter) {
       const t = document.createElement('div'); t.className = 'tile' + (pend ? ' pending' : '');
       t.innerHTML = `${letter}<span class="val">${({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter]}</span>`;
-      if (pend) t.onclick = () => recallTile(pend);
+      if (pend) enablePlacedDrag(t, pend);
       else t.onclick = () => showDefinition(r, c);
       cell.appendChild(t);
     } else {
-      cell.onclick = () => { if (selectedRack !== null) placeTile(r, c); };
+      cell.onclick = () => { if (suppressNextClick) { suppressNextClick = false; return; } if (selectedRack !== null) placeTile(r, c); };
     }
     boardEl.appendChild(cell);
   }
@@ -115,7 +115,7 @@ function renderGame() {
     if (pending.some(p => p.rackIndex === idx)) { const s = document.createElement('div'); s.style.flex = '1'; rackEl.appendChild(s); return; }
     const t = document.createElement('div'); t.className = 'tile'; t.dataset.idx = idx;
     t.innerHTML = `${letter}<span class="val">${({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter]}</span>`;
-    t.onclick = () => { selectedRack = idx; [...rackEl.children].forEach(ch => ch.style.outline = ''); t.style.outline = '2px solid #ffd166'; };
+    if (selectedRack === idx) t.style.outline = '2px solid #ffd166';
     enableRackDrag(t, idx);
     rackEl.appendChild(t);
   });
@@ -138,6 +138,45 @@ function tickClocks() {
   $('clockHuman').textContent = fmtClock(h); $('clockBot').textContent = fmtClock(b);
 }
 setInterval(tickClocks, 100);
+
+let botTimer = null, suppressNextClick = false;
+function parseClockText(txt) { const m = /^([0-9]+):([0-9]{2})$/.exec((txt || '').trim()); return m ? Number(m[1]) * 60000 + Number(m[2]) * 1000 : null; }
+function animateClockRunoff(fromMs, toMs) {
+  if (fromMs === null || toMs === null || fromMs <= toMs) { if (toMs !== null) $('clockBot').textContent = fmtClock(toMs); return; }
+  const steps = Math.max(1, Math.round((fromMs - toMs) / 1000));
+  let i = 0;
+  const iv = setInterval(() => {
+    i++;
+    const v = fromMs - Math.round((fromMs - toMs) * i / steps);
+    $('clockBot').textContent = fmtClock(Math.max(toMs, v));
+    if (i >= steps) { clearInterval(iv); $('clockBot').textContent = fmtClock(toMs); }
+  }, 50);
+}
+async function pollBotTurn() {
+  if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
+  try {
+    const fromMs = parseClockText($('clockBot').textContent);
+    const next = await api(`/api/games/${game.id}`);
+    if (next.clocks.turn === 'bot' && next.status === 'active') {
+      game = next; gameFetchAt = Date.now(); renderGame();
+      const delay = next.botThinkUntil ? Math.max(200, next.botThinkUntil - Date.now()) : 500;
+      if (botTimer) clearTimeout(botTimer);
+      botTimer = setTimeout(pollBotTurn, delay);
+      return;
+    }
+    game = next; gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
+    animateClockRunoff(fromMs, next.clocks.bot);
+    if (next.status === 'active') await loadMe();
+  } catch { /* keep waiting state; a later action / reload will advance it */ }
+}
+function beginBotTurn() {
+  if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
+  $('status').textContent = 'Bot thinking…';
+  if (botTimer) clearTimeout(botTimer);
+  const delay = game.botThinkUntil ? Math.max(0, game.botThinkUntil - Date.now()) : 5000;
+  botTimer = setTimeout(pollBotTurn, delay);
+}
+
 async function updateStatus() {
   if (!game) return;
   if (game.status === 'finished') { $('status').textContent = game.reason || 'Game over'; return; }
@@ -176,9 +215,21 @@ function recallTile(pend) {
   pending = pending.filter(p => p !== pend); renderGame();
 }
 $('recallBtn').onclick = () => { pending = []; selectedRack = null; renderGame(); };
+let shuffling = false;
 $('shuffleBtn').onclick = async () => {
+  if (!game || shuffling) return;
+  // Works on the player's turn AND on the opponent's turn: the rack is the
+  // player's own rack, the shuffle endpoint does not require it to be your
+  // turn, and the greyed opponent-turn rack is opacity-only (not disabled).
   const rack = [...game.humanRack];
   for (let i = rack.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rack[i], rack[j]] = [rack[j], rack[i]]; }
+  const rackEl = $('rack');
+  shuffling = true;
+  [...rackEl.querySelectorAll('.tile')].forEach((t, i) => { t.style.animationDelay = (i * 12) + 'ms'; });
+  rackEl.classList.add('shuffling');
+  await new Promise(r => setTimeout(r, 180));
+  rackEl.classList.remove('shuffling');
+  shuffling = false;
   try { game = await api(`/api/games/${game.id}/shuffle`, { method: 'POST', body: JSON.stringify({ rack }) }); gameFetchAt = Date.now(); renderGame(); } catch {}
 };
 function armButton(btn, label, fn) {
@@ -187,15 +238,14 @@ function armButton(btn, label, fn) {
     armed[btn.id] = false; btn.textContent = label; await fn();
   };
 }
-$('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => { game = await api(`/api/games/${game.id}/pass`, { method: 'POST' }); gameFetchAt = Date.now(); pending = []; renderGame(); });
+$('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => { game = await api(`/api/games/${game.id}/pass`, { method: 'POST' }); gameFetchAt = Date.now(); pending = []; renderGame(); beginBotTurn(); });
 $('forfeitBtn').onclick = armButton($('forfeitBtn'), 'Forfeit', async () => { game = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' }); gameFetchAt = Date.now(); pending = []; renderGame(); });
 $('playBtn').onclick = async () => {
   if (!pending.length) return;
   $('status').textContent = 'Bot thinking…';
-  await new Promise(r => setTimeout(r, 700));
   try {
     game = await api(`/api/games/${game.id}/play`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })) }) });
-    gameFetchAt = Date.now(); pending = []; await loadMe(); renderGame();
+    gameFetchAt = Date.now(); pending = []; await loadMe(); renderGame(); beginBotTurn();
   } catch (e) { $('status').textContent = e.message; }
 };
 function showStatWindow(stats) {
@@ -241,37 +291,128 @@ async function showDefinition(r, c) {
 }
 $('password').addEventListener('input', () => { $('passwordHint').classList.toggle('hidden', !$('password').value); });
 $('profileSignOutBtn').onclick = async () => { try { await api('/api/signout', { method: 'POST' }); } catch {} token = ''; localStorage.removeItem('duello_token'); show('authScreen'); };
-// Rack drag-reorder with sliding: as you drag over another tile, the other
-// tiles slide to an available position (phone app-icon style).
-function enableRackDrag(el, idx) {
-  let dragging = false, startX = 0, hoverIdx = idx;
+// Drag / tap handling.
+// Root cause of bugs 2 and 3: the old code only ever dragged *within* the
+// rack (reorder) and never dropped onto the board at all; and every rack
+// tap called renderGame() in pointerup, which destroyed the tapped element
+// before its click event could fire, so click-to-place selection never stuck.
+function cellAtPoint(x, y) {
+  const cells = [...document.querySelectorAll('#board .cell')];
+  for (let i = 0; i < cells.length; i++) {
+    const rect = cells[i].getBoundingClientRect();
+    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return { row: Math.floor(i / 10), col: i % 10, el: cells[i] };
+  }
+  return null;
+}
+function isCellFree(r, c) {
+  if (!game || game.board[r][c]) return false;
+  return !pending.some(p => p.row === r && p.col === c);
+}
+function nearestEmptyCell(r0, c0) {
+  let best = null, bestD = Infinity;
+  for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+    if (!isCellFree(r, c)) continue;
+    const d = (r - r0) * (r - r0) + (c - c0) * (c - c0);
+    if (d < bestD) { bestD = d; best = { row: r, col: c }; }
+  }
+  return best;
+}
+function clearDropHighlights() { document.querySelectorAll('#board .cell.drop-target').forEach(el => el.classList.remove('drop-target')); }
+function showGhost(letter, x, y) {
   const ghost = $('dragGhost');
-  el.addEventListener('pointerdown', e => { dragging = true; startX = e.clientX; el.setPointerCapture(e.pointerId); });
+  const val = ({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter];
+  ghost.innerHTML = `${letter}<span class="val">${val}</span>`;
+  ghost.classList.remove('hidden');
+  ghost.style.left = x + 'px'; ghost.style.top = y + 'px';
+}
+function enableRackDrag(el, idx) {
+  let dragging = false, moved = false, startX = 0, startY = 0, drop = null;
+  el.addEventListener('pointerdown', e => {
+    dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null;
+    try { el.setPointerCapture(e.pointerId); } catch {}
+  });
   el.addEventListener('pointermove', e => {
     if (!dragging) return;
-    ghost.textContent = game.humanRack[idx]; ghost.classList.remove('hidden');
-    ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px';
-    const rackEl = $('rack');
-    const rect = rackEl.getBoundingClientRect();
-    const rel = (e.clientX - rect.left) / Math.max(1, rect.width);
-    hoverIdx = Math.max(0, Math.min(5, Math.floor(rel * 6)));
-    // Visual slide: reorder rack tiles in the DOM to preview the hover slot.
-    const tiles = [...rackEl.querySelectorAll('.tile')];
-    tiles.forEach((t, i) => { t.style.transform = ''; });
-    // Simple preview: highlight the hover slot tile.
-    tiles.forEach(t => t.style.outline = '');
-    const target = tiles.find(t => Number(t.dataset.idx) === hoverIdx);
-    if (target) target.style.outline = '2px dashed #ffd166';
+    if (Math.hypot(e.clientX - startX, e.clientY - startY) > 8) moved = true;
+    if (!moved) return;
+    suppressNextClick = true;
+    showGhost(game.humanRack[idx], e.clientX, e.clientY);
+    clearDropHighlights();
+    const hit = cellAtPoint(e.clientX, e.clientY);
+    if (hit) {
+      // Snaps to the cell under the pointer if free; if dragged over a placed
+      // tile, snaps to the nearest available space (never recalls that tile).
+      const target = isCellFree(hit.row, hit.col) ? hit : nearestEmptyCell(hit.row, hit.col);
+      if (target) { drop = { kind: 'board', row: target.row, col: target.col }; const cells = document.querySelectorAll('#board .cell'); cells[target.row * 10 + target.col].classList.add('drop-target'); }
+      else drop = null;
+      return;
+    }
+    const rackEl = $('rack'); const rect = rackEl.getBoundingClientRect();
+    if (e.clientY >= rect.top && e.clientY <= rect.bottom && e.clientX >= rect.left && e.clientX <= rect.right) {
+      const rel = (e.clientX - rect.left) / Math.max(1, rect.width);
+      drop = { kind: 'rack', hoverIdx: Math.max(0, Math.min(5, Math.floor(rel * 6))) };
+      const tiles = [...rackEl.querySelectorAll('.tile')];
+      tiles.forEach(t => t.style.outline = '');
+      const target = tiles.find(t => Number(t.dataset.idx) === drop.hoverIdx);
+      if (target) target.style.outline = '2px dashed #ffd166';
+    } else drop = null;
   });
   el.addEventListener('pointerup', async e => {
-    if (!dragging) return; dragging = false; ghost.classList.add('hidden');
-    if (hoverIdx !== idx) {
-      const rack = [...game.humanRack];
-      const [tile] = rack.splice(idx, 1); rack.splice(hoverIdx, 0, tile);
-      try { game = await api(`/api/games/${game.id}/shuffle`, { method: 'POST', body: JSON.stringify({ rack }) }); gameFetchAt = Date.now(); } catch {}
+    if (!dragging) return; dragging = false; $('dragGhost').classList.add('hidden'); clearDropHighlights();
+    if (!moved) {
+      // Tap (not a drag): click-to-place selection. No re-render here — the
+      // old code re-rendered on pointerup and killed the following click.
+      selectedRack = (selectedRack === idx ? null : idx);
+      [...$('rack').querySelectorAll('.tile')].forEach(t => t.style.outline = (Number(t.dataset.idx) === selectedRack ? '2px solid #ffd166' : ''));
+      return;
     }
-    renderGame();
+    if (drop && drop.kind === 'board') {
+      selectedRack = idx;
+      placeTile(drop.row, drop.col);
+      return;
+    }
+    if (drop && drop.kind === 'rack' && drop.hoverIdx !== idx) {
+      const rack = [...game.humanRack];
+      const [tile] = rack.splice(idx, 1); rack.splice(drop.hoverIdx, 0, tile);
+      try { game = await api(`/api/games/${game.id}/shuffle`, { method: 'POST', body: JSON.stringify({ rack }) }); gameFetchAt = Date.now(); } catch {}
+      renderGame();
+    }
+    // Dropped elsewhere: cancel, keep the tile where it was.
   });
+  el.addEventListener('pointercancel', () => { dragging = false; $('dragGhost').classList.add('hidden'); clearDropHighlights(); });
+}
+// Drag a tile that is already placed on the board to a new cell.
+// Tap (no movement) recalls it, exactly as before; a drag moves it.
+function enablePlacedDrag(el, pend) {
+  let dragging = false, moved = false, startX = 0, startY = 0, drop = null;
+  el.addEventListener('pointerdown', e => {
+    dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null;
+    try { el.setPointerCapture(e.pointerId); } catch {}
+  });
+  el.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    if (Math.hypot(e.clientX - startX, e.clientY - startY) > 8) moved = true;
+    if (!moved) return;
+    suppressNextClick = true;
+    showGhost(pend.letter, e.clientX, e.clientY);
+    clearDropHighlights();
+    const hit = cellAtPoint(e.clientX, e.clientY);
+    if (!hit) { drop = null; return; }
+    // The tile's own cell is pending, not a board letter, so it is not free;
+    // nearestEmptyCell therefore snaps to a *different* free cell, never back
+    // onto an occupied cell and never recalling the dragged tile.
+    const target = isCellFree(hit.row, hit.col) ? hit : nearestEmptyCell(hit.row, hit.col);
+    if (target && !(target.row === pend.row && target.col === pend.col)) {
+      drop = { row: target.row, col: target.col };
+      document.querySelectorAll('#board .cell')[target.row * 10 + target.col].classList.add('drop-target');
+    } else drop = null;
+  });
+  el.addEventListener('pointerup', () => {
+    if (!dragging) return; dragging = false; $('dragGhost').classList.add('hidden'); clearDropHighlights();
+    if (!moved) { recallTile(pend); return; }
+    if (drop) { pend.row = drop.row; pend.col = drop.col; renderGame(); }
+  });
+  el.addEventListener('pointercancel', () => { dragging = false; $('dragGhost').classList.add('hidden'); clearDropHighlights(); });
 }
 
 // ---------- Profile tab ----------

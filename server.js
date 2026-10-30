@@ -440,6 +440,9 @@ function newGame(user, botType) {
     clocks: { human: 300000, bot: 300000 },
     turn: Math.random() < 0.5 ? 'human' : 'bot',
     turnStartedAt: Date.now(),
+    // Bot think: bot does NOT move instantly. Client shows a 5s wind-down,
+    // then fetches; the server only runs the bot once think time has elapsed.
+    botThinkUntil: null,
     status: 'active', reason: null,
     consecutivePasses: 0, consecutiveNoMoves: 0,
     moves: { human: [], bot: [] },
@@ -447,6 +450,7 @@ function newGame(user, botType) {
     lastHuman: null, lastBot: null,
     eloDeltaHuman: null, eloDeltaBot: null, eloAfterHuman: null,
   };
+  if (game.turn === 'bot') game.botThinkUntil = Date.now() + 5000;
   return game;
 }
 function stripBoard(board) { return board.map(row => row.slice()); }
@@ -463,6 +467,7 @@ function serializeGame(game, user) {
     board: stripBoard(game.board), premiums: game.premiums,
     humanRack: game.humanRack, botRackCount: game.botRack.length,
     scores: game.scores, clocks: { human: clockHuman, bot: clockBot, turn: game.turn, turnStartedAt: game.turnStartedAt },
+    botThinkUntil: game.botThinkUntil || null,
     status: game.status, reason: game.reason,
     lastCells: game.lastCells, lastWord: game.lastWord, lastScore: game.lastScore, lastBy: game.lastBy,
     lastHuman: game.lastHuman, lastBot: game.lastBot,
@@ -589,6 +594,28 @@ function runBotTurn(game) {
   game.turn = 'human'; game.turnStartedAt = Date.now();
   return true;
 }
+
+function stepBotClockTo20sMark(game) {
+  if (game.clocks.bot > 0) game.clocks.bot = Math.floor((game.clocks.bot - 1) / 20000) * 20000;
+  else game.clocks.bot = 0;
+}
+function advanceBotTurnIfReady(game, user) {
+  // Returns true if the bot actually moved (clock should step), false otherwise.
+  if (game.status !== 'active' || game.turn !== 'bot') return false;
+  const until = game.botThinkUntil || (game.turnStartedAt + 5000);
+  if (Date.now() < until) return false;
+  if (game.clocks.bot <= 0) { game.turn = 'human'; game.turnStartedAt = Date.now(); game.botThinkUntil = null; return false; }
+  settleClock(game);
+  const moved = runBotTurn(game);
+  if (moved) stepBotClockTo20sMark(game);
+  game.botThinkUntil = null;
+  if (finishIfNeeded(game, user)) { /* finished */ }
+  return moved;
+}
+function startBotTurn(game) {
+  game.turn = 'bot'; game.turnStartedAt = Date.now(); game.botThinkUntil = Date.now() + 5000;
+}
+
 function finishIfNeeded(game, user) {
   if (game._pendingNoMovesEnd) {
     delete game._pendingNoMovesEnd;
@@ -775,12 +802,8 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const botType = b.bot === 'fishstick' ? 'fishstick' : 'competitive';
       const game = newGame(user, botType);
-      if (game.turn === 'bot') {
-        const t0 = Date.now();
-        runBotTurn(game);
-        game.clocks.bot = Math.max(0, game.clocks.bot - (Date.now() - t0));
-        if (finishIfNeeded(game, user)) { /* finished by no-moves at creation is extremely unlikely */ }
-      }
+      // Do NOT run the bot here: the client shows the 5s think, then polls
+      // GET, which advances the bot turn (see advanceBotTurnIfReady).
       saveGameRow(game);
       const out = serializeGame(game, user);
       if (game.status === 'finished') out.stats = gameStatsPayload(game);
@@ -802,6 +825,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET' && !action) {
         // Auto-advance timeout skips on read, so a timed-out player does not block the game.
         if (game.status === 'active') {
+          advanceBotTurnIfReady(game, user);
           settleClock(game);
           let guard = 0;
           while (game.status === 'active' && game.clocks[game.turn] <= 0 && guard++ < 5) {
@@ -809,9 +833,11 @@ const server = http.createServer(async (req, res) => {
             game.turn = game.turn === 'human' ? 'bot' : 'human';
             game.turnStartedAt = Date.now();
             if (game.turn === 'bot') {
-              const t0 = Date.now();
-              runBotTurn(game);
-              game.clocks.bot = Math.max(0, game.clocks.bot - (Date.now() - t0));
+              if (Date.now() >= (game.botThinkUntil || game.turnStartedAt + 5000)) {
+                const moved = runBotTurn(game);
+                if (moved) stepBotClockTo20sMark(game);
+                game.botThinkUntil = null;
+              }
               if (finishIfNeeded(game, user)) break;
             }
           }
@@ -845,11 +871,7 @@ const server = http.createServer(async (req, res) => {
         if (game.turn !== 'human') return sendJson(res, 400, { error: 'Not your turn.' });
         if (game.clocks.human <= 0) {
           // Timed out: skip human, let the bot keep playing (you cannot win on time).
-          game.turn = 'bot'; game.turnStartedAt = Date.now();
-          const t0 = Date.now();
-          runBotTurn(game);
-          game.clocks.bot = Math.max(0, game.clocks.bot - (Date.now() - t0));
-          finishIfNeeded(game, user);
+          startBotTurn(game);
           saveGameRow(game);
           const out = serializeGame(game, user);
           if (game.status === 'finished') out.stats = gameStatsPayload(game);
@@ -863,11 +885,7 @@ const server = http.createServer(async (req, res) => {
         const bestMoves = findMoves(game.board, game.humanRack, isFirst, false);
         const bestScore = bestMoves.length ? bestMoves[0].score : null;
         applyMove(game, 'human', v, bestScore);
-        game.turn = 'bot'; game.turnStartedAt = Date.now();
-        const t0 = Date.now();
-        runBotTurn(game);
-        game.clocks.bot = Math.max(0, game.clocks.bot - (Date.now() - t0));
-        finishIfNeeded(game, user);
+        startBotTurn(game);
         saveGameRow(game);
         const out = serializeGame(game, user);
         if (game.status === 'finished') out.stats = gameStatsPayload(game);
@@ -881,15 +899,13 @@ const server = http.createServer(async (req, res) => {
         game.consecutivePasses++;
         game.consecutiveNoMoves = 0;
         game.lastHuman = { word: null, points: 0, passed: true };
-        game.turn = 'bot'; game.turnStartedAt = Date.now();
+        startBotTurn(game);
         if (game.consecutivePasses >= 2) {
+          game.botThinkUntil = null;
           const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';
           endGame(game, user, 'Final score', winner);
         } else {
-          const t0 = Date.now();
-          runBotTurn(game);
-          game.clocks.bot = Math.max(0, game.clocks.bot - (Date.now() - t0));
-          finishIfNeeded(game, user);
+          // Bot turn is pending: client shows 5s think, then GET advances it.
         }
         saveGameRow(game);
         const out = serializeGame(game, user);

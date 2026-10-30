@@ -125,3 +125,9 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .mini-btn{background:#2f7de1;color:#fff;border:0;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px}
 .mini-btn.grey{background:#3a3f4b}
 .mini-btn:disabled{background:#3a3f4b;color:#9aa3b2;cursor:not-allowed}
+/* Drag / shuffle fixes (bug 2 + 4) */
+.cell{ touch-action:none }
+.cell.drop-target{ outline:3px solid #ffd166; outline-offset:-3px }
+.drag-ghost .val{ position:absolute; top:2px; right:5px; font-size:12px }
+.rack.shuffling .tile{ animation:shuffle-pop 180ms ease-in-out }
+@keyframes shuffle-pop{ 0%{ transform:translateY(0) scale(1) } 50%{ transform:translateY(-8px) scale(1.06) rotate(2deg) } 100%{ transform:translateY(0) scale(1) } }

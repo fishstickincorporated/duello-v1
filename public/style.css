@@ -65,3 +65,63 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 #gameDim.dimmed{filter:brightness(.35)}
 .def-popover{position:fixed;left:50%;bottom:120px;transform:translateX(-50%);background:#262a33;border:1px solid #4da3ff;border-radius:12px;padding:12px;max-width:360px;width:90%;z-index:20;text-align:left}
 .drag-ghost{position:fixed;width:92px;height:92px;border-radius:8px;background:#4da3ff;color:#fff;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800;z-index:30;pointer-events:none;transform:translate(-50%,-60%)}
+/* Bottom tabs: main menu only, no text under icons */
+.tab-bar{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:390px;display:flex;justify-content:space-around;align-items:center;background:#1a1d24;border-top:1px solid #2a2f3a;padding:10px 0 14px;z-index:40}
+.tab-btn{background:none;border:0;cursor:pointer;padding:6px 18px;border-radius:12px}
+.tab-btn.active{background:#262a33;outline:2px solid #4da3ff}
+.tab-btn svg,.tab-btn img{display:block;width:28px;height:28px}
+.tab-btn img{border-radius:50%;object-fit:cover}
+.screen{padding-bottom:90px}
+.hint{color:#9aa3b2;font-size:13px;margin:2px 0 8px;text-align:left}
+/* Friends tab: no logo, search with padding above */
+.search-wrap{display:flex;align-items:center;gap:8px;background:#262a33;border:1px solid #333;border-radius:12px;padding:4px 10px;margin-top:18px}
+.search-wrap input{border:0;background:transparent;margin:0;padding:10px 4px}
+.search-icon{font-size:18px}
+.search-results{text-align:left}
+.search-result,.lb-row,.request-row{display:flex;align-items:center;gap:10px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}
+.lb-row .rank{color:#ffd166;font-weight:900;min-width:22px}
+.lb-row .lb-name{color:#4da3ff;font-weight:800}
+.lb-row .lb-user{color:#9aa3b2;font-size:13px}
+.lb-row .lb-elo{margin-left:auto;color:#4da3ff;font-weight:800}
+.lb-row.you{outline:2px solid #4da3ff}
+.you-badge{background:#4da3ff;color:#fff;font-size:11px;font-weight:800;border-radius:8px;padding:2px 6px}
+.pending-label{color:#ffd166;font-size:12px;font-weight:700}
+.leaderboard-head{display:flex;align-items:center;justify-content:space-between;margin:22px 0 0}
+.leaderboard-label{font-weight:900;letter-spacing:1px}
+.pencil{background:none;border:0;font-size:20px;cursor:pointer}
+.leaderboard-tabs{display:flex;gap:8px;margin:10px 0}
+.lb-tab{flex:1;padding:10px;border:0;border-radius:10px;background:#262a33;color:#e8ecf1;cursor:pointer;font-weight:800}
+.lb-tab.active{background:#2f7de1;color:#fff}
+.no-friends-card{background:#262a33;border-radius:12px;padding:16px;margin-top:12px;color:#9aa3b2}
+/* Profile tab: no logo, extra padding above pfp */
+.profile-top{padding-top:28px;display:flex;flex-direction:column;align-items:center;gap:4px}
+.pfp.huge{width:84px;height:84px;border-radius:50%;background:#262a33;display:flex;align-items:center;justify-content:center;font-size:44px;overflow:hidden}
+.pfp.huge img{width:100%;height:100%;object-fit:cover}
+.profile-name{font-size:22px;font-weight:900;margin-top:4px}
+.profile-username{color:#9aa3b2}
+.profile-joined{color:#9aa3b2;font-size:14px}
+.gear-btn{background:none;border:0;font-size:26px;cursor:pointer;margin-top:6px}
+.elo-box{background:#262a33;border-radius:16px;padding:16px;margin:16px 0;text-align:left}
+.elo-label{color:#9aa3b2;font-size:13px}
+.elo-big{font-size:24px;font-weight:900}
+.chart-toggles{display:flex;gap:6px;margin:10px 0}
+.chart-toggle{flex:1;padding:6px;border:0;border-radius:8px;background:#1a1d24;color:#e8ecf1;cursor:pointer;font-size:13px}
+.chart-toggle.active{background:#2f7de1;color:#fff}
+#eloChart{width:100%;background:#1a1d24;border-radius:10px}
+.stats-board{background:#262a33;border-radius:16px;padding:14px;margin-bottom:10px}
+.stats-tabs{display:flex;gap:6px;margin-bottom:10px}
+.stats-tab{flex:1;padding:9px;border:0;border-radius:10px;background:#1a1d24;color:#e8ecf1;cursor:pointer;font-weight:800;font-size:13px}
+.stats-tab.active{background:#2f7de1;color:#fff}
+.stats-list{text-align:left;font-size:15px;line-height:1.9}
+.stats-list .stat-line{display:flex;justify-content:space-between;border-bottom:1px solid #333}
+.stats-list .stat-line:last-child{border-bottom:0}
+.email-row{display:flex;align-items:center;gap:8px}
+.email-row input{flex:1}
+.verified{font-size:18px}
+.btn.secondary{background:#262a33;color:#e8ecf1;padding:12px;width:100%;font-size:16px;margin-top:8px;border:1px solid #333}
+.edit-actions{display:flex;gap:12px;margin-top:12px}
+.edit-actions .btn{flex:1;margin-top:0}
+.btn.cancel{background:transparent;color:#4da3ff;border:2px solid #4da3ff;padding:12px;font-size:17px}
+.mini-btn{background:#2f7de1;color:#fff;border:0;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px}
+.mini-btn.grey{background:#3a3f4b}
+.mini-btn:disabled{background:#3a3f4b;color:#9aa3b2;cursor:not-allowed}

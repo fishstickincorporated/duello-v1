@@ -12,7 +12,27 @@ async function api(path, opts = {}) {
   if (!r.ok) throw new Error(j.error || 'Request failed');
   return j;
 }
-function show(id) { ['authScreen', 'homeScreen', 'botScreen', 'gameScreen'].forEach(s => $(s).classList.toggle('hidden', s !== id)); }
+function show(id) {
+  ['authScreen', 'homeScreen', 'botScreen', 'gameScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
+  const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen'].includes(id);
+  $('tabBar').classList.toggle('hidden', !isMenu);
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  if (id === 'homeScreen' || id === 'botScreen') $('tabHome').classList.add('active');
+  if (id === 'friendsScreen') $('tabFriends').classList.add('active');
+  if (id === 'profileScreen') $('tabProfile').classList.add('active');
+  if (id === 'profileScreen') renderProfile();
+  if (id === 'friendsScreen') renderFriends();
+}
+function silhouetteSVG(size) { return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="12" cy="8" r="4" fill="#9aa3b2"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#9aa3b2"/></svg>`; }
+function pfpHTML(userLike) {
+  if (userLike && userLike.photoData) return `<img src="${userLike.photoData}" alt="">`;
+  return silhouetteSVG(36);
+}
+function goTab(id) { show(id); }
+$('tabHome').onclick = () => show('homeScreen');
+$('tabFriends').onclick = () => show('friendsScreen');
+$('tabProfile').onclick = () => show('profileScreen');
+
 async function loadMe() {
   try { const d = await api('/api/me'); me = d.user; return true; }
   catch { return false; }
@@ -39,7 +59,7 @@ $('authForm').onsubmit = async e => {
     await loadMe(); show('homeScreen');
   } catch (err) { $('authError').textContent = err.message; }
 };
-$('signOutBtn').onclick = async () => { try { await api('/api/signout', { method: 'POST' }); } catch {} token = ''; localStorage.removeItem('duello_token'); show('authScreen'); };
+if ($('signOutBtn')) $('signOutBtn').onclick = async () => { try { await api('/api/signout', { method: 'POST' }); } catch {} token = ''; localStorage.removeItem('duello_token'); show('authScreen'); };
 $('playBotsBtn').onclick = () => show('botScreen');
 $('botBackBtn').onclick = () => show('homeScreen');
 $('competitiveBtn').onclick = () => startGame('competitive');
@@ -54,6 +74,7 @@ function boardCell(r, c) { return game.board[r][c]; }
 function renderGame() {
   if (!game) return;
   $('playerName').textContent = me ? me.firstName : 'You';
+  try { document.querySelector('.player-side .pfp').innerHTML = pfpHTML(me); document.querySelector('.stat-pfp .pfp').innerHTML = pfpHTML(me); } catch {}
   $('playerElo').textContent = me ? me.elo : game.player.elo;
   const isFish = game.botType === 'fishstick';
   $('botName').textContent = isFish ? 'Fishstick' : 'Competitive Bot';
@@ -218,6 +239,8 @@ async function showDefinition(r, c) {
   const pop = $('defPopover'); pop.innerHTML = defs.join('<br>'); pop.classList.remove('hidden');
   setTimeout(() => pop.classList.add('hidden'), 6000);
 }
+$('password').addEventListener('input', () => { $('passwordHint').classList.toggle('hidden', !$('password').value); });
+$('profileSignOutBtn').onclick = async () => { try { await api('/api/signout', { method: 'POST' }); } catch {} token = ''; localStorage.removeItem('duello_token'); show('authScreen'); };
 // Rack drag-reorder with sliding: as you drag over another tile, the other
 // tiles slide to an available position (phone app-icon style).
 function enableRackDrag(el, idx) {
@@ -250,4 +273,136 @@ function enableRackDrag(el, idx) {
     renderGame();
   });
 }
+
+// ---------- Profile tab ----------
+let profileData = null, chartRange = '1m', statsScope = 'aggregate', deleteMode = false, lbScope = 'friends';
+async function renderProfile() {
+  try {
+    const d = await api('/api/me'); me = d.user; profileData = d;
+    $('profilePfp').innerHTML = me.photoData ? `<img src="${me.photoData}" alt="">` : silhouetteSVG(44);
+    $('profileName').textContent = `${me.firstName} ${me.lastName}`;
+    $('profileUsername').textContent = '@' + me.username;
+    const joined = new Date(me.createdAt + 'Z');
+    $('profileJoined').textContent = 'Joined ' + (isNaN(joined) ? me.createdAt : joined.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }));
+    $('profileElo').textContent = me.elo;
+    $('profileEloHigh').textContent = me.eloHigh;
+    const icon = document.getElementById('tabProfileIcon');
+    if (icon) icon.innerHTML = me.photoData ? `<img src="${me.photoData}" alt="">` : `<svg viewBox="0 0 24 24" width="28" height="28"><circle cx="12" cy="8" r="4" fill="#9aa3b2"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#4da3ff" opacity="0.85"/></svg>`;
+    renderStatsList(); drawEloChart();
+  } catch {}
+}
+function renderStatsList() {
+  if (!profileData || !profileData.profileStats) return;
+  const st = profileData.profileStats[statsScope] || profileData.profileStats.aggregate;
+  const lines = [
+    ['Average game score', st.avgGameScore], ['Highest game score', st.highestGameScore],
+    ['Average word score', st.avgWordScore], ['Highest word score', st.highestWordScore],
+    ['Longest word', st.longestWord ? `${st.longestWord} (${st.longestWordLen} letters)` : '—'],
+    ['Games played', st.gamesPlayed], ['Lifetime record', st.record || '0W-0L'],
+    ['Optimal move %', st.optimalPct + '%'], ['Unique words played', st.uniqueWords],
+  ];
+  $('statsList').innerHTML = lines.map(([k, v]) => `<div class="stat-line"><span>${k}</span><b>${v}</b></div>`).join('');
+}
+document.querySelectorAll('.stats-tab').forEach(b => b.onclick = () => { statsScope = b.dataset.scope; document.querySelectorAll('.stats-tab').forEach(x => x.classList.toggle('active', x === b)); renderStatsList(); });
+document.querySelectorAll('.chart-toggle').forEach(b => b.onclick = () => { chartRange = b.dataset.range; document.querySelectorAll('.chart-toggle').forEach(x => x.classList.toggle('active', x === b)); drawEloChart(); });
+function drawEloChart() {
+  const cv = $('eloChart'); if (!cv || !profileData) return;
+  const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, cv.width, cv.height);
+  let hist = (profileData.stats && profileData.stats.eloHistory) || [];
+  const now = Date.now();
+  if (chartRange === '1m') hist = hist.filter(h => now - new Date(h.created_at + 'Z').getTime() < 30 * 24 * 3600 * 1000);
+  if (chartRange === '1y') hist = hist.filter(h => now - new Date(h.created_at + 'Z').getTime() < 365 * 24 * 3600 * 1000);
+  const pts = [1000, ...hist.map(h => h.elo_after)];
+  if (pts.length < 2) { ctx.fillStyle = '#9aa3b2'; ctx.font = '13px Nunito'; ctx.fillText('No Elo history yet — play a game.', 12, 30); return; }
+  const min = Math.min(...pts) - 20, max = Math.max(...pts) + 20;
+  ctx.strokeStyle = '#4da3ff'; ctx.lineWidth = 2; ctx.beginPath();
+  pts.forEach((v, i) => { const x = 10 + i * (cv.width - 20) / (pts.length - 1); const y = cv.height - 10 - ((v - min) / (max - min)) * (cv.height - 20); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+  ctx.stroke();
+}
+// Gear edit
+$('gearBtn').onclick = () => {
+  if (!me) return;
+  $('editFirstName').value = me.firstName; $('editLastName').value = me.lastName; $('editUsername').value = me.username; $('editEmail').value = me.email;
+  $('passwordChangeFields').classList.add('hidden'); $('editError').textContent = '';
+  show('profileEditScreen');
+};
+$('editCancelBtn').onclick = () => show('profileScreen');
+$('changePasswordBtn').onclick = () => $('passwordChangeFields').classList.toggle('hidden');
+let pendingPhoto = undefined;
+$('changePhotoBtn').onclick = () => $('photoInput').click();
+$('photoInput').onchange = () => {
+  const f = $('photoInput').files[0]; if (!f) return;
+  const img = new Image(); const url = URL.createObjectURL(f);
+  img.onload = () => {
+    const size = 256; const c = document.createElement('canvas'); c.width = size; c.height = size;
+    const ctx = c.getContext('2d'); const side = Math.min(img.width, img.height);
+    ctx.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+    pendingPhoto = c.toDataURL('image/jpeg', 0.85); URL.revokeObjectURL(url);
+  };
+  img.src = url;
+};
+$('removePhotoBtn').onclick = () => { pendingPhoto = null; };
+$('profileEditForm').onsubmit = async e => {
+  e.preventDefault(); $('editError').textContent = '';
+  try {
+    const body = { firstName: $('editFirstName').value, lastName: $('editLastName').value, username: $('editUsername').value, email: $('editEmail').value };
+    if (pendingPhoto !== undefined) body.photoData = pendingPhoto;
+    const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify(body) });
+    me = d.user; pendingPhoto = undefined;
+    if (!$('passwordChangeFields').classList.contains('hidden')) {
+      if ($('newPassword').value !== $('confirmNewPassword').value) throw new Error('New passwords do not match.');
+      if ($('newPassword').value) await api('/api/me/password', { method: 'POST', body: JSON.stringify({ current: $('currentPassword').value, new: $('newPassword').value }) });
+    }
+    show('profileScreen');
+  } catch (err) { $('editError').textContent = err.message; }
+};
+
+// ---------- Friends tab ----------
+async function renderFriends() {
+  try {
+    const lb = await api('/api/friends/leaderboard?scope=' + lbScope);
+    const list = $('leaderboardList'); list.innerHTML = '';
+    lb.rows.forEach(r => {
+      const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
+      const pend = r.friendship === 'pending_out' || r.friendship === 'pending_in' ? '<span class="pending-label">Pending</span>' : '';
+      const del = (deleteMode && lbScope === 'friends' && !r.isYou && r.friendship === 'accepted') ? `<button class="mini-btn grey" data-del="${r.id}">✕</button>` : '';
+      row.innerHTML = `<span class="rank">${r.rank}</span><span class="lb-pfp">${pfpHTML(r)}</span><span><div class="lb-name">${r.firstName} ${r.lastName}</div><div class="lb-user">@${r.username}</div></span>${r.isYou ? '<span class="you-badge">YOU</span>' : ''}<span class="lb-elo">${pend || r.elo}</span>${del}`;
+      list.appendChild(row);
+    });
+    list.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { await api('/api/friends/remove', { method: 'POST', body: JSON.stringify({ userId: Number(b.dataset.del) }) }); renderFriends(); });
+    $('noFriendsCard').classList.toggle('hidden', !(lbScope === 'friends' && lb.rows.filter(r => !r.isYou).length === 0));
+    // Requests
+    const fr = await api('/api/friends');
+    const reqEl = $('friendRequests'); reqEl.innerHTML = '';
+    fr.friends.filter(f => f.status === 'pending' && f.direction === 'in').forEach(f => {
+      const row = document.createElement('div'); row.className = 'request-row';
+      row.innerHTML = `<span>${pfpHTML(f)}</span><span><b>${f.firstName} ${f.lastName}</b> <span style="color:#9aa3b2">@${f.username}</span></span><span style="margin-left:auto;display:flex;gap:6px"><button class="mini-btn" data-acc="${f.id}">Accept</button><button class="mini-btn grey" data-dec="${f.id}">Decline</button></span>`;
+      reqEl.appendChild(row);
+    });
+    reqEl.querySelectorAll('[data-acc]').forEach(b => b.onclick = async () => { await api('/api/friends/respond', { method: 'POST', body: JSON.stringify({ userId: Number(b.dataset.acc), accept: true }) }); renderFriends(); });
+    reqEl.querySelectorAll('[data-dec]').forEach(b => b.onclick = async () => { await api('/api/friends/respond', { method: 'POST', body: JSON.stringify({ userId: Number(b.dataset.dec), accept: false }) }); renderFriends(); });
+  } catch {}
+}
+$('lbFriendsTab').onclick = () => { lbScope = 'friends'; $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active'); renderFriends(); };
+$('lbGlobalTab').onclick = () => { lbScope = 'global'; $('lbGlobalTab').classList.add('active'); $('lbFriendsTab').classList.remove('active'); renderFriends(); };
+$('friendsPencil').onclick = () => { if (lbScope !== 'friends') return; deleteMode = !deleteMode; renderFriends(); };
+let searchTimer = null;
+$('friendSearch').addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(async () => {
+    const q = $('friendSearch').value.trim(); const el = $('friendSearchResults'); el.innerHTML = '';
+    if (!q) return;
+    try {
+      const d = await api('/api/friends/search?q=' + encodeURIComponent(q));
+      d.results.forEach(r => {
+        const row = document.createElement('div'); row.className = 'search-result';
+        const btn = r.friendship === 'accepted' ? '<span class="pending-label">Friend</span>' : r.friendship === 'pending_out' ? '<span class="pending-label">Pending</span>' : r.friendship === 'pending_in' ? '<span class="pending-label">Pending</span>' : `<button class="mini-btn" data-req="${r.id}">Add friend</button>`;
+        row.innerHTML = `<span>${pfpHTML(r)}</span><span><b>${r.firstName} ${r.lastName}</b> <span style="color:#9aa3b2">@${r.username}</span></span><span style="margin-left:auto">${btn}</span>`;
+        el.appendChild(row);
+      });
+      el.querySelectorAll('[data-req]').forEach(b => b.onclick = async () => { await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ userId: Number(b.dataset.req) }) }); b.outerHTML = '<span class="pending-label">Pending</span>'; });
+    } catch {}
+  }, 250);
+});
+
 (async () => { if (token && await loadMe()) show('homeScreen'); else show('authScreen'); })();

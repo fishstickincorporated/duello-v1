@@ -69,15 +69,22 @@ CREATE TABLE IF NOT EXISTS games (
   bot_type TEXT NOT NULL, bot_elo INTEGER NOT NULL, state TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS friends (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, requester_id INTEGER NOT NULL, addressee_id INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(requester_id, addressee_id)
+);
 CREATE TABLE IF NOT EXISTS elo_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, game_id INTEGER,
   elo_after INTEGER NOT NULL, delta INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );`);
+try { db.exec("ALTER TABLE users ADD COLUMN photo_data TEXT"); } catch (e) {}
 function hashPassword(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }
 function getUserByEmail(email) { return db.prepare('SELECT * FROM users WHERE email=?').get(email.toLowerCase()); }
 function getUserByUsername(username) { return db.prepare('SELECT * FROM users WHERE username=?').get(username); }
 function getUserById(id) { return db.prepare('SELECT * FROM users WHERE id=?').get(id); }
-function publicUser(u) { return u ? { id: u.id, email: u.email, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, eloHigh: u.elo_high, createdAt: u.created_at } : null; }
+function publicUser(u) { return u ? { id: u.id, email: u.email, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, eloHigh: u.elo_high, createdAt: u.created_at, hasPhoto: !!u.photo_data, photoData: u.photo_data || null } : null; }
+function publicUserLite(u) { return u ? { id: u.id, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, hasPhoto: !!u.photo_data, photoData: u.photo_data || null } : null; }
 function authUser(req) {
   const h = req.headers.authorization || '';
   const m = h.match(/^Bearer\s+(.+)$/);
@@ -630,6 +637,57 @@ function gameStatsPayload(game) {
     eloDeltaHuman: game.eloDeltaHuman, eloDeltaBot: game.eloDeltaBot, eloAfterHuman: game.eloAfterHuman,
   };
 }
+
+function profileStatsFor(userId) {
+  const rows = db.prepare("SELECT state FROM games WHERE user_id=? AND json_extract(state,'$.status')='finished'").all(userId);
+  function empty() { return { gamesPlayed: 0, wins: 0, losses: 0, draws: 0, avgGameScore: 0, highestGameScore: 0, avgWordScore: 0, highestWordScore: 0, longestWord: '', longestWordLen: 0, optimalMoves: 0, totalMoves: 0, optimalPct: 0, uniqueWords: 0 }; }
+  function scope(botOnly) {
+    const st = empty(); let wordScoreSum = 0, wordCount = 0; const uniq = new Set();
+    for (const r of rows) {
+      let g; try { g = JSON.parse(r.state); } catch { continue; }
+      if (botOnly === true && g.botType === undefined && false) continue;
+      // All v1 games are bot games; vsHumans is therefore empty by construction.
+      // Scope filtering: 'bots' = all rows, 'humans' = none (no human-game table in v1).
+      if (botOnly === 'humans') continue;
+      st.gamesPlayed++;
+      st.highestGameScore = Math.max(st.highestGameScore, g.scores.human || 0);
+      if (g.winner === 'human') st.wins++; else if (g.winner === 'bot') st.losses++; else if (g.winner === 'draw') st.draws++;
+      else if (g.reason === 'By forfeit') st.losses++; else if (g.scores.human > g.scores.bot) st.wins++; else if (g.scores.bot > g.scores.human) st.losses++; else st.draws++;
+      const moves = (g.moves && g.moves.human) || [];
+      for (const m of moves) {
+        st.totalMoves++;
+        if (m.isOptimal) st.optimalMoves++;
+        for (const w of (m.words || [])) {
+          wordScoreSum += w.score || 0; wordCount++;
+          if ((w.score || 0) > st.highestWordScore) st.highestWordScore = w.score || 0;
+          if (w.word && w.word.length > st.longestWordLen) { st.longestWordLen = w.word.length; st.longestWord = w.word; }
+          uniq.add(w.word);
+        }
+      }
+    }
+    // avg game score needs total human score, recompute
+    let totalScore = 0, played = 0;
+    for (const r of rows) { let g; try { g = JSON.parse(r.state); } catch { continue; } if (botOnly === 'humans') continue; totalScore += g.scores.human || 0; played++; }
+    st.avgGameScore = played ? Math.round(totalScore / played) : 0;
+    st.avgWordScore = wordCount ? Math.round(wordScoreSum / wordCount) : 0;
+    st.optimalPct = st.totalMoves ? Math.round(st.optimalMoves / st.totalMoves * 100) : 0;
+    st.uniqueWords = uniq.size;
+    st.record = `${st.wins}W-${st.losses}L` + (st.draws ? `-${st.draws}D` : '');
+    return st;
+  }
+  return { aggregate: scope('all'), vsBots: scope('bots'), vsHumans: scope('humans') };
+}
+function friendsOf(userId) {
+  const rows = db.prepare("SELECT * FROM friends WHERE (requester_id=? OR addressee_id=?) AND status='accepted'").all(userId, userId);
+  return rows.map(r => r.requester_id === userId ? r.addressee_id : r.requester_id);
+}
+function friendshipStatus(userId, otherId) {
+  const r = db.prepare("SELECT * FROM friends WHERE (requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?)").get(userId, otherId, otherId, userId);
+  if (!r) return 'none';
+  if (r.status === 'accepted') return 'accepted';
+  return r.requester_id === userId ? 'pending_out' : 'pending_in';
+}
+
 function meStats(user) {
   const rows = db.prepare("SELECT state FROM games WHERE user_id=? AND json_extract(state,'$.status')='finished'").all(user.id);
   let played = 0, wins = 0, losses = 0, draws = 0, totalScore = 0;
@@ -706,7 +764,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/me' && req.method === 'GET') {
       const user = authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      return sendJson(res, 200, { user: publicUser(user), stats: meStats(user) });
+      return sendJson(res, 200, { user: publicUser(user), stats: meStats(user), profileStats: profileStatsFor(user.id) });
     }
     if (pathname === '/api/define' && req.method === 'GET') {
       return sendJson(res, 200, getDefinition(url.searchParams.get('word') || ''));
@@ -845,6 +903,90 @@ const server = http.createServer(async (req, res) => {
         out.stats = gameStatsPayload(game);
         return sendJson(res, 200, out);
       }
+    }
+
+    // ---- Profile / Friends (v1 tabs; Play Friends games stay disabled) ----
+    if (pathname === '/api/me/update' && req.method === 'POST') {
+      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const firstName = String(b.firstName || '').trim(), lastName = String(b.lastName || '').trim();
+      const username = String(b.username || '').trim(), email = String(b.email || '').trim().toLowerCase();
+      if (!firstName || !lastName) return sendJson(res, 400, { error: 'First and last name are required.' });
+      if (!/^[a-z0-9_]{3,}$/.test(username)) return sendJson(res, 400, { error: 'Username: lowercase letters, numbers, and underscores only, at least 3 characters.' });
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return sendJson(res, 400, { error: 'Enter a valid email.' });
+      const byU = getUserByUsername(username); if (byU && byU.id !== user.id) return sendJson(res, 400, { error: 'That username is taken.' });
+      const byE = getUserByEmail(email); if (byE && byE.id !== user.id) return sendJson(res, 400, { error: 'That email is already registered.' });
+      let photo = user.photo_data;
+      if (b.photoData === null) photo = null;
+      else if (typeof b.photoData === 'string' && b.photoData.startsWith('data:image/')) {
+        if (b.photoData.length > 500000) return sendJson(res, 400, { error: 'Photo is too large.' });
+        photo = b.photoData;
+      }
+      db.prepare('UPDATE users SET first_name=?, last_name=?, username=?, email=?, photo_data=? WHERE id=?').run(firstName, lastName, username, email, photo, user.id);
+      return sendJson(res, 200, { user: publicUser(getUserById(user.id)) });
+    }
+    if (pathname === '/api/me/password' && req.method === 'POST') {
+      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      if (hashPassword(String(b.current || ''), user.password_salt) !== user.password_hash) return sendJson(res, 400, { error: 'Current password is incorrect.' });
+      if (String(b.new || '').length < 8) return sendJson(res, 400, { error: 'New password must be at least 8 characters.' });
+      const salt = crypto.randomBytes(16).toString('hex');
+      db.prepare('UPDATE users SET password_salt=?, password_hash=? WHERE id=?').run(salt, hashPassword(String(b.new), salt), user.id);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/friends' && req.method === 'GET') {
+      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const all = db.prepare("SELECT * FROM friends WHERE requester_id=? OR addressee_id=? ORDER BY id DESC").all(user.id, user.id);
+      const out = all.map(r => {
+        const otherId = r.requester_id === user.id ? r.addressee_id : r.requester_id;
+        const o = getUserById(otherId); if (!o) return null;
+        return { id: otherId, firstName: o.first_name, lastName: o.last_name, username: o.username, elo: o.elo, hasPhoto: !!o.photo_data, photoData: o.photo_data || null, status: r.status, direction: r.requester_id === user.id ? 'out' : 'in' };
+      }).filter(Boolean);
+      return sendJson(res, 200, { friends: out });
+    }
+    if (pathname === '/api/friends/leaderboard' && req.method === 'GET') {
+      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const scope = url.searchParams.get('scope') === 'friends' ? 'friends' : 'global';
+      let users;
+      if (scope === 'friends') {
+        const ids = new Set([user.id, ...friendsOf(user.id)]);
+        users = db.prepare('SELECT * FROM users ORDER BY elo DESC').all().filter(u => ids.has(u.id));
+      } else {
+        users = db.prepare('SELECT * FROM users ORDER BY elo DESC').all();
+      }
+      const rows = users.map((u, i) => ({ rank: i + 1, id: u.id, firstName: u.first_name, lastName: u.last_name, username: u.username, elo: u.elo, hasPhoto: !!u.photo_data, photoData: u.photo_data || null, isYou: u.id === user.id, friendship: u.id === user.id ? 'you' : friendshipStatus(user.id, u.id) }));
+      return sendJson(res, 200, { scope, rows });
+    }
+    if (pathname === '/api/friends/search' && req.method === 'GET') {
+      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const q = (url.searchParams.get('q') || '').trim().toLowerCase();
+      if (!q) return sendJson(res, 200, { results: [] });
+      const users = db.prepare("SELECT * FROM users WHERE id != ? AND (LOWER(username) LIKE ? OR LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ?) ORDER BY elo DESC LIMIT 20").all(user.id, `%${q}%`, `%${q}%`, `%${q}%`);
+      return sendJson(res, 200, { results: users.map(u => ({ id: u.id, firstName: u.first_name, lastName: u.last_name, username: u.username, elo: u.elo, hasPhoto: !!u.photo_data, photoData: u.photo_data || null, friendship: friendshipStatus(user.id, u.id) })) });
+    }
+    if (pathname === '/api/friends/request' && req.method === 'POST') {
+      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req); const otherId = Number(b.userId);
+      const other = getUserById(otherId); if (!other || otherId === user.id) return sendJson(res, 400, { error: 'User not found.' });
+      const st = friendshipStatus(user.id, otherId);
+      if (st === 'accepted') return sendJson(res, 200, { ok: true, status: 'accepted' });
+      if (st === 'pending_in') { db.prepare("UPDATE friends SET status='accepted' WHERE requester_id=? AND addressee_id=?").run(otherId, user.id); return sendJson(res, 200, { ok: true, status: 'accepted' }); }
+      if (st === 'pending_out') return sendJson(res, 200, { ok: true, status: 'pending' });
+      db.prepare('INSERT INTO friends (requester_id, addressee_id, status) VALUES (?,?,?)').run(user.id, otherId, 'pending');
+      return sendJson(res, 200, { ok: true, status: 'pending' });
+    }
+    if (pathname === '/api/friends/respond' && req.method === 'POST') {
+      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req); const otherId = Number(b.userId);
+      if (b.accept) db.prepare("UPDATE friends SET status='accepted' WHERE requester_id=? AND addressee_id=? AND status='pending'").run(otherId, user.id);
+      else db.prepare("DELETE FROM friends WHERE requester_id=? AND addressee_id=? AND status='pending'").run(otherId, user.id);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/friends/remove' && req.method === 'POST') {
+      const user = authUser(req); if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req); const otherId = Number(b.userId);
+      db.prepare("DELETE FROM friends WHERE ((requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?)) AND status='accepted'").run(user.id, otherId, otherId, user.id);
+      return sendJson(res, 200, { ok: true });
     }
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));

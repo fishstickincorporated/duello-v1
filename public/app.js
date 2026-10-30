@@ -4,6 +4,15 @@ let token = localStorage.getItem('duello_token') || '';
 let me = null, game = null, gameFetchAt = 0;
 let pending = []; // {row,col,letter,rackIndex}
 let selectedRack = null, isSignup = true, armed = {}, currentBot = 'competitive';
+// Global drag state: only one drag can be live, and a stuck drag must be
+// cleanable from anywhere (notably Play). The old per-tile closures could
+// leave a drag alive with pointer capture held, so every later tap went to
+// the captured tile instead of the button underneath — the frozen screen
+// in Jeff's screenshot, and the "tap elsewhere, then Play works" pattern.
+let activeDragCleanup = null;
+function registerDragCleanup(fn) { if (activeDragCleanup && activeDragCleanup !== fn) { try { activeDragCleanup(); } catch {} } activeDragCleanup = fn; }
+function clearDragCleanup(fn) { if (activeDragCleanup === fn) activeDragCleanup = null; }
+function cleanupStuckDrag() { if (activeDragCleanup) { const fn = activeDragCleanup; activeDragCleanup = null; try { fn(); } catch {} } }
 const $ = id => document.getElementById(id);
 const fmtClock = ms => { ms = Math.max(0, Math.ceil(ms / 1000) * 1000); const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000); return `${m}:${String(s).padStart(2, '0')}`; };
 async function api(path, opts = {}) {
@@ -77,6 +86,11 @@ async function startGame(bot) {
 function boardCell(r, c) { return game.board[r][c]; }
 function renderGame() {
   if (!game) return;
+  // Never rebuild the board/rack while a drag is live: re-creating the
+  // captured tile mid-drag destroys it and can strand pointer capture,
+  // which is how a drag froze the whole screen. The next render after the
+  // drag ends will show any bot move that arrived in the meantime.
+  if (activeDragCleanup) return;
   $('playerName').textContent = me ? me.firstName : 'You';
   try { document.querySelector('.player-side .pfp').innerHTML = pfpHTML(me); document.querySelector('.stat-pfp .pfp').innerHTML = pfpHTML(me); } catch {}
   $('playerElo').textContent = me ? me.elo : game.player.elo;
@@ -225,35 +239,51 @@ function beginBotTurn() {
   botTimer = setTimeout(pollBotTurn, delay);
 }
 
-let validateInFlight = null, lastValidate = null, playInFlight = false;
+let validateInFlight = null, lastValidate = null, playInFlight = false, validateSeq = 0;
+function setPlayState(state) {
+  // Play colour is class-based, NOT disabled-based, so a grey Play is still
+  // tappable and the server decides: a disabled button swallows taps, and
+  // that swallow was the double-tap. Only no-pending / bot-turn Play is
+  // truly disabled, and the handler returns early there anyway.
+  const b = $('playBtn');
+  b.classList.remove('validating', 'play-valid', 'play-invalid');
+  if (state === 'valid') { b.classList.add('play-valid'); b.disabled = false; }
+  else if (state === 'validating') { b.classList.add('validating'); b.disabled = false; }
+  else if (state === 'invalid') { b.classList.add('play-invalid'); b.disabled = false; }
+  else { b.disabled = true; }
+}
 async function updateStatus() {
   if (!game) return;
   if (game.status === 'finished') { $('status').textContent = game.reason || 'Game over'; return; }
-  if (game.clocks.turn !== 'human') { $('status').textContent = 'Waiting for your opponent…'; $('playBtn').disabled = true; $('playBtn').classList.remove('validating'); return; }
-  if (!pending.length) { $('status').textContent = game.isFirst ? 'Your move — first word goes entirely inside the glowing 6×6.' : 'Your move'; $('playBtn').disabled = true; $('playBtn').classList.remove('validating'); lastValidate = null; return; }
-  // While validation is in flight, Play stays clickable (blue, not green)
-  // instead of greyed out: a tap on a greyed-out button is swallowed, so
-  // users had to tap twice — once while it was still checking, once after
-  // it turned green. The Play handler below waits for this check.
-  $('playBtn').disabled = false; $('playBtn').classList.add('validating');
+  if (game.clocks.turn !== 'human') { $('status').textContent = 'Waiting for your opponent…'; setPlayState('off'); return; }
+  if (!pending.length) { $('status').textContent = game.isFirst ? 'Your move — first word goes entirely inside the glowing 6×6.' : 'Your move'; setPlayState('off'); lastValidate = null; return; }
+  setPlayState('validating');
   try {
-    // Guard against a stale validation overwriting the status: if the
-    // player moved a tile while this request was in flight, its verdict
-    // is about a board arrangement that no longer exists.
+    // Seq guard, not just a snapshot check: validations can complete out
+    // of order, and the old code let a stale verdict overwrite the latest
+    // one, clear validateInFlight, and leave Play grey for a valid play —
+    // so the first tap was swallowed and a second tap was required.
+    const mySeq = ++validateSeq;
     const snapshot = JSON.stringify(pending.map(p => [p.row, p.col, p.letter]));
-    validateInFlight = api(`/api/games/${game.id}/validate`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })) }) });
-    const v = await validateInFlight;
-    validateInFlight = null; lastValidate = v;
+    const myPromise = api(`/api/games/${game.id}/validate`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })) }) });
+    validateInFlight = myPromise;
+    const v = await myPromise;
+    if (mySeq !== validateSeq) return; // a newer validation superseded this one
+    if (validateInFlight === myPromise) validateInFlight = null;
+    lastValidate = v;
     if (JSON.stringify(pending.map(p => [p.row, p.col, p.letter])) !== snapshot) return;
-    $('playBtn').classList.remove('validating');
-    if (v.valid) { $('status').textContent = 'Play?'; $('playBtn').disabled = false; showBubble(v.score, v.mainCells); }
+    if (v.valid) { $('status').textContent = 'Play?'; setPlayState('valid'); showBubble(v.score, v.mainCells); }
     else if (v.invalidWords && v.invalidWords.length) {
       const w = v.invalidWords;
       const list = w.length === 1 ? w[0] : w.slice(0, -1).join(', ') + ' and ' + w[w.length - 1];
       $('status').textContent = w.length === 1 ? `${list} is not a word.` : `${list} are not words.`;
-      $('playBtn').disabled = true; hideBubble();
-    } else { $('status').textContent = v.error ? v.error.charAt(0).toUpperCase() + v.error.slice(1) + (v.error.endsWith('.') ? '' : '.') : 'Invalid play.'; $('playBtn').disabled = true; hideBubble(); }
-  } catch { validateInFlight = null; $('playBtn').classList.remove('validating'); $('playBtn').disabled = true; }
+      setPlayState('invalid'); hideBubble();
+    } else { $('status').textContent = v.error ? v.error.charAt(0).toUpperCase() + v.error.slice(1) + (v.error.endsWith('.') ? '' : '.') : 'Invalid play.'; setPlayState('invalid'); hideBubble(); }
+  } catch {
+    // A failed check leaves Play tappable (grey) — the Play handler will
+    // ask the server directly, which is the authoritative verdict.
+    setPlayState('invalid');
+  }
 }
 function showBubble(score, mainCells) {
   hideBubble();
@@ -286,9 +316,10 @@ function placeTile(r, c) {
 function recallTile(pend) {
   pending = pending.filter(p => p !== pend); renderGame();
 }
-$('recallBtn').onclick = () => { pending = []; selectedRack = null; renderGame(); };
+$('recallBtn').onclick = () => { cleanupStuckDrag(); pending = []; selectedRack = null; renderGame(); };
 let shuffling = false;
 $('shuffleBtn').onclick = async () => {
+  cleanupStuckDrag();
   if (!game || shuffling) return;
   // Works on the player's turn AND on the opponent's turn: the rack is the
   // player's own rack, the shuffle endpoint does not require it to be your
@@ -346,13 +377,20 @@ function armButton(btn, label, fn) {
 $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => { botTurnTapTime = Date.now(); game = await api(`/api/games/${game.id}/pass`, { method: 'POST' }); gameFetchAt = Date.now(); pending = []; renderGame(); beginBotTurn(); });
 $('forfeitBtn').onclick = armButton($('forfeitBtn'), 'Forfeit', async () => { game = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' }); gameFetchAt = Date.now(); pending = []; renderGame(); });
 $('playBtn').onclick = async () => {
-  if (!pending.length || playInFlight) return;
-  // Single tap: if validation is still in flight, wait for it instead of
-  // requiring a second tap after Play turns green.
-  if (validateInFlight) { try { await validateInFlight; } catch {} if (lastValidate && !lastValidate.valid) return; }
-  if ($('playBtn').disabled) return;
+  // Unstick first: if a drag ever stranded capture/ghost, this tap would
+  // otherwise go to the captured tile instead of Play, which is exactly
+  // the "tap elsewhere, then Play works" pattern. Cleanup is synchronous,
+  // so the same tap then plays.
+  cleanupStuckDrag();
+  if (!game || game.clocks.turn !== 'human' || !pending.length || playInFlight) return;
+  // Single tap, always: if a check is in flight, wait for it, but never
+  // refuse the tap based on a possibly stale client verdict — the server
+  // play call validates authoritatively and will error if the play is
+  // truly invalid. That was the second double-tap path: a stale "invalid"
+  // verdict blocking a valid play until a second tap.
+  if (validateInFlight) { try { await validateInFlight; } catch {} }
   // Grey immediately on tap, so a second tap cannot double-submit.
-  playInFlight = true; $('playBtn').disabled = true; $('playBtn').classList.remove('validating');
+  playInFlight = true; $('playBtn').disabled = true; $('playBtn').classList.remove('validating', 'play-valid', 'play-invalid');
   $('status').textContent = 'Bot thinking…';
   try {
     botTurnTapTime = Date.now();
@@ -446,14 +484,46 @@ function showGhost(letter, x, y) {
   ghost.classList.remove('hidden');
   ghost.style.left = x + 'px'; ghost.style.top = y + 'px';
 }
+function clearRackShift() { document.querySelectorAll('#rack .tile').forEach(t => { t.style.transform = ''; }); }
+function applyRackShift(dragIdx, hoverIdx) {
+  // Phone-app slide, WITHOUT moving any DOM node: neighbours between the
+  // dragged slot and the hovered slot translate by exactly one slot width,
+  // with a CSS transition, so they visibly slide to fill the gap while the
+  // ghost is the dragged tile. The old code moved the captured element in
+  // the DOM mid-drag (rackEl.append), which on iOS can strand pointer
+  // capture — ghost stuck on screen, every later tap delivered to the
+  // captured tile, screen "frozen" and Play needing a tap elsewhere first.
+  const rackEl = $('rack'); if (!rackEl) return;
+  const slot = rackEl.getBoundingClientRect().width / 6;
+  rackEl.querySelectorAll('.tile').forEach(t => {
+    const ti = Number(t.dataset.idx);
+    let shift = 0;
+    if (ti !== dragIdx) {
+      if (dragIdx < hoverIdx && ti > dragIdx && ti <= hoverIdx) shift = -slot;
+      else if (dragIdx > hoverIdx && ti < dragIdx && ti >= hoverIdx) shift = slot;
+    }
+    t.style.transform = shift ? `translateX(${shift}px)` : '';
+  });
+}
 function enableRackDrag(el, idx) {
-  let dragging = false, moved = false, startX = 0, startY = 0, drop = null, rackPreview = false;
+  let dragging = false, moved = false, startX = 0, startY = 0, drop = null, captureId = null;
+  const cleanup = () => {
+    if (!dragging && el.style.opacity === '' && $('dragGhost').classList.contains('hidden')) { /* idempotent */ }
+    dragging = false; el.style.opacity = ''; $('dragGhost').classList.add('hidden'); clearDropHighlights(); clearRackShift();
+    if (captureId !== null) { try { el.releasePointerCapture(captureId); } catch {} captureId = null; }
+    clearDragCleanup(cleanup);
+  };
   el.addEventListener('pointerdown', e => {
-    dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null; rackPreview = false;
+    cleanupStuckDrag();
+    dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null; captureId = e.pointerId;
+    registerDragCleanup(cleanup);
     try { el.setPointerCapture(e.pointerId); } catch {}
   });
   el.addEventListener('pointermove', e => {
     if (!dragging) return;
+    // Pointer is no longer down but no pointerup arrived (capture lost,
+    // gesture interrupted): clean up now instead of leaving a ghost.
+    if (e.buttons === 0) { cleanup(); return; }
     if (Math.hypot(e.clientX - startX, e.clientY - startY) > 8) moved = true;
     if (!moved) return;
     suppressNextClick = true;
@@ -462,6 +532,7 @@ function enableRackDrag(el, idx) {
     clearDropHighlights();
     const hit = cellAtPoint(e.clientX, e.clientY);
     if (hit) {
+      clearRackShift();
       // Snaps to the cell under the pointer if free; if dragged over a placed
       // tile, snaps to the nearest available space (never recalls that tile).
       const target = isCellFree(hit.row, hit.col) ? hit : nearestEmptyCell(hit.row, hit.col);
@@ -473,59 +544,55 @@ function enableRackDrag(el, idx) {
     if (e.clientY >= rect.top && e.clientY <= rect.bottom && e.clientX >= rect.left && e.clientX <= rect.right) {
       const rel = (e.clientX - rect.left) / Math.max(1, rect.width);
       drop = { kind: 'rack', hoverIdx: Math.max(0, Math.min(5, Math.floor(rel * 6))) };
-      // Phone-app behaviour: as you drag over the deck, the other tiles
-      // slide over to fill the gap and the dragged tile snaps into the
-      // hovered slot live in the DOM (the data order is only committed on
-      // drop, so a cancel restores the original order via renderGame).
-      if (drop.hoverIdx !== idx) {
-        const kids = [...rackEl.children];
-        const at = kids.indexOf(el);
-        if (at >= 0) {
-          kids.splice(at, 1);
-          kids.splice(Math.min(drop.hoverIdx, kids.length), 0, el);
-          rackEl.append(...kids);
-          rackPreview = true;
-        }
-      }
-    } else drop = null;
+      applyRackShift(idx, drop.hoverIdx);
+    } else { drop = null; clearRackShift(); }
   });
   el.addEventListener('pointerup', async e => {
-    if (!dragging) return; dragging = false; el.style.opacity = ''; $('dragGhost').classList.add('hidden'); clearDropHighlights();
-    if (!moved) {
+    if (!dragging) return;
+    const myDrop = drop, wasMoved = moved;
+    cleanup();
+    if (!wasMoved) {
       // Tap (not a drag): click-to-place selection. No re-render here — the
       // old code re-rendered on pointerup and killed the following click.
       selectedRack = (selectedRack === idx ? null : idx);
       [...$('rack').querySelectorAll('.tile')].forEach(t => t.style.outline = (Number(t.dataset.idx) === selectedRack ? '2px solid #ffd166' : ''));
       return;
     }
-    if (drop && drop.kind === 'board') {
+    if (myDrop && myDrop.kind === 'board') {
       selectedRack = idx;
-      placeTile(drop.row, drop.col);
+      placeTile(myDrop.row, myDrop.col);
       return;
     }
-    if (drop && drop.kind === 'rack' && drop.hoverIdx !== idx) {
+    if (myDrop && myDrop.kind === 'rack' && myDrop.hoverIdx !== idx) {
       const rack = [...game.humanRack];
-      const [tile] = rack.splice(idx, 1); rack.splice(drop.hoverIdx, 0, tile);
+      const [tile] = rack.splice(idx, 1); rack.splice(myDrop.hoverIdx, 0, tile);
       try { game = await api(`/api/games/${game.id}/shuffle`, { method: 'POST', body: JSON.stringify({ rack }) }); gameFetchAt = Date.now(); } catch {}
       renderGame();
-    } else if (rackPreview) {
-      // Dropped elsewhere after a live preview: restore the original order.
-      renderGame();
     }
-    // Dropped elsewhere: cancel, keep the tile where it was.
+    // Dropped elsewhere: cancel, keep the tile where it was. No render
+    // needed — the shift was only a transform, clearing it restores order.
   });
-  el.addEventListener('pointercancel', () => { dragging = false; el.style.opacity = ''; $('dragGhost').classList.add('hidden'); clearDropHighlights(); if (rackPreview) renderGame(); });
+  el.addEventListener('pointercancel', () => cleanup());
+  el.addEventListener('lostpointercapture', () => cleanup());
 }
 // Drag a tile that is already placed on the board to a new cell.
 // Tap (no movement) recalls it, exactly as before; a drag moves it.
 function enablePlacedDrag(el, pend) {
-  let dragging = false, moved = false, startX = 0, startY = 0, drop = null;
+  let dragging = false, moved = false, startX = 0, startY = 0, drop = null, captureId = null;
+  const cleanup = () => {
+    dragging = false; $('dragGhost').classList.add('hidden'); clearDropHighlights();
+    if (captureId !== null) { try { el.releasePointerCapture(captureId); } catch {} captureId = null; }
+    clearDragCleanup(cleanup);
+  };
   el.addEventListener('pointerdown', e => {
-    dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null;
+    cleanupStuckDrag();
+    dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null; captureId = e.pointerId;
+    registerDragCleanup(cleanup);
     try { el.setPointerCapture(e.pointerId); } catch {}
   });
   el.addEventListener('pointermove', e => {
     if (!dragging) return;
+    if (e.buttons === 0) { cleanup(); return; }
     if (Math.hypot(e.clientX - startX, e.clientY - startY) > 8) moved = true;
     if (!moved) return;
     suppressNextClick = true;
@@ -543,11 +610,14 @@ function enablePlacedDrag(el, pend) {
     } else drop = null;
   });
   el.addEventListener('pointerup', () => {
-    if (!dragging) return; dragging = false; $('dragGhost').classList.add('hidden'); clearDropHighlights();
-    if (!moved) { recallTile(pend); return; }
-    if (drop) { pend.row = drop.row; pend.col = drop.col; renderGame(); }
+    if (!dragging) return;
+    const myDrop = drop, wasMoved = moved;
+    cleanup();
+    if (!wasMoved) { recallTile(pend); return; }
+    if (myDrop) { pend.row = myDrop.row; pend.col = myDrop.col; renderGame(); }
   });
-  el.addEventListener('pointercancel', () => { dragging = false; $('dragGhost').classList.add('hidden'); clearDropHighlights(); });
+  el.addEventListener('pointercancel', () => cleanup());
+  el.addEventListener('lostpointercapture', () => cleanup());
 }
 
 // ---------- Profile tab ----------

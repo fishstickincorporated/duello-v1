@@ -93,10 +93,12 @@ function renderGame() {
     const cell = document.createElement('div');
     const prem = game.premiums[`${r},${c}`];
     cell.className = 'cell' + (prem ? ' ' + prem : '') + (game.isFirst && r >= 2 && r <= 7 && c >= 2 && c <= 7 ? ' glow' : '') + (lastSet.has(r + ',' + c) ? ' last-word' : '');
-    if (!boardCell(r, c) && !prem) cell.textContent = '';
-    else if (!boardCell(r, c)) cell.textContent = prem;
     const pend = pending.find(p => p.row === r && p.col === c);
     const letter = boardCell(r, c) || (pend ? pend.letter : null);
+    // A premium label must never share the cell with a tile: the cell is a
+    // flex container, so the label + tile split the width and the tile (and
+    // its letter) was squeezed to about half width on DL/DW/TL/TW squares.
+    cell.textContent = letter ? '' : (prem || '');
     if (letter) {
       const t = document.createElement('div'); t.className = 'tile' + (pend ? ' pending' : '');
       t.innerHTML = `${letter}<span class="val">${({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter]}</span>`;
@@ -159,7 +161,9 @@ async function pollBotTurn() {
     const next = await api(`/api/games/${game.id}`);
     if (next.clocks.turn === 'bot' && next.status === 'active') {
       game = next; gameFetchAt = Date.now(); renderGame();
-      const delay = next.botThinkUntil ? Math.max(200, next.botThinkUntil - Date.now()) : 500;
+      // Relative remaining time from the server, never the server's absolute
+      // clock: comparing Render time to phone time added a spurious ~2s poll.
+      const delay = next.botThinkRemainingMs != null ? Math.max(200, next.botThinkRemainingMs) : 500;
       if (botTimer) clearTimeout(botTimer);
       botTimer = setTimeout(pollBotTurn, delay);
       return;
@@ -173,7 +177,10 @@ function beginBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
   $('status').textContent = 'Bot thinking…';
   if (botTimer) clearTimeout(botTimer);
-  const delay = game.botThinkUntil ? Math.max(0, game.botThinkUntil - Date.now()) : 5000;
+  // Relative remaining time, less the time since this game state arrived
+  // (network + render), so latencies before the timer starts do not stack
+  // on top of the 5s think.
+  const delay = game.botThinkRemainingMs != null ? Math.max(0, game.botThinkRemainingMs - (Date.now() - gameFetchAt)) : 5000;
   botTimer = setTimeout(pollBotTurn, delay);
 }
 
@@ -183,7 +190,12 @@ async function updateStatus() {
   if (game.clocks.turn !== 'human') { $('status').textContent = 'Waiting for your opponent…'; $('playBtn').disabled = true; return; }
   if (!pending.length) { $('status').textContent = game.isFirst ? 'Your move — first word goes entirely inside the glowing 6×6.' : 'Your move'; $('playBtn').disabled = true; return; }
   try {
+    // Guard against a stale validation overwriting the status: if the
+    // player moved a tile while this request was in flight, its verdict
+    // is about a board arrangement that no longer exists.
+    const snapshot = JSON.stringify(pending.map(p => [p.row, p.col, p.letter]));
     const v = await api(`/api/games/${game.id}/validate`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })) }) });
+    if (JSON.stringify(pending.map(p => [p.row, p.col, p.letter])) !== snapshot) return;
     if (v.valid) { $('status').textContent = 'Play?'; $('playBtn').disabled = false; showBubble(v.score); }
     else if (v.invalidWords && v.invalidWords.length) {
       const w = v.invalidWords;
@@ -245,7 +257,7 @@ $('playBtn').onclick = async () => {
   $('status').textContent = 'Bot thinking…';
   try {
     game = await api(`/api/games/${game.id}/play`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })) }) });
-    gameFetchAt = Date.now(); pending = []; await loadMe(); renderGame(); beginBotTurn();
+    gameFetchAt = Date.now(); pending = []; renderGame(); beginBotTurn(); loadMe();
   } catch (e) { $('status').textContent = e.message; }
 };
 function showStatWindow(stats) {
@@ -276,10 +288,14 @@ async function showDefinition(r, c) {
   // Find row and column words through this cell, fetch definitions for each.
   const words = [];
   const collect = (dr, dc) => {
-    let cells = [[r, c]]; let rr = r + dr, cc = c + dc;
-    while (rr >= 0 && rr < 10 && cc >= 0 && cc < 10 && game.board[rr][cc]) { cells.unshift([rr, cc]); rr += dr; cc += dc; }
-    rr = r - dr; cc = c - dc;
-    while (rr >= 0 && rr < 10 && cc >= 0 && cc < 10 && game.board[rr][cc]) { cells.push([rr, cc]); rr -= dr; cc -= dc; }
+    // Scan from the first letter of the word through to the last, in board
+    // order. The old code unshifted the forward side and pushed the backward
+    // side, which reversed every word (CAT read as TAC).
+    let sr = r, sc = c;
+    while (sr - dr >= 0 && sr - dr < 10 && sc - dc >= 0 && sc - dc < 10 && game.board[sr - dr][sc - dc]) { sr -= dr; sc -= dc; }
+    const cells = [];
+    let rr = sr, cc = sc;
+    while (rr >= 0 && rr < 10 && cc >= 0 && cc < 10 && game.board[rr][cc]) { cells.push([rr, cc]); rr += dr; cc += dc; }
     if (cells.length >= 2) words.push(cells.map(([a, b]) => game.board[a][b]).join(''));
   };
   collect(0, 1); collect(1, 0);
@@ -309,13 +325,17 @@ function isCellFree(r, c) {
   return !pending.some(p => p.row === r && p.col === c);
 }
 function nearestEmptyCell(r0, c0) {
-  let best = null, bestD = Infinity;
-  for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
-    if (!isCellFree(r, c)) continue;
-    const d = (r - r0) * (r - r0) + (c - c0) * (c - c0);
-    if (d < bestD) { bestD = d; best = { row: r, col: c }; }
+  // Only an orthogonally adjacent empty cell counts as "nearby". The old
+  // version searched the whole board, so dropping over an occupied cell
+  // could land a tile next to a completely different word, and validation
+  // then complained about a word the player never meant to play ("not a
+  // word" for something that was not even adjacent to their intended play).
+  // If no adjacent cell is free, the drop cancels instead of jumping away.
+  const neighbours = [[r0 - 1, c0], [r0 + 1, c0], [r0, c0 - 1], [r0, c0 + 1]];
+  for (const [r, c] of neighbours) {
+    if (r >= 0 && r < 10 && c >= 0 && c < 10 && isCellFree(r, c)) return { row: r, col: c };
   }
-  return best;
+  return null;
 }
 function clearDropHighlights() { document.querySelectorAll('#board .cell.drop-target').forEach(el => el.classList.remove('drop-target')); }
 function showGhost(letter, x, y) {

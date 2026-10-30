@@ -127,7 +127,11 @@ function wordAt(board, r, c, dir) {
     for (let cc = s; cc <= e; cc++) cells.push([r, cc]);
   } else {
     let s = r; while (s > 0 && board[s - 1][c]) s--;
-    let e = r; while (e < SIZE - 1 && board[s + 1][c]) e++;
+    // Was board[s + 1][c]: with s fixed at the top of the word, that test
+    // never turned false for a word of length >= 2, so e ran to row 9 and
+    // wordAt concatenated letters separated by empty cells into one fake
+    // word — exactly the "not a word for something not even adjacent" bug.
+    let e = r; while (e < SIZE - 1 && board[e + 1][c]) e++;
     for (let rr = s; rr <= e; rr++) cells.push([rr, c]);
   }
   const word = cells.map(([rr, cc]) => board[rr][cc]).join('');
@@ -205,6 +209,22 @@ function validatePlay(board, rack, placements, premiums, isFirst) {
       if (neigh.some(([r, c]) => r >= 0 && r < SIZE && c >= 0 && c < SIZE && board[r][c])) adjacent = true;
     }
     if (!mainIncludesExisting && !adjacent) return { valid: false, error: 'all tiles must be connected' };
+  }
+  // Single-tile plays are special: the old code always read them
+  // horizontally, so a lone tile that only formed a vertical word was
+  // rejected as "Word too short" even though it was a real play. Read both
+  // directions; a single tile may form one or two words, both must be real.
+  if (placements.length === 1 && !isFirst) {
+    const both = [wordAt(trial, placements[0].row, placements[0].col, 'H'), wordAt(trial, placements[0].row, placements[0].col, 'V')].filter(w => w.word.length >= 2);
+    if (!both.length) return { valid: false, error: 'Word too short.' };
+    const bad = [...new Set(both.filter(w => !WORDS.has(w.word)).map(w => w.word))];
+    if (bad.length) return { valid: false, error: 'not a word', invalidWords: bad, words: both };
+    const newSet1 = new Set(placements.map(p => `${p.row},${p.col}`));
+    const scored1 = both.map(w => ({ word: w.word, cells: w.cells, score: scoreWord(trial, w.cells, newSet1, premiums) }));
+    const isDuello1 = both.some(w => w.word === 'DUELLO');
+    const bonus1 = isDuello1 ? 30 : 0;
+    const main1 = scored1.find(w => w.word === 'DUELLO') || scored1.reduce((a, b) => (b.score > a.score ? b : a));
+    return { valid: true, words: scored1, score: scored1.reduce((s, w) => s + w.score, 0) + bonus1, mainWord: main1.word, mainCells: main1.cells, bonus: bonus1, isDuello: isDuello1, bingo: false, placements };
   }
   // Words formed
   const main = wordAt(trial, placements[0].row, placements[0].col, dir);
@@ -468,6 +488,10 @@ function serializeGame(game, user) {
     humanRack: game.humanRack, botRackCount: game.botRack.length,
     scores: game.scores, clocks: { human: clockHuman, bot: clockBot, turn: game.turn, turnStartedAt: game.turnStartedAt },
     botThinkUntil: game.botThinkUntil || null,
+    // Relative remaining time, not just the absolute server timestamp: the
+    // client must never compare a Render server clock to the phone clock
+    // (skew there added a second poll and pushed the perceived think to ~7s).
+    botThinkRemainingMs: game.botThinkUntil ? Math.max(0, game.botThinkUntil - now) : null,
     status: game.status, reason: game.reason,
     lastCells: game.lastCells, lastWord: game.lastWord, lastScore: game.lastScore, lastBy: game.lastBy,
     lastHuman: game.lastHuman, lastBot: game.lastBot,

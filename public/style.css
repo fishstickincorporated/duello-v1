@@ -45,6 +45,9 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .tile{width:100%;height:100%;border-radius:5px;background:#4da3ff;color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;position:relative;cursor:grab;user-select:none;touch-action:none}
 .tile .val{position:absolute;top:1px;right:2px;font-size:10px}
 .tile.pending{outline:2px solid #ffd166}
+/* Board tiles must cover their whole cell even if a premium label is ever
+present again; a flex-shared cell previously squeezed them to half width. */
+.cell .tile{position:absolute;inset:0;width:auto;height:auto}
 .cell.last-word .tile{box-shadow:inset 0 0 0 3px #f5b301}
 .status{min-height:26px;margin:10px 0;font-size:15px;line-height:1.3}
 .rack{display:flex;gap:6px;justify-content:space-between;margin:8px 0}

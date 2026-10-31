@@ -16,7 +16,14 @@ function registerDragCleanup(fn) { if (activeDragCleanup && activeDragCleanup !=
 function clearDragCleanup(fn) { if (activeDragCleanup === fn) activeDragCleanup = null; }
 function cleanupStuckDrag() { if (activeDragCleanup) { const fn = activeDragCleanup; activeDragCleanup = null; try { fn(); } catch {} } }
 const $ = id => document.getElementById(id);
-const fmtClock = ms => { ms = Math.max(0, Math.floor(ms / 1000) * 1000); const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000); return `${m}:${String(s).padStart(2, '0')}`; };
+// Display rounding is CEIL, not floor: with floor, 5:00 dropped to 4:59
+// within ~100ms of starting (299500ms remaining floors to 4:59), so
+// the timer never sat on 5:00 for a full second. With ceil, 5:00 shows
+// for the whole first second (300000 down to 299001ms), then 4:59 for
+// the next full second, and so on. The old ceil problem (runoff parsed
+// back from displayed text jumping up a second) no longer applies:
+// runoff now starts from game state, not from displayed text.
+const fmtClock = ms => { ms = Math.max(0, Math.ceil(ms / 1000) * 1000); if (ms === 0) return '0:00'; const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000); return `${m}:${String(s).padStart(2, '0')}`; };
 // Clock accuracy fix: the old code used Math.ceil, so the display was
 // always rounded UP to the next second — the clock looked a second
 // ahead of the real remaining time, and the bot runoff (parsed back
@@ -91,7 +98,7 @@ async function endCountdown() {
     clockHoldUntil = Date.now() + 1000;
     gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
     if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
-  } catch { countdownActive = false; $('gameScreen').classList.remove('counting'); botTurnTapTime = 0; beginBotTurn(); }
+  } catch { countdownActive = false; $('gameScreen').classList.remove('counting'); clockHoldUntil = Date.now() + 1000; botTurnTapTime = 0; beginBotTurn(); }
 }
 function startCountdown() {
   if (countdownInterval) clearInterval(countdownInterval);

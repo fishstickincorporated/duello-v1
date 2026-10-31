@@ -88,6 +88,7 @@ async function endCountdown() {
     catch { game = await api(`/api/games/${game.id}`); }
     countdownActive = false;
     $('gameScreen').classList.remove('counting');
+    clockHoldUntil = Date.now() + 1000;
     gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
     if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
   } catch { countdownActive = false; $('gameScreen').classList.remove('counting'); botTurnTapTime = 0; beginBotTurn(); }
@@ -182,6 +183,7 @@ function renderGame() {
 }
 let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0;
 let countdownInterval = null, countdownActive = false;
+let clockHoldUntil = 0;
 function canPlaceTiles() { return !!game && game.status === 'active' && game.clocks.turn === 'human' && !playInFlight && !countdownActive; }
 async function handleHumanTimeout() {
   if (!game || game.status !== 'active' || timeoutFetching) return;
@@ -194,6 +196,12 @@ async function handleHumanTimeout() {
 }
 function tickClocks() {
   if (!game) return;
+  // Game-start hold: both timers sit on 5:00 for a full second before
+  // ticking to 4:59. With floor display, 5:00 would otherwise drop to
+  // 4:59 within ~100ms of starting. This is display-only: the underlying
+  // elapsed time keeps running from the start, so at hold end the clock
+  // reads exactly 4:59, then 4:58 a second later, with no jump.
+  if (Date.now() < clockHoldUntil) { $('clockHuman').textContent = '5:00'; $('clockBot').textContent = '5:00'; return; }
   // During the countdown both clocks are pinned to 5:00, every tick.
   // Any render that recomputed from the server create time (4:59) or
   // from elapsed time during the countdown was the first-seconds glitch

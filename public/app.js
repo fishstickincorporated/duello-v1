@@ -652,6 +652,16 @@ $('mainMenuBtn').onclick = goHome; $('statMainMenu').onclick = goHome;
 $('playAgainBtn').onclick = () => { $('statWindow').classList.add('hidden'); startGame(currentBot); };
 $('statPlayAgain').onclick = () => { $('statWindow').classList.add('hidden'); startGame(currentBot); };
 $('gameStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
+const defCache = new Map();
+function hideDefinition() { const pop = $('defPopover'); if (pop) pop.classList.add('hidden'); }
+// Tapping anywhere else returns to the normal board view. The listener
+// is on pointerdown (before click), so a tap on another board tile first
+// closes this popover and then that tile's click opens its own, and a
+// tap on a rack / empty cell closes it and still places / selects.
+document.addEventListener('pointerdown', e => {
+  const pop = $('defPopover');
+  if (pop && !pop.classList.contains('hidden') && !pop.contains(e.target)) hideDefinition();
+});
 async function showDefinition(r, c) {
   // Find row and column words through this cell, fetch definitions for each.
   const words = [];
@@ -668,10 +678,24 @@ async function showDefinition(r, c) {
   };
   collect(0, 1); collect(1, 0);
   if (!words.length) return;
-  const defs = [];
-  for (const w of words) { try { const d = await api('/api/define?word=' + encodeURIComponent(w)); defs.push(`${w} ${d.pos ? '(' + d.pos + ') ' : ''}— ${d.definition}`); } catch {} }
-  const pop = $('defPopover'); pop.innerHTML = defs.join('<br>'); pop.classList.remove('hidden');
-  setTimeout(() => pop.classList.add('hidden'), 6000);
+  // Show the window immediately, with loading lines, then fill each
+  // definition in as it arrives (in parallel, cached). The old code
+  // waited for every definition fetch in sequence before showing
+  // anything, so a bundled miss that had to go to a live API made the
+  // whole popover feel delayed. No auto-hide any more: it stays until
+  // the X or a tap elsewhere.
+  const pop = $('defPopover');
+  pop.innerHTML = `<button class="def-close" aria-label="Close definition">×</button><div class="def-body">${words.map(w => `<div data-def-word="${w}">${w} — Loading…</div>`).join('')}</div>`;
+  pop.querySelector('.def-close').onclick = hideDefinition;
+  pop.classList.remove('hidden');
+  await Promise.all(words.map(async (w) => {
+    try {
+      let d = defCache.get(w);
+      if (!d) { d = await api('/api/define?word=' + encodeURIComponent(w)); defCache.set(w, d); }
+      const el = pop.querySelector(`[data-def-word="${w}"]`);
+      if (el) el.textContent = `${w} ${d.pos ? '(' + d.pos + ') ' : ''}— ${d.definition}`;
+    } catch { const el = pop.querySelector(`[data-def-word="${w}"]`); if (el) el.textContent = `${w} — Could not load definition.`; }
+  }));
 }
 // Drag / tap handling.
 // Root cause of bugs 2 and 3: the old code only ever dragged *within* the

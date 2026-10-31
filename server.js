@@ -824,29 +824,73 @@ function bundledDefinition(word) {
 // bundled fallback below is returned, so a slow or down API can never
 // break the definition popover. Only the queried game word is sent.
 const DEF_CACHE = new Map();
+function stripHtml(t) { return String(t || '').replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim(); }
+async function fetchWithTimeout(url, ms, headers) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try { const r = await fetch(url, { signal: ctrl.signal, headers }); return r; }
+  catch { return null; } finally { clearTimeout(timer); }
+}
+async function fetchDictApi(wordLower) {
+  try {
+    const r = await fetchWithTimeout('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(wordLower), 1500);
+    if (!r || !r.ok) return null;
+    const arr = await r.json();
+    const meaning = Array.isArray(arr) && arr[0] && arr[0].meanings && arr[0].meanings[0];
+    const def = meaning && meaning.definitions && meaning.definitions[0] && meaning.definitions[0].definition;
+    return def ? { pos: meaning.partOfSpeech || '', definition: def } : null;
+  } catch { return null; }
+}
+async function fetchWiktionary(wordLower) {
+  // Wiktionary covers many ENABLE-only words WordNet and dictionaryapi
+  // miss (ABOIL, AAL, and other Scrabble words are Wiktionary entries).
+  try {
+    const r = await fetchWithTimeout('https://en.wiktionary.org/api/rest_v1/page/definition/' + encodeURIComponent(wordLower), 2000, { 'User-Agent': 'Duello/1.0 (definition lookup)', 'Accept': 'application/json' });
+    if (!r || !r.ok) return null;
+    const data = await r.json();
+    const entries = (data && data.en) || [];
+    for (const e of entries) {
+      const d = e.definitions && e.definitions[0] && e.definitions[0].definition;
+      const clean = stripHtml(d);
+      if (clean) return { pos: e.partOfSpeech || '', definition: clean };
+    }
+    return null;
+  } catch { return null; }
+}
 async function getDefinition(word) {
   const w = String(word || '').toUpperCase();
   const bundled = bundledDefinition(w);
   if (bundled) return bundled;
   if (DEF_CACHE.has(w)) return DEF_CACHE.get(w);
+  // Live chain, in parallel so the total wait is the slower source, not
+  // the sum: free dictionary API first if it lands, else Wiktionary.
+  // Only the queried game word is sent, to either source.
+  const lower = w.toLowerCase();
+  let live = null;
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 2500);
-    const r = await fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(w.toLowerCase()), { signal: ctrl.signal });
-    clearTimeout(timer);
-    if (r.ok) {
-      const arr = await r.json();
-      const first = Array.isArray(arr) && arr[0];
-      const meaning = first && first.meanings && first.meanings[0];
-      const def = meaning && meaning.definitions && meaning.definitions[0] && meaning.definitions[0].definition;
-      if (def) {
-        const out = { word: w, pos: meaning.partOfSpeech || '', definition: def };
-        DEF_CACHE.set(w, out);
-        return out;
-      }
-    }
+    const [a, b] = await Promise.all([fetchDictApi(lower), fetchWiktionary(lower)]);
+    live = a || b;
   } catch {}
-  const fallback = { word: w, pos: '', definition: 'No definition in the bundled dictionary.' };
+  // Stemmed forms through Wiktionary: plurals / inflections that are
+  // not themselves Wiktionary headwords (e.g. ABOILS -> ABOIL).
+  if (!live) {
+    const cands = [...stemCandidates(w)];
+    for (const c of [...cands]) for (const c2 of stemCandidates(c)) if (!cands.includes(c2)) cands.push(c2);
+    for (const base of cands.slice(0, 5)) {
+      live = await fetchWiktionary(base.toLowerCase());
+      if (live) { live = { pos: live.pos, definition: `form of ${base} — ${live.definition}` }; break; }
+    }
+  }
+  if (live) {
+    const out = { word: w, pos: live.pos || '', definition: live.definition };
+    DEF_CACHE.set(w, out);
+    return out;
+  }
+  // Last resort, not a dead end: every word in the list is a valid
+  // Duello word, so say so rather than leaving the popover empty. In
+  // practice the bundled + live chain above covers the published
+  // glosses; this is for letter combinations with no published gloss.
+  const fallback = { word: w, pos: '', definition: 'A valid Duello word.' };
   DEF_CACHE.set(w, fallback);
   return fallback;
 }

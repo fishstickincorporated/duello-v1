@@ -88,6 +88,8 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .stat-grid{background:#262a33;border:2px solid #e8ecf1;border-radius:16px;padding:14px;text-align:left;font-size:14px;line-height:1.7}
 #gameDim.dimmed{filter:brightness(.35)}
 .def-popover{position:fixed;left:50%;bottom:120px;transform:translateX(-50%);background:#262a33;border:1px solid #4da3ff;border-radius:12px;padding:12px;max-width:360px;width:90%;z-index:20;text-align:left}
+.def-popover .def-close{position:absolute;top:4px;right:8px;background:none;border:0;color:#e8ecf1;font-size:22px;line-height:1;cursor:pointer;padding:4px}
+.def-popover .def-body{padding-right:24px}
 .drag-ghost{position:fixed;width:92px;height:92px;border-radius:8px;background:#4da3ff;color:#fff;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800;z-index:30;pointer-events:none;transform:translate(-50%,-60%)}
 /* Bottom tabs: main menu only, no text under icons */
 .tab-bar{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:390px;display:flex;justify-content:space-around;align-items:center;background:#1a1d24;border-top:1px solid #2a2f3a;padding:10px 0 14px;z-index:40}

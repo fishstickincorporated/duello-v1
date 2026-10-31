@@ -209,7 +209,8 @@ function renderGame() {
   }
   game.humanRack.forEach((letter, idx) => {
     if (countdownActive) return;
-    if (!optimisticPlay && pending.some(p => p.rackIndex === idx)) { const s = document.createElement('div'); s.style.flex = '1'; rackEl.appendChild(s); return; }
+    if (!letter) { const s = document.createElement('div'); s.className = 'tile empty'; rackEl.appendChild(s); return; }
+    if (!optimisticPlay && pending.some(p => p.rackIndex === idx)) { const s = document.createElement('div'); s.className = 'tile empty'; rackEl.appendChild(s); return; }
     const t = document.createElement('div'); t.className = 'tile'; t.dataset.idx = idx;
     t.innerHTML = `<span class="letter">${letter}</span><span class="val">${({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter]}</span>`;
     if (selectedRack === idx) t.style.outline = '2px solid #ffd166';
@@ -599,17 +600,17 @@ async function doPlay() {
     game.scores.human += lastValidate.score;
     game.lastHuman = { word: lastValidate.mainWord, points: lastValidate.score, bonus: lastValidate.bonus, isDuello: lastValidate.isDuello, bingo: lastValidate.bingo, words: (lastValidate.words || []).map(w => w.word) };
   }
-  // Tiles replaced immediately at the tap, not when the Play POST
-  // returns: refill the exact slots the server will refill (indexOf
-  // matching, same as applyMove), and render the rack full, with no
-  // spacers for the played tiles, while the board still shows the
-  // played word via pending. The server reply then replaces the rack
-  // with its authoritative letters, so the optimistic letters are
-  // only ever visible during the POST.
+  // Played tiles leave the rack immediately at the tap, as blank slots
+  // — not as random replacement letters. The old code drew a client-side
+  // refill at the tap, which the server reply then replaced with
+  // different letters: the visible flicker Jeff reported. The slots the
+  // server will refill are the indexOf-matched ones (same as applyMove);
+  // they stay blank until the server reply fills them with its
+  // authoritative letters, so no letter ever changes into another one.
   {
-    const remaining = game.humanRack.slice(); const usedIndices = [];
-    for (const pl of pending) { const idx = remaining.indexOf(pl.letter); if (idx >= 0) { usedIndices.push(idx); remaining[idx] = null; } }
-    game.humanRack = optRefillRack(game.humanRack, usedIndices);
+    const remaining = game.humanRack.slice(); const usedSet = new Set();
+    for (const pl of pending) { const idx = remaining.indexOf(pl.letter); if (idx >= 0) { usedSet.add(idx); remaining[idx] = null; } }
+    game.humanRack = game.humanRack.map((l, i) => usedSet.has(i) ? null : l);
     optimisticPlay = true;
   }
   // Highlight the opponent's scoreboard AT THE TAP, not when the Play
@@ -661,14 +662,20 @@ function showStatWindow(stats) {
   const w = $('statWindow'); w.classList.remove('hidden');
   $('gameDim').classList.add('dimmed');
   const botLabel = (game && game.botType === 'fishstick') ? 'Fishstick' : 'Bot';
-  $('statWinner').textContent = stats.scores.human > stats.scores.bot ? 'You win' : stats.scores.bot > stats.scores.human ? botLabel + ' wins' : 'Draw';
+  // Winner is the game's recorded result, not the score comparison:
+  // a forfeit is a loss even when the forfeiter is ahead on points.
+  // stats.winner comes from the server; the reason check covers any
+  // older payload without it.
+  const winnerSide = stats.winner || (stats.reason === 'By forfeit' ? 'bot' : null);
+  $('statWinner').textContent = winnerSide === 'human' ? 'You win' : winnerSide === 'bot' ? botLabel + ' wins' : winnerSide === 'draw' ? 'Draw' : (stats.scores.human > stats.scores.bot ? 'You win' : stats.scores.bot > stats.scores.human ? botLabel + ' wins' : 'Draw');
   $('statScore').textContent = `${stats.scores.human}–${stats.scores.bot}`;
   $('statReason').textContent = sentence(stats.reason || '');
   const fmtMove = (d, v) => v >= 0 ? '+' + v : '' + v;
   $('eloMoveHuman').textContent = fmtMove(null, stats.eloDeltaHuman ?? 0);
   $('eloMoveHuman').className = 'elo-move ' + ((stats.eloDeltaHuman ?? 0) < 0 ? 'neg' : 'pos');
-  $('eloMoveBot').textContent = fmtMove(null, stats.eloDeltaBot ?? 0);
-  $('eloMoveBot').className = 'elo-move ' + ((stats.eloDeltaBot ?? 0) < 0 ? 'neg' : 'pos');
+  // No Elo move shown for the bot: its Elo is not a moving stat here.
+  $('eloMoveBot').textContent = '';
+  $('eloMoveBot').className = 'elo-move';
   const row = (label, h, b) => `<div class="stat-row"><span class="stat-label">${label}</span><span>${h}</span><span>${b}</span></div>`;
   const best = (x) => x.best ? `${x.best.word} (${x.best.score} pts)` : '—';
   const longest = (x) => x.longest ? `${x.longest.word} (${x.longest.word.length} letters)` : '—';

@@ -583,7 +583,9 @@ async function endGame(game, user, reason, winnerSide) {
   game.reason = reason;
   game.winner = winnerSide;
   const actual = winnerSide === 'human' ? 1 : winnerSide === 'bot' ? 0 : 0.5;
-  const delta = eloDelta(user.elo, game.botElo, actual);
+  // A draw moves nobody's Elo, whatever the Elo gap (a draw against
+  // Fishstick at 3000 used to gain ~16 Elo from the 0.5 expectation).
+  const delta = winnerSide === 'draw' ? 0 : eloDelta(user.elo, game.botElo, actual);
   game.eloDeltaHuman = delta;
   // Competitive Bot mirrors the player: its Elo for the next game IS the
   // player's new Elo, so it moves the SAME direction as the human.
@@ -916,7 +918,7 @@ function gameStatsPayload(game) {
   const h = computeStats(game.moves.human || []);
   const b = computeStats(game.moves.bot || []);
   return {
-    reason: game.reason, scores: game.scores,
+    reason: game.reason, winner: game.winner, scores: game.scores,
     human: { best: h.best, longest: h.longest, optimal: h.optimal, total: h.total, uniqueCount: h.uniqueCount, optimalWords: h.optimalWords },
     bot: { best: b.best, longest: b.longest, optimal: b.optimal, total: b.total, uniqueCount: b.uniqueCount, optimalWords: b.optimalWords },
     eloDeltaHuman: game.eloDeltaHuman, eloDeltaBot: game.eloDeltaBot, eloAfterHuman: game.eloAfterHuman, eloAfterBot: game.eloAfterBot,

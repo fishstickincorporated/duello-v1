@@ -55,7 +55,7 @@ const fmtClock = ms => { ms = Math.max(0, Math.ceil(ms / 1000) * 1000); if (ms =
 async function api(path, opts = {}) {
   const r = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || 'Request failed');
+  if (!r.ok) { const e = new Error(j.error || 'Request failed'); if (j.invalidWords) e.invalidWords = j.invalidWords; throw e; }
   return j;
 }
 function show(id) {
@@ -162,19 +162,26 @@ function renderGame() {
   $('scoreHuman').textContent = String(game.scores.human); $('scoreBot').textContent = String(game.scores.bot);
   const lastHtml = (l) => {
     if (!l) return '';
-    if (l.passed) return 'passed <span class="pts">-30s</span>';
+    if (l.passed) return 'passed<br><span class="pts">-30s</span>';
     const words = (l.words && l.words.length) ? l.words : [l.word];
     return `${words.join(', ')}<br><span class="pts">+${l.points} pts${l.bingo ? ' · <span class="bingo">bingo! +30</span>' : ''}${l.isDuello ? ' · Duello +30' : ''}</span>`;
   };
   $('lastHuman').innerHTML = lastHtml(game.lastHuman);
   $('lastBot').innerHTML = lastHtml(game.lastBot);
+  // Inner 6x6 glow lives in a persistent overlay (see index.html), not on
+  // the board cells: renderGame rebuilds every cell, and each rebuild
+  // restarted the 3.2s pulse, so the glow visibly jumped at the end of
+  // the 5s countdown. The overlay is never rebuilt, so its pulse runs
+  // steadily before, during, and after the countdown; it is only shown
+  // (opacity, never display) while the first word is still unplayed.
+  if ($('innerGlow')) $('innerGlow').classList.toggle('on', !!game.isFirst);
   // Board
   const boardEl = $('board'); boardEl.innerHTML = '';
   const lastSet = new Set((game.lastCells || []).map(([r, c]) => r + ',' + c));
   for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
     const cell = document.createElement('div');
     const prem = game.premiums[`${r},${c}`];
-    cell.className = 'cell' + (prem ? ' ' + prem : '') + (game.isFirst && r >= 2 && r <= 7 && c >= 2 && c <= 7 ? ' glow' : '') + (lastSet.has(r + ',' + c) ? ' last-word' : '');
+    cell.className = 'cell' + (prem ? ' ' + prem : '') + (lastSet.has(r + ',' + c) ? ' last-word' : '');
     const pend = pending.find(p => p.row === r && p.col === c);
     const letter = boardCell(r, c) || (pend ? pend.letter : null);
     // A premium label must never share the cell with a tile: the cell is a
@@ -214,9 +221,14 @@ function renderGame() {
   // Recall only when a tile is actually placed; Pass only on your turn.
   // Both are greyed (disabled) otherwise, instead of tappable-but-dead.
   const yourTurn = game.status === 'active' && game.clocks.turn === 'human' && !playInFlight;
+  // Out of time = human clock at 0 (displayed, i.e. elapsed-adjusted on
+  // your turn), whatever the turn field currently says: after timeout the
+  // turn flips to the bot, but the human clock is still 0.
+  const humanRemaining = game.status === 'active' ? Math.max(0, game.clocks.turn === 'human' ? game.clocks.human - (Date.now() - gameFetchAt) : game.clocks.human) : Infinity;
+  const outOfTime = game.status === 'active' && humanRemaining <= 0;
   $('recallBtn').disabled = countdownActive || !(yourTurn && pending.length > 0);
   $('passBtn').disabled = countdownActive || !yourTurn;
-  $('shuffleBtn').disabled = countdownActive || playInFlight || optimisticPlay;
+  $('shuffleBtn').disabled = countdownActive || playInFlight || optimisticPlay || outOfTime;
   $('forfeitBtn').disabled = countdownActive;
   document.querySelector('.controls').classList.toggle('hidden', finished);
   $('endButtons').classList.toggle('hidden', !finished);
@@ -269,7 +281,7 @@ function tickClocks() {
   if (Date.now() >= runoffUntil) $('clockBot').textContent = fmtClock(b);
   // Human clock hit 0: do not leave the game sitting on a dead turn.
   // Fetching flips the server to the bot turn, which then loops on its own.
-  if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) { $('status').textContent = 'Out of time, opponent plays on.'; if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleHumanTimeout(); }
+  if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) { $('status').textContent = 'Out of time, opponent plays on.'; $('shuffleBtn').disabled = true; if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleHumanTimeout(); }
   botWatchdog();
 }
 setInterval(tickClocks, 100);
@@ -391,6 +403,10 @@ function sentence(s) {
   s = s.charAt(0).toUpperCase() + s.slice(1);
   return (s.endsWith('.') || s.endsWith('!') || s.endsWith('?')) ? s : s + '.';
 }
+function invalidWordsStatus(w) {
+  const list = w.length === 1 ? w[0] : w.slice(0, -1).join(', ') + ' and ' + w[w.length - 1];
+  return w.length === 1 ? `${list} is not a word.` : `${list} are not words.`;
+}
 async function updateStatus() {
   if (!game) return;
   if (game.status === 'finished') { $('status').textContent = sentence(game.reason || 'Game over'); return; }
@@ -413,15 +429,28 @@ async function updateStatus() {
     if (JSON.stringify(pending.map(p => [p.row, p.col, p.letter])) !== snapshot) return;
     if (v.valid) { $('status').textContent = 'Play?'; setPlayState('valid'); showBubble(v.score, v.mainCells); }
     else if (v.invalidWords && v.invalidWords.length) {
-      const w = v.invalidWords;
-      const list = w.length === 1 ? w[0] : w.slice(0, -1).join(', ') + ' and ' + w[w.length - 1];
-      $('status').textContent = w.length === 1 ? `${list} is not a word.` : `${list} are not words.`;
+      $('status').textContent = invalidWordsStatus(v.invalidWords);
       setPlayState('invalid'); hideBubble();
     } else { $('status').textContent = v.error ? v.error.charAt(0).toUpperCase() + v.error.slice(1) + (v.error.endsWith('.') ? '' : '.') : 'Invalid play.'; setPlayState('invalid'); hideBubble(); }
   } catch {
-    // A failed check leaves Play tappable (grey) — the Play handler will
-    // ask the server directly, which is the authoritative verdict.
+    // A failed check used to leave a stale status ("Your move." / "Play?")
+    // with Play greyed, so an invalid word never got named until the user
+    // tapped Play. Retry once for a transient failure (Render waking up);
+    // if that also fails, Play stays tappable and its server verdict
+    // names the words (see doPlay catch).
     setPlayState('invalid');
+    const retrySnapshot = JSON.stringify(pending.map(p => [p.row, p.col, p.letter]));
+    setTimeout(async () => {
+      if (!game || game.status !== 'active' || game.clocks.turn !== 'human') return;
+      if (JSON.stringify(pending.map(p => [p.row, p.col, p.letter])) !== retrySnapshot) return;
+      try {
+        const v2 = await api(`/api/games/${game.id}/validate`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })) }) });
+        if (JSON.stringify(pending.map(p => [p.row, p.col, p.letter])) !== retrySnapshot) return;
+        lastValidate = v2; lastValidatePlacements = retrySnapshot;
+        if (v2.valid) { $('status').textContent = 'Play?'; setPlayState('valid'); showBubble(v2.score, v2.mainCells); }
+        else if (v2.invalidWords && v2.invalidWords.length) { $('status').textContent = invalidWordsStatus(v2.invalidWords); setPlayState('invalid'); hideBubble(); }
+      } catch {}
+    }, 500);
   }
 }
 function showBubble(score, mainCells) {
@@ -467,6 +496,10 @@ let shuffling = false;
 $('shuffleBtn').onclick = async () => {
   cleanupStuckDrag();
   if (!game || shuffling) return;
+  if (game.status === 'active') {
+    const hr = Math.max(0, game.clocks.turn === 'human' ? game.clocks.human - (Date.now() - gameFetchAt) : game.clocks.human);
+    if (hr <= 0) return;
+  }
   // Works on the player's turn AND on the opponent's turn: the rack is the
   // player's own rack, the shuffle endpoint does not require it to be your
   // turn, and the greyed opponent-turn rack is opacity-only (not disabled).
@@ -597,7 +630,7 @@ async function doPlay() {
     // pre-tap score / last play (undoing the optimistic score above).
     game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt;
     game.scores.human = prevScore; game.lastHuman = prevLastHuman; game.humanRack = prevRack; optimisticPlay = false;
-    $('status').textContent = sentence(String(e.message || '').slice(0, 48)); renderGame();
+    $('status').textContent = (e.invalidWords && e.invalidWords.length) ? invalidWordsStatus(e.invalidWords) : sentence(String(e.message || '').slice(0, 48)); renderGame();
   }
   finally { playInFlight = false; }
 }

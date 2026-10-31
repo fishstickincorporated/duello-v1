@@ -666,7 +666,11 @@ async function advanceBotTurnIfReady(game, user) {
   // Returns true if the bot actually moved (clock should step), false otherwise.
   if (game.status !== 'active' || game.turn !== 'bot') return false;
   const until = game.botThinkUntil || (game.turnStartedAt + 5000);
-  if (Date.now() < until) return false;
+  // 1.5s tolerance: the client polls at 5s from its tap, but the server's
+  // think timer starts when the Play POST arrives (network time later),
+  // so a poll at tap+5s would otherwise miss and need a second poll,
+  // pushing the perceived think to ~7s. Within tolerance the move runs.
+  if (Date.now() < until - 1500) return false;
   if (game.clocks.bot <= 0) { game.turn = 'human'; game.turnStartedAt = Date.now(); game.botThinkUntil = null; return false; }
   settleClock(game);
   const moved = runBotTurn(game);

@@ -7,9 +7,9 @@
   <section id="homeScreen" class="screen hidden">
     <img class="logo-img home-logo" src="/assets/logo.png" alt="DUELLO">
     <div class="modes">
-      <button class="mode" id="playBotsBtn"><span class="sym white">🤖</span><span class="label">Play Bots</span></button>
-      <button class="mode greyed" disabled><span class="sym">👥</span><span class="label">Play Friends</span></button>
-      <button class="mode greyed" disabled><span class="sym">🌐</span><span class="label">Play Online</span></button>
+      <button class="mode" id="playBotsBtn"><span class="sym white"><svg viewBox="0 0 24 24"><path d="M12 2v2M8 3h8M5 7h14v11H5zM8 11h2M14 11h2M9 18h6"/></svg></span><span class="label">Play Bots</span></button>
+      <button class="mode greyed" disabled><span class="sym white"><svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="3"/><path d="M2 20c0-3 2.7-5 6-5s6 2 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M15 14.5c2.8 0 5 1.7 5 4.5"/></svg></span><span class="label">Play Friends</span></button>
+      <button class="mode greyed" disabled><span class="sym white"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-3 3-3 15 0 18M12 3c3 3 3 15 0 18"/></svg></span><span class="label">Play Online</span></button>
     </div>
   </section>
 
@@ -26,15 +26,15 @@
     <div id="gameDim">
       <img class="logo-img small-logo-img" id="gameLogo" src="/assets/logo.png" alt="DUELLO">
       <div class="scoreboard" id="scoreboard">
+        <div class="panel player-panel" id="playerPanel">
+          <div class="col identity-col"><div class="pfp">👤</div><div class="name" id="playerName">you</div><div class="elo" id="playerElo">1000</div></div>
+          <div class="col score-col"><span id="scoreHuman">0</span></div>
+          <div class="col clock-col"><span class="clock" id="clockHuman">5:00</span><div class="lastplay" id="lastHuman">—</div></div>
+        </div>
         <div class="panel bot-panel" id="botPanel">
           <div class="col clock-col"><span class="clock" id="clockBot">5:00</span><div class="lastplay" id="lastBot">—</div></div>
-          <div class="col score-col"><span id="scoreBot">000</span></div>
+          <div class="col score-col"><span id="scoreBot">0</span></div>
           <div class="col identity-col"><div class="pfp" id="botPfp">🤖</div><div class="name" id="botName">Bot</div><div class="elo" id="botElo">1000</div></div>
-        </div>
-        <div class="panel player-panel" id="playerPanel">
-          <div class="col identity-col"><div class="pfp">👤</div><div class="name" id="playerName">You</div><div class="elo" id="playerElo">1000</div></div>
-          <div class="col score-col"><span id="scoreHuman">000</span></div>
-          <div class="col clock-col"><span class="clock" id="clockHuman">5:00</span><div class="lastplay" id="lastHuman">—</div></div>
         </div>
       </div>
       <div id="board" class="board"></div>
@@ -49,13 +49,15 @@
       </div>
     </div>
     <div id="statWindow" class="stat-window hidden">
+      <div class="stat-winner" id="statWinner"></div>
       <div class="stat-top"><div class="stat-pfp"><div class="pfp big">👤</div><div class="elo-move" id="eloMoveHuman">+0</div></div>
       <div class="stat-score" id="statScore">0–0</div>
       <div class="stat-pfp"><div class="pfp big" id="statBotPfp">🤖</div><div class="elo-move" id="eloMoveBot">+0</div></div></div>
       <div class="stat-reason" id="statReason"></div>
       <div class="stat-grid" id="statGrid"></div>
-      <div class="controls"><button id="statMainMenu">Main Menu</button><button id="statPlayAgain">Play Again</button><button id="statGameStats">Game Stats</button></div>
+      <div class="controls"><button id="statMainMenu">Main Menu</button><button id="statPlayAgain">Play Again</button></div>
     </div>
+    <div id="countdownOverlay" class="countdown-overlay hidden"><div class="countdown-num" id="countdownNum">5</div></div>
     <div id="defPopover" class="def-popover hidden"></div>
     <div id="dragGhost" class="drag-ghost hidden"></div>
   </section>

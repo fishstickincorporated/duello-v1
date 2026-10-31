@@ -69,7 +69,29 @@ async function startGame(bot) {
     game = await api('/api/games', { method: 'POST', body: JSON.stringify({ bot }) });
   }
   gameFetchAt = Date.now(); pending = []; selectedRack = null; armed = {};
-  show('gameScreen'); renderGame(); beginBotTurn();
+  show('gameScreen'); renderGame(); startCountdown();
+}
+async function endCountdown() {
+  countdownActive = false;
+  $('countdownOverlay').classList.add('hidden');
+  $('gameScreen').classList.remove('counting');
+  try {
+    game = await api(`/api/games/${game.id}`);
+    gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
+    if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
+  } catch { botTurnTapTime = 0; beginBotTurn(); }
+}
+function startCountdown() {
+  if (countdownInterval) clearInterval(countdownInterval);
+  countdownActive = true;
+  $('gameScreen').classList.add('counting');
+  const ov = $('countdownOverlay'); ov.classList.remove('hidden');
+  let n = 5; $('countdownNum').textContent = String(n);
+  countdownInterval = setInterval(() => {
+    n--;
+    if (n <= 0) { clearInterval(countdownInterval); countdownInterval = null; endCountdown(); return; }
+    $('countdownNum').textContent = String(n);
+  }, 1000);
 }
 function boardCell(r, c) { return game.board[r][c]; }
 function renderGame() {
@@ -79,7 +101,7 @@ function renderGame() {
   // which is how a drag froze the whole screen. The next render after the
   // drag ends will show any bot move that arrived in the meantime.
   if (activeDragCleanup) return;
-  $('playerName').textContent = me ? me.firstName : 'You';
+  $('playerName').textContent = 'you';
   try { document.querySelector('.player-panel .pfp').innerHTML = pfpHTML(me); document.querySelector('.stat-pfp .pfp').innerHTML = pfpHTML(me); } catch {}
   $('playerElo').textContent = me ? me.elo : game.player.elo;
   const isFish = game.botType === 'fishstick';
@@ -88,8 +110,8 @@ function renderGame() {
   if (isFish) $('botPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">'; else $('botPfp').textContent = '🤖';
   document.querySelector('.player-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'human');
   document.querySelector('.bot-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'bot');
-  $('scoreHuman').textContent = String(game.scores.human).padStart(3, '0'); $('scoreBot').textContent = String(game.scores.bot).padStart(3, '0');
-  const lastHtml = (l) => !l ? '—' : l.passed ? 'passed' : `${l.word}<br><span class="pts">+${l.points} pts${l.bingo ? ' · bingo +30' : ''}${l.isDuello ? ' · Duello +30' : ''}</span>`;
+  $('scoreHuman').textContent = String(game.scores.human); $('scoreBot').textContent = String(game.scores.bot);
+  const lastHtml = (l) => !l ? '—' : l.passed ? 'passed <span class="pts">-30s</span>' : `${l.word}<br><span class="pts">+${l.points} pts${l.bingo ? ' · bingo +30' : ''}${l.isDuello ? ' · Duello +30' : ''}</span>`;
   $('lastHuman').innerHTML = lastHtml(game.lastHuman);
   $('lastBot').innerHTML = lastHtml(game.lastBot);
   // Board
@@ -107,7 +129,7 @@ function renderGame() {
     cell.textContent = letter ? '' : (prem || '');
     if (letter) {
       const t = document.createElement('div'); t.className = 'tile' + (pend ? ' pending' : '');
-      t.innerHTML = `${letter}<span class="val">${({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter]}</span>`;
+      t.innerHTML = `<span class="letter">${letter}</span><span class="val">${({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter]}</span>`;
       if (pend) enablePlacedDrag(t, pend);
       else t.onclick = () => showDefinition(r, c);
       cell.appendChild(t);
@@ -122,7 +144,7 @@ function renderGame() {
   game.humanRack.forEach((letter, idx) => {
     if (pending.some(p => p.rackIndex === idx)) { const s = document.createElement('div'); s.style.flex = '1'; rackEl.appendChild(s); return; }
     const t = document.createElement('div'); t.className = 'tile'; t.dataset.idx = idx;
-    t.innerHTML = `${letter}<span class="val">${({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter]}</span>`;
+    t.innerHTML = `<span class="letter">${letter}</span><span class="val">${({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter]}</span>`;
     if (selectedRack === idx) t.style.outline = '2px solid #ffd166';
     enableRackDrag(t, idx);
     rackEl.appendChild(t);
@@ -141,7 +163,9 @@ function renderGame() {
   tickClocks();
   updateStatus();
 }
-let runoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0;
+let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0;
+let countdownInterval = null, countdownActive = false;
+function canPlaceTiles() { return !!game && game.status === 'active' && game.clocks.turn === 'human' && !playInFlight && !countdownActive; }
 async function handleHumanTimeout() {
   if (!game || game.status !== 'active' || timeoutFetching) return;
   timeoutFetching = true; timeoutLastAttempt = Date.now();
@@ -152,13 +176,13 @@ async function handleHumanTimeout() {
   } catch {} finally { timeoutFetching = false; }
 }
 function tickClocks() {
-  if (!game) return;
+  if (!game || countdownActive) return;
   const elapsed = Date.now() - gameFetchAt;
   let h = game.clocks.human, b = game.clocks.bot;
   if (game.status === 'active') {
     if (game.clocks.turn === 'human') h = Math.max(0, h - elapsed); else b = Math.max(0, b - elapsed);
   }
-  $('clockHuman').textContent = fmtClock(h);
+  if (Date.now() >= humanRunoffUntil) $('clockHuman').textContent = fmtClock(h);
   // During a runoff animation the bot clock is driven by the animation,
   // not by this 100ms tick — the tick used to jump it straight to the
   // stepped value and flicker over the animation.
@@ -173,6 +197,7 @@ setInterval(tickClocks, 100);
 let botTimer = null, suppressNextClick = false, botTurnTapTime = 0;
 function parseClockText(txt) { const m = /^([0-9]+):([0-9]{2})$/.exec((txt || '').trim()); return m ? Number(m[1]) * 60000 + Number(m[2]) * 1000 : null; }
 function animateClockRunoff(fromMs, toMs) {
+  if (fromMs !== null && toMs !== null) fromMs = Math.min(fromMs, toMs + 20000);
   if (fromMs === null || toMs === null || fromMs <= toMs) { if (toMs !== null) $('clockBot').textContent = fmtClock(toMs); return; }
   const steps = Math.max(1, Math.round((fromMs - toMs) / 1000));
   // 50ms per displayed second = ~750ms for the 15s runoff to the 20s mark.
@@ -184,6 +209,19 @@ function animateClockRunoff(fromMs, toMs) {
     $('clockBot').textContent = fmtClock(Math.max(toMs, v));
     if (i >= steps) { clearInterval(iv); $('clockBot').textContent = fmtClock(toMs); runoffUntil = 0; }
   }, 50);
+}
+function animateHumanRunoff(fromMs, toMs) {
+  if (fromMs === null || toMs === null || fromMs <= toMs) { if (toMs !== null) $('clockHuman').textContent = fmtClock(toMs); return; }
+  const steps = Math.max(1, Math.round((fromMs - toMs) / 1000));
+  humanRunoffUntil = Date.now() + steps * 20 + 100;
+  $('clockHuman').textContent = fmtClock(fromMs);
+  let i = 0;
+  const iv = setInterval(() => {
+    i++;
+    const v = fromMs - Math.round((fromMs - toMs) * i / steps);
+    $('clockHuman').textContent = fmtClock(Math.max(toMs, v));
+    if (i >= steps) { clearInterval(iv); $('clockHuman').textContent = fmtClock(toMs); humanRunoffUntil = 0; }
+  }, 20);
 }
 let lastBotPollAt = 0;
 async function pollBotTurn() {
@@ -322,7 +360,7 @@ function showBubble(score, mainCells) {
 }
 function hideBubble() { document.querySelectorAll('.play-bubble').forEach(e => e.remove()); }
 function placeTile(r, c) {
-  if (playInFlight) return;
+  if (!canPlaceTiles()) return;
   if (game.board[r][c]) return;
   if (pending.some(p => p.row === r && p.col === c)) return;
   const letter = game.humanRack[selectedRack];
@@ -357,13 +395,13 @@ $('shuffleBtn').onclick = async () => {
     tiles.forEach(t => {
       const r = t.getBoundingClientRect();
       const dx = centre - (r.left + r.width / 2);
-      t.style.transition = 'transform 90ms ease-in, opacity 90ms ease-in';
+      t.style.transition = 'transform 50ms ease-in, opacity 50ms ease-in';
       t.style.transform = `translateX(${dx}px) scale(0.6)`;
       t.style.opacity = '0.6';
     });
   };
   fold([...rackEl.querySelectorAll('.tile')]);
-  await new Promise(r => setTimeout(r, 100));
+  await new Promise(r => setTimeout(r, 60));
   try {
     game = await api(`/api/games/${game.id}/shuffle`, { method: 'POST', body: JSON.stringify({ rack }) }); gameFetchAt = Date.now(); renderGame();
     // Fold out: new tiles start collapsed at the centre and expand to
@@ -379,21 +417,21 @@ $('shuffleBtn').onclick = async () => {
     });
     requestAnimationFrame(() => requestAnimationFrame(() => {
       newTiles.forEach(t => {
-        t.style.transition = 'transform 120ms ease-out, opacity 120ms ease-out';
+        t.style.transition = 'transform 70ms ease-out, opacity 70ms ease-out';
         t.style.transform = ''; t.style.opacity = '';
       });
-      setTimeout(() => newTiles.forEach(t => { t.style.transition = ''; }), 150);
+      setTimeout(() => newTiles.forEach(t => { t.style.transition = ''; }), 90);
     }));
   } catch {
     // Shuffle failed server-side: unfold the original tiles back out.
-    [...rackEl.querySelectorAll('.tile')].forEach(t => { t.style.transition = 'transform 120ms ease-out, opacity 120ms ease-out'; t.style.transform = ''; t.style.opacity = ''; });
+    [...rackEl.querySelectorAll('.tile')].forEach(t => { t.style.transition = 'transform 70ms ease-out, opacity 70ms ease-out'; t.style.transform = ''; t.style.opacity = ''; });
   }
   shuffling = false;
 };
-function armButton(btn, label, fn) {
+function armButton(btn, label, fn, penalty) {
   return async () => {
-    if (!armed[btn.id]) { armed[btn.id] = true; btn.textContent = 'SURE?'; setTimeout(() => { armed[btn.id] = false; btn.textContent = label; }, 3000); return; }
-    armed[btn.id] = false; btn.textContent = label; await fn();
+    if (!armed[btn.id]) { armed[btn.id] = true; btn.classList.add('armed-red'); btn.innerHTML = 'SURE?<span class="penalty">' + penalty + '</span>'; setTimeout(() => { armed[btn.id] = false; btn.classList.remove('armed-red'); btn.textContent = label; }, 3000); return; }
+    armed[btn.id] = false; btn.classList.remove('armed-red'); btn.textContent = label; await fn();
   };
 }
 $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => {
@@ -401,10 +439,11 @@ $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => {
   const tapAt = Date.now(); const clientElapsedMs = Math.max(0, tapAt - gameFetchAt);
   const prevHuman = game.clocks.human, prevFetchAt = gameFetchAt;
   game.clocks.human = Math.max(0, game.clocks.human - clientElapsedMs); game.clocks.turn = 'bot'; gameFetchAt = tapAt; tickClocks();
-  try { botTurnTapTime = tapAt; game = await api(`/api/games/${game.id}/pass`, { method: 'POST', body: JSON.stringify({ clientElapsedMs }) }); gameFetchAt = tapAt; pending = []; renderGame(); beginBotTurn(); }
+  const fromHuman = game.clocks.human;
+  try { botTurnTapTime = tapAt; game = await api(`/api/games/${game.id}/pass`, { method: 'POST', body: JSON.stringify({ clientElapsedMs }) }); gameFetchAt = tapAt; pending = []; renderGame(); animateHumanRunoff(fromHuman, game.clocks.human); beginBotTurn(); }
   catch { game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt; renderGame(); }
-});
-$('forfeitBtn').onclick = armButton($('forfeitBtn'), 'Forfeit', async () => { game = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' }); gameFetchAt = Date.now(); pending = []; renderGame(); });
+}, '-30s');
+$('forfeitBtn').onclick = armButton($('forfeitBtn'), 'Forfeit', async () => { game = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' }); gameFetchAt = Date.now(); pending = []; renderGame(); }, 'you lose');
 async function doPlay() {
   // Unstick first, and clear the drag's click-suppression flag: after a
   // drag, suppressNextClick stayed true until an empty cell was tapped,
@@ -437,7 +476,7 @@ async function doPlay() {
     // Keep the bot clock ticking from the tap, not from the reply:
     // gameFetchAt stays at tapAt, so the bot display does not jump
     // back up by the POST duration when the reply lands.
-    gameFetchAt = tapAt; pending = []; renderGame(); beginBotTurn(); loadMe();
+    gameFetchAt = tapAt; pending = []; cleanupStuckDrag(); $('rack').classList.add('instant'); renderGame(); setTimeout(() => $('rack').classList.remove('instant'), 100); beginBotTurn(); loadMe();
   } catch (e) {
     // Play failed: restore the human turn and its pre-tap clock.
     game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt;
@@ -455,6 +494,8 @@ $('playBtn').addEventListener('click', e => { if (Date.now() - playPointerAt < 1
 function showStatWindow(stats) {
   const w = $('statWindow'); w.classList.remove('hidden');
   $('gameDim').classList.add('dimmed');
+  const botLabel = (game && game.botType === 'fishstick') ? 'Fishstick' : 'Bot';
+  $('statWinner').textContent = stats.scores.human > stats.scores.bot ? 'you win' : stats.scores.bot > stats.scores.human ? botLabel + ' wins' : 'draw';
   $('statScore').textContent = `${stats.scores.human}–${stats.scores.bot}`;
   $('statReason').textContent = stats.reason || '';
   const fmtMove = (d, v) => v >= 0 ? '+' + v : '' + v;
@@ -462,11 +503,11 @@ function showStatWindow(stats) {
   $('eloMoveHuman').className = 'elo-move ' + ((stats.eloDeltaHuman ?? 0) < 0 ? 'neg' : 'pos');
   $('eloMoveBot').textContent = fmtMove(null, stats.eloDeltaBot ?? 0);
   $('eloMoveBot').className = 'elo-move ' + ((stats.eloDeltaBot ?? 0) < 0 ? 'neg' : 'pos');
-  const row = (label, h, b) => `<div><b>${label}:</b><br>Human: ${h}<br>Bot: ${b}</div>`;
+  const row = (label, h, b) => `<div class="stat-row"><span class="stat-label">${label}</span><span>${h}</span><span>${b}</span></div>`;
   const best = (x) => x.best ? `${x.best.word} (${x.best.score} pts)` : '—';
   const longest = (x) => x.longest ? `${x.longest.word} (${x.longest.word.length} letters)` : '—';
   const opt = (x) => `${x.optimal}/${x.total}` + (x.optimalWords && x.optimalWords.length ? ` (${x.optimalWords.join(', ')})` : '');
-  $('statGrid').innerHTML = row('Best word', best(stats.human), best(stats.bot)) + row('Longest word', longest(stats.human), longest(stats.bot)) + row('Optimal moves', opt(stats.human), opt(stats.bot));
+  $('statGrid').innerHTML = row('', 'you', botLabel) + row('Best word', best(stats.human), best(stats.bot)) + row('Longest word', longest(stats.human), longest(stats.bot)) + row('Optimal moves', opt(stats.human), opt(stats.bot));
   if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">'; else $('statBotPfp').textContent = '🤖';
 }
 $('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) { $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); } });
@@ -475,7 +516,6 @@ $('mainMenuBtn').onclick = goHome; $('statMainMenu').onclick = goHome;
 $('playAgainBtn').onclick = () => { $('statWindow').classList.add('hidden'); startGame(currentBot); };
 $('statPlayAgain').onclick = () => { $('statWindow').classList.add('hidden'); startGame(currentBot); };
 $('gameStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
-$('statGameStats').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
 async function showDefinition(r, c) {
   // Find row and column words through this cell, fetch definitions for each.
   const words = [];
@@ -531,7 +571,7 @@ function clearDropHighlights() { document.querySelectorAll('#board .cell.drop-ta
 function showGhost(letter, x, y) {
   const ghost = $('dragGhost');
   const val = ({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter];
-  ghost.innerHTML = `${letter}<span class="val">${val}</span>`;
+  ghost.innerHTML = `<span class="letter">${letter}</span><span class="val">${val}</span>`;
   ghost.classList.remove('hidden');
   ghost.style.left = x + 'px'; ghost.style.top = y + 'px';
 }
@@ -603,6 +643,7 @@ function enableRackDrag(el, idx) {
     const myDrop = drop, wasMoved = moved;
     cleanup();
     if (!wasMoved) {
+      if (!canPlaceTiles()) return;
       // Tap (not a drag): click-to-place selection. No re-render here — the
       // old code re-rendered on pointerup and killed the following click.
       selectedRack = (selectedRack === idx ? null : idx);
@@ -610,6 +651,7 @@ function enableRackDrag(el, idx) {
       return;
     }
     if (myDrop && myDrop.kind === 'board') {
+      if (!canPlaceTiles()) return;
       selectedRack = idx;
       placeTile(myDrop.row, myDrop.col);
       return;
@@ -682,7 +724,7 @@ function enablePlacedDrag(el, pend) {
     cleanup();
     if (playInFlight) return;
     if (!wasMoved) { recallTile(pend); return; }
-    if (myDrop) { pend.row = myDrop.row; pend.col = myDrop.col; renderGame(); }
+    if (myDrop) { if (!canPlaceTiles()) return; pend.row = myDrop.row; pend.col = myDrop.col; renderGame(); }
   });
   el.addEventListener('pointercancel', () => cleanup());
   el.addEventListener('lostpointercapture', () => cleanup());

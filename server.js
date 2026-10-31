@@ -768,6 +768,35 @@ function stemCandidates(w) {
   if (w.endsWith('LY') && w.length > 4) push(w.slice(0, -2));
   if (w.endsWith('D') && w.length > 4) push(w.slice(0, -1));
   if (w.endsWith('S') && w.length > 3) push(w.slice(0, -1));
+  // Doubled consonant before -ING/-ED/-ER/-EST: RUNNING -> RUN, STOPPED -> STOP.
+  for (const suf of ['ING', 'ED', 'ER', 'EST']) {
+    if (w.endsWith(suf) && w.length > suf.length + 2) {
+      const base = w.slice(0, -suf.length);
+      if (base.length >= 3 && base[base.length - 1] === base[base.length - 2]) push(base.slice(0, -1));
+    }
+  }
+  // Derivational suffixes: -ATION/-TION/-ITY/-OUS/-IVE/-IST/-ISM/-AL/-IC/
+  // -ANT/-ENT/-FUL/-LESS/-AGE/-SHIP/-HOOD/-DOM/-IZE/-ISE.
+  if (w.endsWith('ATION') && w.length > 6) { push(w.slice(0, -5)); push(w.slice(0, -5) + 'E'); }
+  if (w.endsWith('TION') && w.length > 5) { push(w.slice(0, -4)); push(w.slice(0, -4) + 'E'); }
+  if (w.endsWith('SION') && w.length > 5) push(w.slice(0, -4));
+  if (w.endsWith('ITY') && w.length > 5) { push(w.slice(0, -3)); push(w.slice(0, -3) + 'E'); }
+  if (w.endsWith('OUS') && w.length > 5) push(w.slice(0, -3));
+  if (w.endsWith('IVE') && w.length > 5) { push(w.slice(0, -3)); push(w.slice(0, -3) + 'E'); }
+  if (w.endsWith('IST') && w.length > 5) push(w.slice(0, -3));
+  if (w.endsWith('ISM') && w.length > 5) push(w.slice(0, -3));
+  if (w.endsWith('AL') && w.length > 5) push(w.slice(0, -2));
+  if (w.endsWith('IC') && w.length > 5) push(w.slice(0, -2));
+  if (w.endsWith('ANT') && w.length > 5) push(w.slice(0, -3));
+  if (w.endsWith('ENT') && w.length > 5) push(w.slice(0, -3));
+  if (w.endsWith('FUL') && w.length > 5) push(w.slice(0, -3));
+  if (w.endsWith('LESS') && w.length > 6) push(w.slice(0, -4));
+  if (w.endsWith('AGE') && w.length > 5) push(w.slice(0, -3));
+  if (w.endsWith('SHIP') && w.length > 6) push(w.slice(0, -4));
+  if (w.endsWith('HOOD') && w.length > 6) push(w.slice(0, -4));
+  if (w.endsWith('DOM') && w.length > 5) push(w.slice(0, -3));
+  if (w.endsWith('IZE') && w.length > 5) push(w.slice(0, -3));
+  if (w.endsWith('ISE') && w.length > 5) push(w.slice(0, -3));
   return out;
 }
 // Part of speech for Jeff's 118 two-letter words — same map as
@@ -775,17 +804,51 @@ function stemCandidates(w) {
 // definitions.json (pos '' for all 118) still shows a part of speech
 // in the same "(pos) — definition" format as other words.
 const JEFF2_POS = {AA:"noun",AB:"noun",AD:"noun",AE:"noun",AG:"adjective",AH:"interjection",AI:"noun",AL:"noun",AM:"verb",AN:"article",AR:"noun",AS:"adverb",AT:"preposition",AW:"interjection",AX:"noun",AY:"noun",BA:"noun",BE:"verb",BI:"noun",BO:"noun",BY:"noun",DA:"noun",DE:"preposition",DO:"noun",ED:"adjective",EE:"interjection",EF:"noun",EH:"interjection",EL:"noun",EM:"noun",EN:"noun",EO:"noun",ER:"interjection",ES:"noun",ET:"verb",EW:"interjection",EX:"noun",FA:"noun",FE:"noun",FI:"noun",FU:"noun",GI:"noun",GO:"verb",HA:"interjection",HE:"pronoun",HI:"interjection",HM:"interjection",HO:"interjection",ID:"noun",IF:"conjunction",IN:"verb",IO:"noun",IS:"verb",IT:"pronoun",JA:"interjection",JE:"noun",JO:"noun",KA:"noun",KI:"noun",LA:"noun",LI:"noun",LO:"interjection",MA:"noun",ME:"pronoun",MI:"noun",MM:"interjection",MO:"noun",MU:"noun",MY:"pronoun",NA:"adverb",NE:"adjective",NO:"noun",NU:"noun",OD:"noun",OE:"noun",OF:"preposition",OH:"interjection",OI:"interjection",OK:"adjective",OM:"noun",ON:"noun",OO:"noun",OP:"noun",OR:"noun",OS:"noun",OU:"noun",OW:"interjection",OX:"noun",OY:"interjection",PA:"noun",PE:"noun",PI:"noun",PO:"noun",QI:"noun",RE:"noun",SH:"interjection",SI:"noun",SO:"noun",TA:"interjection",TE:"noun",TI:"noun",TO:"preposition",UH:"interjection",UM:"interjection",UN:"noun",UP:"verb",US:"pronoun",UT:"noun",VU:"preposition",WE:"pronoun",WO:"noun",XI:"noun",XU:"noun",YA:"pronoun",YE:"pronoun",YI:"pronoun",YO:"interjection",ZA:"noun"};
-function getDefinition(word) {
+function bundledDefinition(word) {
   const w = String(word || '').toUpperCase();
   if (isRealDef(DEFS[w])) return { word: w, pos: DEFS[w].pos || JEFF2_POS[w] || '', definition: DEFS[w].def };
   // Stem to a base word with a real definition, labelled as a form of it.
-  for (const base of stemCandidates(w)) {
+  // Second pass: stems of stems, so e.g. a plural of an -ING form still lands.
+  const cands = [...stemCandidates(w)];
+  for (const c of [...cands]) for (const c2 of stemCandidates(c)) if (!cands.includes(c2)) cands.push(c2);
+  for (const base of cands) {
     if (isRealDef(DEFS[base])) return { word: w, pos: DEFS[base].pos || '', definition: `form of ${base} — ${DEFS[base].def}` };
   }
-  // Honest fallback, not a fake definition: this word is in the Duello
-  // list but WordNet has no entry for it or any base form of it (mostly
-  // obscure ENABLE words). Inventing a gloss for those would be worse.
-  return { word: w, pos: '', definition: 'No definition in the bundled dictionary.' };
+  return null;
+}
+// Live fallback for words the bundled WordNet set does not cover
+// (bundled coverage is ~64% of the word list even with stemming; the
+// rest are mostly ENABLE-only words, plus common 3-letter words WordNet
+// simply does not list, like AND or APP). A free dictionary API is
+// tried with a short timeout and cached in memory; on any failure the
+// bundled fallback below is returned, so a slow or down API can never
+// break the definition popover. Only the queried game word is sent.
+const DEF_CACHE = new Map();
+async function getDefinition(word) {
+  const w = String(word || '').toUpperCase();
+  const bundled = bundledDefinition(w);
+  if (bundled) return bundled;
+  if (DEF_CACHE.has(w)) return DEF_CACHE.get(w);
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2500);
+    const r = await fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(w.toLowerCase()), { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (r.ok) {
+      const arr = await r.json();
+      const first = Array.isArray(arr) && arr[0];
+      const meaning = first && first.meanings && first.meanings[0];
+      const def = meaning && meaning.definitions && meaning.definitions[0] && meaning.definitions[0].definition;
+      if (def) {
+        const out = { word: w, pos: meaning.partOfSpeech || '', definition: def };
+        DEF_CACHE.set(w, out);
+        return out;
+      }
+    }
+  } catch {}
+  const fallback = { word: w, pos: '', definition: 'No definition in the bundled dictionary.' };
+  DEF_CACHE.set(w, fallback);
+  return fallback;
 }
 
 // ---------- HTTP API ----------
@@ -852,7 +915,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 500, { error: 'Could not create guest.' });
     }
     if (pathname === '/api/define' && req.method === 'GET') {
-      return sendJson(res, 200, getDefinition(url.searchParams.get('word') || ''));
+      return sendJson(res, 200, await getDefinition(url.searchParams.get('word') || ''));
     }
     if (pathname === '/api/games' && req.method === 'POST') {
       const user = await authUser(req);

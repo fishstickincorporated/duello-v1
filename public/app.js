@@ -79,6 +79,7 @@ async function startGame(bot) {
   // value (4:59): the clocks only start when the countdown ends (see /start).
   game.clocks.human = 300000; game.clocks.bot = 300000;
   gameFetchAt = Date.now(); pending = []; selectedRack = null; armed = {};
+  clearStatDelay(); statShownGameId = null;
   show('gameScreen'); renderGame(); startCountdown();
 }
 async function endCountdown() {
@@ -134,7 +135,7 @@ function renderGame() {
     if (!l) return '—';
     if (l.passed) return 'passed <span class="pts">-30s</span>';
     const words = (l.words && l.words.length) ? l.words : [l.word];
-    return `${words.join(' ')}<br><span class="pts">+${l.points} pts${l.bingo ? ' · bingo +30' : ''}${l.isDuello ? ' · Duello +30' : ''}</span>`;
+    return `${words.join(', ')}<br><span class="pts">+${l.points} pts${l.bingo ? ' · <span class="bingo">bingo!</span> +30' : ''}${l.isDuello ? ' · Duello +30' : ''}</span>`;
   };
   $('lastHuman').innerHTML = lastHtml(game.lastHuman);
   $('lastBot').innerHTML = lastHtml(game.lastBot);
@@ -162,10 +163,16 @@ function renderGame() {
     }
     boardEl.appendChild(cell);
   }
-  // Rack
+  // Rack: during the countdown, show the rack as empty slots (no letters)
+  // and the buttons, so the board/rack/buttons keep exactly the same
+  // positions after the wait instead of jumping in when they appear.
   const rackEl = $('rack'); rackEl.innerHTML = '';
   rackEl.classList.toggle('greyed', game.clocks.turn !== 'human' && game.status === 'active');
+  if (countdownActive) {
+    for (let idx = 0; idx < 6; idx++) { const s = document.createElement('div'); s.className = 'tile empty'; rackEl.appendChild(s); }
+  }
   game.humanRack.forEach((letter, idx) => {
+    if (countdownActive) return;
     if (pending.some(p => p.rackIndex === idx)) { const s = document.createElement('div'); s.style.flex = '1'; rackEl.appendChild(s); return; }
     const t = document.createElement('div'); t.className = 'tile'; t.dataset.idx = idx;
     t.innerHTML = `<span class="letter">${letter}</span><span class="val">${({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter]}</span>`;
@@ -178,12 +185,17 @@ function renderGame() {
   // Recall only when a tile is actually placed; Pass only on your turn.
   // Both are greyed (disabled) otherwise, instead of tappable-but-dead.
   const yourTurn = game.status === 'active' && game.clocks.turn === 'human' && !playInFlight;
-  $('recallBtn').disabled = !(yourTurn && pending.length > 0);
-  $('passBtn').disabled = !yourTurn;
+  $('recallBtn').disabled = countdownActive || !(yourTurn && pending.length > 0);
+  $('passBtn').disabled = countdownActive || !yourTurn;
+  $('shuffleBtn').disabled = countdownActive;
+  $('forfeitBtn').disabled = countdownActive;
   document.querySelector('.controls').classList.toggle('hidden', finished);
   $('endButtons').classList.toggle('hidden', !finished);
   $('gameDim').classList.toggle('dimmed', finished && !$('statWindow').classList.contains('hidden'));
-  if (finished && game.stats) showStatWindow(game.stats);
+  // Final board stays visible for 3s after the game ends (notably time
+  // expiry) before the stats window covers it. Tapping Game Stats shows
+  // it immediately; Main Menu / Play Again cancel the pending show.
+  if (finished && game.stats) showStatWindowDelayed(game.stats);
   tickClocks();
   if (countdownActive) { $('clockHuman').textContent = '5:00'; $('clockBot').textContent = '5:00'; }
   updateStatus();
@@ -227,7 +239,7 @@ function tickClocks() {
   if (Date.now() >= runoffUntil) $('clockBot').textContent = fmtClock(b);
   // Human clock hit 0: do not leave the game sitting on a dead turn.
   // Fetching flips the server to the bot turn, which then loops on its own.
-  if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) { $('status').textContent = 'out of time, opponent plays on'; if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleHumanTimeout(); }
+  if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) { $('status').textContent = 'Out of time, opponent plays on.'; if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleHumanTimeout(); }
   botWatchdog();
 }
 setInterval(tickClocks, 100);
@@ -311,7 +323,7 @@ function botWatchdog() {
 }
 function beginBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
-  $('status').textContent = game.clocks.human <= 0 ? 'out of time, opponent plays on' : 'Waiting for your opponent…';
+  $('status').textContent = game.clocks.human <= 0 ? 'Out of time, opponent plays on.' : 'Waiting for your opponent.';
   if (botTimer) clearTimeout(botTimer);
   // Perceived think is measured from the tap, not from the server reply:
   // the Play/Pass POST (including the server's optimal-move scan) used to
@@ -343,11 +355,17 @@ function setPlayState(state) {
   else if (state === 'invalid') { b.classList.add('play-invalid'); b.disabled = false; }
   else { b.disabled = true; }
 }
+function sentence(s) {
+  if (!s) return 'Game over.';
+  s = String(s).trim();
+  s = s.charAt(0).toUpperCase() + s.slice(1);
+  return (s.endsWith('.') || s.endsWith('!') || s.endsWith('?')) ? s : s + '.';
+}
 async function updateStatus() {
   if (!game) return;
-  if (game.status === 'finished') { $('status').textContent = game.reason || 'Game over'; return; }
-  if (game.clocks.turn !== 'human') { $('status').textContent = game.clocks.human <= 0 ? 'out of time, opponent plays on' : 'Waiting for your opponent…'; setPlayState('off'); return; }
-  if (!pending.length) { $('status').textContent = game.isFirst ? 'First word must fit inside the glowing 6×6.' : 'Your move'; setPlayState('off'); lastValidate = null; return; }
+  if (game.status === 'finished') { $('status').textContent = sentence(game.reason || 'Game over'); return; }
+  if (game.clocks.turn !== 'human') { $('status').textContent = game.clocks.human <= 0 ? 'Out of time, opponent plays on.' : 'Waiting for your opponent.'; setPlayState('off'); return; }
+  if (!pending.length) { $('status').textContent = game.isFirst ? 'First word must fit inside the glowing 6×6.' : 'Your move.'; setPlayState('off'); lastValidate = null; return; }
   setPlayState('validating');
   try {
     // Seq guard, not just a snapshot check: validations can complete out
@@ -476,7 +494,7 @@ $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => {
   // Same tap-time clock switch as Play: freeze human, start bot now.
   const tapAt = Date.now(); const clientElapsedMs = Math.max(0, tapAt - gameFetchAt);
   const prevHuman = game.clocks.human, prevFetchAt = gameFetchAt;
-  game.clocks.human = Math.max(0, game.clocks.human - clientElapsedMs); game.clocks.turn = 'bot'; gameFetchAt = tapAt; tickClocks();
+  game.clocks.human = Math.max(0, game.clocks.human - clientElapsedMs); game.clocks.turn = 'bot'; gameFetchAt = tapAt; renderGame(); tickClocks();
   const fromHuman = game.clocks.human;
   try { botTurnTapTime = tapAt; game = await api(`/api/games/${game.id}/pass`, { method: 'POST', body: JSON.stringify({ clientElapsedMs }) }); gameFetchAt = tapAt; pending = []; renderGame(); animateHumanRunoff(fromHuman, game.clocks.human); beginBotTurn(); }
   catch { game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt; renderGame(); }
@@ -506,8 +524,11 @@ async function doPlay() {
   const prevHuman = game.clocks.human, prevFetchAt = gameFetchAt;
   game.clocks.human = Math.max(0, game.clocks.human - clientElapsedMs);
   game.clocks.turn = 'bot'; gameFetchAt = tapAt;
+  // Highlight the opponent's scoreboard AT THE TAP, not when the Play
+  // POST returns: render now so the .active border flips immediately.
+  renderGame();
   playInFlight = true; $('playBtn').disabled = true; $('playBtn').classList.remove('validating', 'play-valid', 'play-invalid');
-  $('status').textContent = 'Waiting for your opponent…'; tickClocks();
+  $('status').textContent = 'Waiting for your opponent.'; tickClocks();
   try {
     botTurnTapTime = tapAt;
     game = await api(`/api/games/${game.id}/play`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })), clientElapsedMs }) });
@@ -518,7 +539,7 @@ async function doPlay() {
   } catch (e) {
     // Play failed: restore the human turn and its pre-tap clock.
     game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt;
-    $('status').textContent = String(e.message || '').slice(0, 48); renderGame();
+    $('status').textContent = sentence(String(e.message || '').slice(0, 48)); renderGame();
   }
   finally { playInFlight = false; }
 }
@@ -529,13 +550,20 @@ async function doPlay() {
 let playPointerAt = 0;
 $('playBtn').addEventListener('pointerdown', e => { playPointerAt = Date.now(); doPlay(); });
 $('playBtn').addEventListener('click', e => { if (Date.now() - playPointerAt < 1000) return; doPlay(); });
+let statDelayTimer = null, statShownGameId = null;
+function clearStatDelay() { if (statDelayTimer) { clearTimeout(statDelayTimer); statDelayTimer = null; } }
+function showStatWindowDelayed(stats) {
+  if (!game || statShownGameId === game.id || statDelayTimer) return;
+  statDelayTimer = setTimeout(() => { statDelayTimer = null; if (game) showStatWindow(stats); }, 3000);
+}
 function showStatWindow(stats) {
+  clearStatDelay(); if (game) statShownGameId = game.id;
   const w = $('statWindow'); w.classList.remove('hidden');
   $('gameDim').classList.add('dimmed');
   const botLabel = (game && game.botType === 'fishstick') ? 'Fishstick' : 'Bot';
-  $('statWinner').textContent = stats.scores.human > stats.scores.bot ? 'You win' : stats.scores.bot > stats.scores.human ? botLabel + ' wins' : 'draw';
+  $('statWinner').textContent = stats.scores.human > stats.scores.bot ? 'You win' : stats.scores.bot > stats.scores.human ? botLabel + ' wins' : 'Draw';
   $('statScore').textContent = `${stats.scores.human}–${stats.scores.bot}`;
-  $('statReason').textContent = stats.reason || '';
+  $('statReason').textContent = sentence(stats.reason || '');
   const fmtMove = (d, v) => v >= 0 ? '+' + v : '' + v;
   $('eloMoveHuman').textContent = fmtMove(null, stats.eloDeltaHuman ?? 0);
   $('eloMoveHuman').className = 'elo-move ' + ((stats.eloDeltaHuman ?? 0) < 0 ? 'neg' : 'pos');
@@ -545,14 +573,14 @@ function showStatWindow(stats) {
   const best = (x) => x.best ? `${x.best.word} (${x.best.score} pts)` : '—';
   const longest = (x) => x.longest ? `${x.longest.word} (${x.longest.word.length} letters)` : '—';
   const opt = (x) => `${x.optimal}/${x.total}`;
-  const box = (name, pfp, st) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp">${pfp}</span><span>${name}</span></div><div>Best word: ${best(st)}</div><div>Longest word: ${longest(st)}</div><div>Optimal moves: ${opt(st)}</div></div>`;
+  const box = (name, pfp, st) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp">${pfp}</span><span>${name}</span></div><div>Best word:<br><span class="stat-val">${best(st)}</span></div><div>Longest word:<br><span class="stat-val">${longest(st)}</span></div><div>Optimal moves: ${opt(st)}</div></div>`;
   const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
   const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.jpeg" alt="Fishstick">' : '🤖';
   $('statGrid').innerHTML = box('You', humanPfp, stats.human) + box(botLabel, botPfpBox, stats.bot);
   if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">'; else $('statBotPfp').textContent = '🤖';
 }
-$('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) { $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); } });
-function goHome() { $('statWindow').classList.add('hidden'); show('homeScreen'); }
+$('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) { clearStatDelay(); $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); } });
+function goHome() { clearStatDelay(); $('statWindow').classList.add('hidden'); show('homeScreen'); }
 $('mainMenuBtn').onclick = goHome; $('statMainMenu').onclick = goHome;
 $('playAgainBtn').onclick = () => { $('statWindow').classList.add('hidden'); startGame(currentBot); };
 $('statPlayAgain').onclick = () => { $('statWindow').classList.add('hidden'); startGame(currentBot); };

@@ -37,7 +37,7 @@
           <div class="col identity-col"><div class="pfp" id="botPfp">🤖</div><div class="name" id="botName">Bot</div><div class="elo" id="botElo">1000</div></div>
         </div>
       </div>
-      <div id="board" class="board"></div>
+      <div class="board-wrap"><div id="board" class="board"></div><div id="countdownOverlay" class="countdown-overlay hidden"><div class="countdown-num" id="countdownNum">5</div></div></div>
       <div id="status" class="status">Your move</div>
       <div id="rack" class="rack"></div>
       <div class="controls">
@@ -57,7 +57,6 @@
       <div class="stat-grid" id="statGrid"></div>
       <div class="controls"><button id="statMainMenu">Main Menu</button><button id="statPlayAgain">Play Again</button></div>
     </div>
-    <div id="countdownOverlay" class="countdown-overlay hidden"><div class="countdown-num" id="countdownNum">5</div></div>
     <div id="defPopover" class="def-popover hidden"></div>
     <div id="dragGhost" class="drag-ghost hidden"></div>
   </section>

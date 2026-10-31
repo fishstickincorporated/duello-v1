@@ -80,15 +80,15 @@ function renderGame() {
   // drag ends will show any bot move that arrived in the meantime.
   if (activeDragCleanup) return;
   $('playerName').textContent = me ? me.firstName : 'You';
-  try { document.querySelector('.player-side .pfp').innerHTML = pfpHTML(me); document.querySelector('.stat-pfp .pfp').innerHTML = pfpHTML(me); } catch {}
+  try { document.querySelector('.player-panel .pfp').innerHTML = pfpHTML(me); document.querySelector('.stat-pfp .pfp').innerHTML = pfpHTML(me); } catch {}
   $('playerElo').textContent = me ? me.elo : game.player.elo;
   const isFish = game.botType === 'fishstick';
-  $('botName').textContent = isFish ? 'Fishstick' : 'Competitive Bot';
+  $('botName').textContent = isFish ? 'Fishstick' : 'Bot';
   $('botElo').textContent = isFish ? '∞' : game.botElo;
   if (isFish) $('botPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">'; else $('botPfp').textContent = '🤖';
-  document.querySelector('.player-side').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'human');
-  document.querySelector('.bot-side').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'bot');
-  $('scoreHuman').textContent = game.scores.human; $('scoreBot').textContent = game.scores.bot;
+  document.querySelector('.player-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'human');
+  document.querySelector('.bot-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'bot');
+  $('scoreHuman').textContent = String(game.scores.human).padStart(3, '0'); $('scoreBot').textContent = String(game.scores.bot).padStart(3, '0');
   const lastHtml = (l) => !l ? '—' : l.passed ? 'passed' : `${l.word}<br><span class="pts">+${l.points} pts${l.bingo ? ' · bingo +30' : ''}${l.isDuello ? ' · Duello +30' : ''}</span>`;
   $('lastHuman').innerHTML = lastHtml(game.lastHuman);
   $('lastBot').innerHTML = lastHtml(game.lastBot);
@@ -129,6 +129,11 @@ function renderGame() {
   });
   // Controls / end state
   const finished = game.status === 'finished';
+  // Recall only when a tile is actually placed; Pass only on your turn.
+  // Both are greyed (disabled) otherwise, instead of tappable-but-dead.
+  const yourTurn = game.status === 'active' && game.clocks.turn === 'human' && !playInFlight;
+  $('recallBtn').disabled = !(yourTurn && pending.length > 0);
+  $('passBtn').disabled = !yourTurn;
   document.querySelector('.controls').classList.toggle('hidden', finished);
   $('endButtons').classList.toggle('hidden', !finished);
   $('gameDim').classList.toggle('dimmed', finished && !$('statWindow').classList.contains('hidden'));
@@ -161,6 +166,7 @@ function tickClocks() {
   // Human clock hit 0: do not leave the game sitting on a dead turn.
   // Fetching flips the server to the bot turn, which then loops on its own.
   if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0 && !timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleHumanTimeout();
+  botWatchdog();
 }
 setInterval(tickClocks, 100);
 
@@ -179,8 +185,10 @@ function animateClockRunoff(fromMs, toMs) {
     if (i >= steps) { clearInterval(iv); $('clockBot').textContent = fmtClock(toMs); runoffUntil = 0; }
   }, 50);
 }
+let lastBotPollAt = 0;
 async function pollBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
+  lastBotPollAt = Date.now(); botTimer = null;
   try {
     // Runoff start from the game state, not from the displayed text:
     // the displayed text is second-truncated, so parsing it back gave
@@ -207,7 +215,23 @@ async function pollBotTurn() {
       if (next.clocks.human <= 0) handleHumanTimeout();
       else await loadMe();
     }
-  } catch { /* keep waiting state; a later action / reload will advance it */ }
+  } catch {
+    // A failed poll used to kill the loop entirely: no retry was ever
+    // scheduled, so the game sat on the bot turn forever until a reload.
+    // Retry after 1s while it is still the bot turn.
+    if (game && game.status === 'active' && game.clocks.turn === 'bot') {
+      if (botTimer) clearTimeout(botTimer);
+      botTimer = setTimeout(pollBotTurn, 1000);
+    }
+  }
+}
+// Watchdog, driven by the 100ms clock tick: if it is the bot turn and
+// no poll has run in the last 7s (timer lost, poll died, page restored
+// from background), restart the bot turn instead of staying stuck.
+function botWatchdog() {
+  if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
+  if (botTimer) return;
+  if (Date.now() - lastBotPollAt > 7000) { botTurnTapTime = 0; beginBotTurn(); }
 }
 function beginBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;

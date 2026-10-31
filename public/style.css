@@ -24,18 +24,26 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .bot-options{display:flex;flex-direction:column;gap:20px;margin-top:20px;align-items:center}
 .bot-opt{background:#2f7de1;color:#fff;padding:16px;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:18px;box-shadow:0 4px 0 #1c4f8f}
 .back-pill{display:block;background:#6b7280;color:#fff;padding:8px 18px;border-radius:20px;margin:22px auto 0;font-size:14px}
-.scoreboard{display:flex;justify-content:space-between;align-items:flex-start;margin-top:10px}
-.side{display:flex;flex-direction:column;width:96px;gap:4px}
-.side.player-side{align-items:flex-start;text-align:left}
-.side.bot-side{align-items:flex-end;text-align:right}
-.side .pfp{font-size:30px;line-height:1}.side .pfp img{width:36px;height:36px;border-radius:50%;object-fit:cover;display:block}
-.side .name{font-weight:700}.side .elo{color:#4da3ff}
-.side.active{outline:2px solid #4da3ff;outline-offset:3px;border-radius:12px}
-.score-center{flex:1;text-align:center}
-.center-score{font-size:26px;font-weight:800}
-.clocks{display:flex;justify-content:center;gap:16px;margin:4px 0 10px;font-variant-numeric:tabular-nums;font-weight:700}
-.clock-block{text-align:center}
-.lastplay{color:#9aa3b2;font-size:13px;font-weight:400;min-height:18px}
+.scoreboard{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+/* Each player's panel is three columns with NO visible separation
+between them (gap 0, no dividers). Opponent panel is the mirror image:
+player = identity | score | clock, opponent = clock | score | identity.
+Dimensions are fixed and rigid: same width/height always, so a long
+name or a big score never reflows the board. Names never wrap. */
+.panel{display:flex;align-items:stretch;width:100%;height:78px;flex:none;overflow:hidden;border:2px solid transparent;border-radius:12px;background:#262a33}
+.panel.active{border-color:#4da3ff}
+.panel .col{display:flex;flex-direction:column;justify-content:center;min-width:0}
+.panel .identity-col{flex:0 0 132px;padding:4px 8px}
+.panel .score-col{flex:1;text-align:center;font-size:30px;font-weight:900;font-variant-numeric:tabular-nums}
+.panel .clock-col{flex:0 0 132px;padding:4px 8px;font-variant-numeric:tabular-nums;font-weight:700}
+.player-panel .identity-col,.player-panel .clock-col{text-align:left}
+.bot-panel .identity-col,.bot-panel .clock-col{text-align:right}
+.panel .pfp{font-size:26px;line-height:1}.panel .pfp img{width:32px;height:32px;border-radius:50%;object-fit:cover;display:block}
+.bot-panel .pfp img{margin-left:auto}
+.panel .name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.panel .elo{color:#4da3ff;white-space:nowrap}
+.panel .clock{font-size:18px}
+.lastplay{color:#9aa3b2;font-size:13px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lastplay .pts{color:#4da3ff;font-weight:700}
 .board{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;width:100%;aspect-ratio:1;background:#11131a;padding:3px;border-radius:10px}
 .cell{aspect-ratio:1;border-radius:5px;background:#262a33;display:flex;align-items:center;justify-content:center;font-size:11px;color:#8b93a5;position:relative}

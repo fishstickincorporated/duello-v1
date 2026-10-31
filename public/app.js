@@ -75,15 +75,22 @@ async function startGame(bot) {
   show('gameScreen'); renderGame(); startCountdown();
 }
 async function endCountdown() {
-  countdownActive = false;
+  // Keep the clocks pinned until the new state actually arrives. The old
+  // code cleared countdownActive BEFORE awaiting /start, so the 100ms
+  // tick ran during that network round-trip with the stale creation-time
+  // gameFetchAt (5s countdown + ~1s create = ~6s elapsed) and showed
+  // 4:54 for a brief second, then corrected to 5:00 when /start returned.
+  // Now the overlay hides but countdownActive (and the hidden rack)
+  // stay until /start returns and gameFetchAt is reset to that moment.
   $('countdownOverlay').classList.add('hidden');
-  $('gameScreen').classList.remove('counting');
   try {
     try { game = await api(`/api/games/${game.id}/start`, { method: 'POST' }); }
     catch { game = await api(`/api/games/${game.id}`); }
+    countdownActive = false;
+    $('gameScreen').classList.remove('counting');
     gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
     if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
-  } catch { botTurnTapTime = 0; beginBotTurn(); }
+  } catch { countdownActive = false; $('gameScreen').classList.remove('counting'); botTurnTapTime = 0; beginBotTurn(); }
 }
 function startCountdown() {
   if (countdownInterval) clearInterval(countdownInterval);

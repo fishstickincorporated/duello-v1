@@ -54,6 +54,8 @@ UT:"musical tone (is now DO)",VU:"in view of",WE:"pronoun",WO:"woe",
 XI:"a Greek letter",XU:"monetary unit of Vietnam",YA:"you",YE:"you",
 YI:"you or your (singular or plural)",YO:"used to call attention",ZA:"slang word for pizza",
 };
+// Part of speech for Jeff's 118 two-letter words (his list gave definitions only, so every 2-letter entry had pos '' and showed without a part of speech, unlike other words).
+const JEFF2_POS = {AA:"noun",AB:"noun",AD:"noun",AE:"noun",AG:"adjective",AH:"interjection",AI:"noun",AL:"noun",AM:"verb",AN:"article",AR:"noun",AS:"adverb",AT:"preposition",AW:"interjection",AX:"noun",AY:"noun",BA:"noun",BE:"verb",BI:"noun",BO:"noun",BY:"noun",DA:"noun",DE:"preposition",DO:"noun",ED:"adjective",EE:"interjection",EF:"noun",EH:"interjection",EL:"noun",EM:"noun",EN:"noun",EO:"noun",ER:"interjection",ES:"noun",ET:"verb",EW:"interjection",EX:"noun",FA:"noun",FE:"noun",FI:"noun",FU:"noun",GI:"noun",GO:"verb",HA:"interjection",HE:"pronoun",HI:"interjection",HM:"interjection",HO:"interjection",ID:"noun",IF:"conjunction",IN:"verb",IO:"noun",IS:"verb",IT:"pronoun",JA:"interjection",JE:"noun",JO:"noun",KA:"noun",KI:"noun",LA:"noun",LI:"noun",LO:"interjection",MA:"noun",ME:"pronoun",MI:"noun",MM:"interjection",MO:"noun",MU:"noun",MY:"pronoun",NA:"adverb",NE:"adjective",NO:"noun",NU:"noun",OD:"noun",OE:"noun",OF:"preposition",OH:"interjection",OI:"interjection",OK:"adjective",OM:"noun",ON:"noun",OO:"noun",OP:"noun",OR:"noun",OS:"noun",OU:"noun",OW:"interjection",OX:"noun",OY:"interjection",PA:"noun",PE:"noun",PI:"noun",PO:"noun",QI:"noun",RE:"noun",SH:"interjection",SI:"noun",SO:"noun",TA:"interjection",TE:"noun",TI:"noun",TO:"preposition",UH:"interjection",UM:"interjection",UN:"noun",UP:"verb",US:"pronoun",UT:"noun",VU:"preposition",WE:"pronoun",WO:"noun",XI:"noun",XU:"noun",YA:"pronoun",YE:"pronoun",YI:"pronoun",YO:"interjection",ZA:"noun"};
 // NWL supplement: words in the official American Scrabble (NWL) 2- and 3-letter
 // sets that ENABLE does not contain. Generated 2026-10-29 from:
 //  - TWL (predecessor list) 2/3-letter words missing from ENABLE,
@@ -150,7 +152,7 @@ function main() {
   const defs = {};
   let wnCount = 0, briefCount = 0;
   for (const w of words) {
-    if (JEFF2[w]) { defs[w] = { pos: '', def: JEFF2[w] }; continue; }
+    if (JEFF2[w]) { defs[w] = { pos: JEFF2_POS[w] || '', def: JEFF2[w] }; continue; }
     if (w === 'DUELLO') { defs[w] = { pos: 'noun', def: '🤺' }; continue; }
     if (w.length <= 3) {
       if (wn[w]) { defs[w] = wn[w]; wnCount++; }

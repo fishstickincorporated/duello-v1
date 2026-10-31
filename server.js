@@ -481,7 +481,7 @@ function newGame(user, botType) {
     moves: { human: [], bot: [] },
     lastCells: [], lastWord: null, lastScore: null, lastBy: null,
     lastHuman: null, lastBot: null,
-    eloDeltaHuman: null, eloDeltaBot: null, eloAfterHuman: null,
+    eloDeltaHuman: null, eloDeltaBot: null, eloAfterHuman: null, eloAfterBot: null,
   };
   if (game.turn === 'bot') game.botThinkUntil = Date.now() + 5000;
   return game;
@@ -508,7 +508,7 @@ function serializeGame(game, user) {
     status: game.status, reason: game.reason,
     lastCells: game.lastCells, lastWord: game.lastWord, lastScore: game.lastScore, lastBy: game.lastBy,
     lastHuman: game.lastHuman, lastBot: game.lastBot,
-    eloDeltaHuman: game.eloDeltaHuman, eloDeltaBot: game.eloDeltaBot, eloAfterHuman: game.eloAfterHuman,
+    eloDeltaHuman: game.eloDeltaHuman, eloDeltaBot: game.eloDeltaBot, eloAfterHuman: game.eloAfterHuman, eloAfterBot: game.eloAfterBot,
     isFirst: boardIsEmpty(game.board),
     player: { firstName: user.first_name, username: user.username, elo: user.elo },
   };
@@ -576,8 +576,17 @@ async function endGame(game, user, reason, winnerSide) {
   const actual = winnerSide === 'human' ? 1 : winnerSide === 'bot' ? 0 : 0.5;
   const delta = eloDelta(user.elo, game.botElo, actual);
   game.eloDeltaHuman = delta;
-  game.eloDeltaBot = -delta;
+  // Competitive Bot mirrors the player: its Elo for the next game IS the
+  // player's new Elo, so it moves the SAME direction as the human.
+  // A fixed opponent (Fishstick, 3000) moves the opposite way, as usual.
+  // The old code always used -delta for the bot AND never mutated the
+  // in-memory user, so serializeGame() sent the stale pre-game human Elo
+  // back to the client — the scoreboard looked like the human never moved.
+  game.eloDeltaBot = game.botType === 'competitive' ? delta : -delta;
   game.eloAfterHuman = user.elo + delta;
+  game.eloAfterBot = game.botElo + game.eloDeltaBot;
+  game.botElo = game.eloAfterBot;
+  user.elo = game.eloAfterHuman;
   await q('UPDATE users SET elo=$1, elo_high=GREATEST(elo_high,$2) WHERE id=$3', [game.eloAfterHuman, game.eloAfterHuman, user.id]);
   await saveGameRow(game);
   await q('INSERT INTO elo_history (user_id, game_id, elo_after, delta) VALUES ($1,$2,$3,$4)', [user.id, game.id, game.eloAfterHuman, delta]);
@@ -711,9 +720,14 @@ function stemCandidates(w) {
   if (w.endsWith('S') && w.length > 3) push(w.slice(0, -1));
   return out;
 }
+// Part of speech for Jeff's 118 two-letter words — same map as
+// scripts/build-dictionary.js, applied at runtime so an older
+// definitions.json (pos '' for all 118) still shows a part of speech
+// in the same "(pos) — definition" format as other words.
+const JEFF2_POS = {AA:"noun",AB:"noun",AD:"noun",AE:"noun",AG:"adjective",AH:"interjection",AI:"noun",AL:"noun",AM:"verb",AN:"article",AR:"noun",AS:"adverb",AT:"preposition",AW:"interjection",AX:"noun",AY:"noun",BA:"noun",BE:"verb",BI:"noun",BO:"noun",BY:"noun",DA:"noun",DE:"preposition",DO:"noun",ED:"adjective",EE:"interjection",EF:"noun",EH:"interjection",EL:"noun",EM:"noun",EN:"noun",EO:"noun",ER:"interjection",ES:"noun",ET:"verb",EW:"interjection",EX:"noun",FA:"noun",FE:"noun",FI:"noun",FU:"noun",GI:"noun",GO:"verb",HA:"interjection",HE:"pronoun",HI:"interjection",HM:"interjection",HO:"interjection",ID:"noun",IF:"conjunction",IN:"verb",IO:"noun",IS:"verb",IT:"pronoun",JA:"interjection",JE:"noun",JO:"noun",KA:"noun",KI:"noun",LA:"noun",LI:"noun",LO:"interjection",MA:"noun",ME:"pronoun",MI:"noun",MM:"interjection",MO:"noun",MU:"noun",MY:"pronoun",NA:"adverb",NE:"adjective",NO:"noun",NU:"noun",OD:"noun",OE:"noun",OF:"preposition",OH:"interjection",OI:"interjection",OK:"adjective",OM:"noun",ON:"noun",OO:"noun",OP:"noun",OR:"noun",OS:"noun",OU:"noun",OW:"interjection",OX:"noun",OY:"interjection",PA:"noun",PE:"noun",PI:"noun",PO:"noun",QI:"noun",RE:"noun",SH:"interjection",SI:"noun",SO:"noun",TA:"interjection",TE:"noun",TI:"noun",TO:"preposition",UH:"interjection",UM:"interjection",UN:"noun",UP:"verb",US:"pronoun",UT:"noun",VU:"preposition",WE:"pronoun",WO:"noun",XI:"noun",XU:"noun",YA:"pronoun",YE:"pronoun",YI:"pronoun",YO:"interjection",ZA:"noun"};
 function getDefinition(word) {
   const w = String(word || '').toUpperCase();
-  if (isRealDef(DEFS[w])) return { word: w, pos: DEFS[w].pos || '', definition: DEFS[w].def };
+  if (isRealDef(DEFS[w])) return { word: w, pos: DEFS[w].pos || JEFF2_POS[w] || '', definition: DEFS[w].def };
   // Stem to a base word with a real definition, labelled as a form of it.
   for (const base of stemCandidates(w)) {
     if (isRealDef(DEFS[base])) return { word: w, pos: DEFS[base].pos || '', definition: `form of ${base} — ${DEFS[base].def}` };
@@ -748,7 +762,7 @@ function gameStatsPayload(game) {
     reason: game.reason, scores: game.scores,
     human: { best: h.best, longest: h.longest, optimal: h.optimal, total: h.total, uniqueCount: h.uniqueCount, optimalWords: h.optimalWords },
     bot: { best: b.best, longest: b.longest, optimal: b.optimal, total: b.total, uniqueCount: b.uniqueCount, optimalWords: b.optimalWords },
-    eloDeltaHuman: game.eloDeltaHuman, eloDeltaBot: game.eloDeltaBot, eloAfterHuman: game.eloAfterHuman,
+    eloDeltaHuman: game.eloDeltaHuman, eloDeltaBot: game.eloDeltaBot, eloAfterHuman: game.eloAfterHuman, eloAfterBot: game.eloAfterBot,
   };
 }
 

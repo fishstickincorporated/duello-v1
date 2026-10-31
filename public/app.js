@@ -16,7 +16,12 @@ function registerDragCleanup(fn) { if (activeDragCleanup && activeDragCleanup !=
 function clearDragCleanup(fn) { if (activeDragCleanup === fn) activeDragCleanup = null; }
 function cleanupStuckDrag() { if (activeDragCleanup) { const fn = activeDragCleanup; activeDragCleanup = null; try { fn(); } catch {} } }
 const $ = id => document.getElementById(id);
-const fmtClock = ms => { ms = Math.max(0, Math.ceil(ms / 1000) * 1000); const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000); return `${m}:${String(s).padStart(2, '0')}`; };
+const fmtClock = ms => { ms = Math.max(0, Math.floor(ms / 1000) * 1000); const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000); return `${m}:${String(s).padStart(2, '0')}`; };
+// Clock accuracy fix: the old code used Math.ceil, so the display was
+// always rounded UP to the next second — the clock looked a second
+// ahead of the real remaining time, and the bot runoff (parsed back
+// from that displayed text) started a second high, i.e. it jumped UP
+// before animating down 15s to the 20s mark. Floor matches the real time.
 async function api(path, opts = {}) {
   const r = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -177,7 +182,10 @@ function animateClockRunoff(fromMs, toMs) {
 async function pollBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
   try {
-    const fromMs = parseClockText($('clockBot').textContent);
+    // Runoff start from the game state, not from the displayed text:
+    // the displayed text is second-truncated, so parsing it back gave
+    // a start up to a second off (the jump-up before the runoff).
+    const fromMs = game.clocks.turn === 'bot' ? Math.max(0, game.clocks.bot - (Date.now() - gameFetchAt)) : game.clocks.bot;
     const prevBot = game.lastBot ? JSON.stringify(game.lastBot) : '';
     const prevBotScore = game.scores ? game.scores.bot : 0;
     const next = await api(`/api/games/${game.id}`);
@@ -203,7 +211,7 @@ async function pollBotTurn() {
 }
 function beginBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
-  $('status').textContent = 'Bot thinking…';
+  $('status').textContent = 'Waiting for your opponent…';
   if (botTimer) clearTimeout(botTimer);
   // Perceived think is measured from the tap, not from the server reply:
   // the Play/Pass POST (including the server's optimal-move scan) used to
@@ -290,6 +298,7 @@ function showBubble(score, mainCells) {
 }
 function hideBubble() { document.querySelectorAll('.play-bubble').forEach(e => e.remove()); }
 function placeTile(r, c) {
+  if (playInFlight) return;
   if (game.board[r][c]) return;
   if (pending.some(p => p.row === r && p.col === c)) return;
   const letter = game.humanRack[selectedRack];
@@ -297,9 +306,15 @@ function placeTile(r, c) {
   selectedRack = null; renderGame();
 }
 function recallTile(pend) {
+  // No recall while a play is in flight or it is not the human turn:
+  // after tapping Play, pending tiles stay on the board until the
+  // server reply lands, and tapping one in that window used to
+  // briefly recall it (visually) before the reply put it back.
+  if (playInFlight) return;
+  if (!game || game.status !== 'active' || game.clocks.turn !== 'human') return;
   pending = pending.filter(p => p !== pend); renderGame();
 }
-$('recallBtn').onclick = () => { cleanupStuckDrag(); pending = []; selectedRack = null; renderGame(); };
+$('recallBtn').onclick = () => { if (playInFlight) return; cleanupStuckDrag(); pending = []; selectedRack = null; renderGame(); };
 let shuffling = false;
 $('shuffleBtn').onclick = async () => {
   cleanupStuckDrag();
@@ -391,7 +406,7 @@ async function doPlay() {
   game.clocks.human = Math.max(0, game.clocks.human - clientElapsedMs);
   game.clocks.turn = 'bot'; gameFetchAt = tapAt;
   playInFlight = true; $('playBtn').disabled = true; $('playBtn').classList.remove('validating', 'play-valid', 'play-invalid');
-  $('status').textContent = 'Bot thinking…'; tickClocks();
+  $('status').textContent = 'Waiting for your opponent…'; tickClocks();
   try {
     botTurnTapTime = tapAt;
     game = await api(`/api/games/${game.id}/play`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })), clientElapsedMs }) });
@@ -641,6 +656,7 @@ function enablePlacedDrag(el, pend) {
     if (!dragging) return;
     const myDrop = drop, wasMoved = moved;
     cleanup();
+    if (playInFlight) return;
     if (!wasMoved) { recallTile(pend); return; }
     if (myDrop) { pend.row = myDrop.row; pend.col = myDrop.col; renderGame(); }
   });

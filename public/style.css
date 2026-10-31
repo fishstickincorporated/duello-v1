@@ -182,3 +182,16 @@ html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-
 .stat-pfp .pfp svg{width:44px;height:44px;display:block}
 .stat-box-head .pfp{width:36px;height:36px;flex:0 0 36px;border-radius:50%;overflow:hidden;background:#3a3f4b;display:flex;align-items:center;justify-content:center}
 .stat-box-head .pfp svg{width:36px;height:36px;display:block}
+
+/* Scoreboard columns are hard boxes that can never encroach on each
+other. Root cause of the screenshot overlap: the clock column's
+last-play text ("passed -30s", ~66px) was wider than its 58px column,
+and with align-items:flex-end the text box grew leftwards past the
+column boundary into the score column. Now every text element is
+exactly its column's width, clipped/wrapped inside it, and the column
+itself clips anything left over. */
+.panel .col{overflow:hidden}
+.panel .name,.panel .elo,.panel .clock,.panel .lastplay,.panel .score-col span{width:100%;max-width:100%;box-sizing:border-box}
+.panel .name,.panel .elo,.panel .clock{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.panel .lastplay{white-space:normal;overflow-wrap:break-word;word-break:break-word}
+.panel .score-col span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

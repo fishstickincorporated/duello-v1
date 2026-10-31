@@ -68,6 +68,9 @@ async function startGame(bot) {
     await ensureGuest();
     game = await api('/api/games', { method: 'POST', body: JSON.stringify({ bot }) });
   }
+  // Display 5:00 during the countdown, not the server's create-round-trip
+  // value (4:59): the clocks only start when the countdown ends (see /start).
+  game.clocks.human = 300000; game.clocks.bot = 300000;
   gameFetchAt = Date.now(); pending = []; selectedRack = null; armed = {};
   show('gameScreen'); renderGame(); startCountdown();
 }
@@ -76,7 +79,8 @@ async function endCountdown() {
   $('countdownOverlay').classList.add('hidden');
   $('gameScreen').classList.remove('counting');
   try {
-    game = await api(`/api/games/${game.id}`);
+    try { game = await api(`/api/games/${game.id}/start`, { method: 'POST' }); }
+    catch { game = await api(`/api/games/${game.id}`); }
     gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
     if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
   } catch { botTurnTapTime = 0; beginBotTurn(); }
@@ -101,7 +105,7 @@ function renderGame() {
   // which is how a drag froze the whole screen. The next render after the
   // drag ends will show any bot move that arrived in the meantime.
   if (activeDragCleanup) return;
-  $('playerName').textContent = 'you';
+  $('playerName').textContent = 'You';
   try { document.querySelector('.player-panel .pfp').innerHTML = pfpHTML(me); document.querySelector('.stat-pfp .pfp').innerHTML = pfpHTML(me); } catch {}
   $('playerElo').textContent = me ? me.elo : game.player.elo;
   const isFish = game.botType === 'fishstick';
@@ -309,7 +313,7 @@ async function updateStatus() {
   if (!game) return;
   if (game.status === 'finished') { $('status').textContent = game.reason || 'Game over'; return; }
   if (game.clocks.turn !== 'human') { $('status').textContent = game.clocks.human <= 0 ? 'out of time, opponent plays on' : 'Waiting for your opponent…'; setPlayState('off'); return; }
-  if (!pending.length) { $('status').textContent = game.isFirst ? 'Your move — first word goes entirely inside the glowing 6×6.' : 'Your move'; setPlayState('off'); lastValidate = null; return; }
+  if (!pending.length) { $('status').textContent = game.isFirst ? 'First word must fit inside the glowing 6×6.' : 'Your move'; setPlayState('off'); lastValidate = null; return; }
   setPlayState('validating');
   try {
     // Seq guard, not just a snapshot check: validations can complete out
@@ -327,9 +331,10 @@ async function updateStatus() {
     if (JSON.stringify(pending.map(p => [p.row, p.col, p.letter])) !== snapshot) return;
     if (v.valid) { $('status').textContent = 'Play?'; setPlayState('valid'); showBubble(v.score, v.mainCells); }
     else if (v.invalidWords && v.invalidWords.length) {
+      // One invalid word named, never a long joined list: a multi-word
+      // list could exceed one line. The full list is not needed to act.
       const w = v.invalidWords;
-      const list = w.length === 1 ? w[0] : w.slice(0, -1).join(', ') + ' and ' + w[w.length - 1];
-      $('status').textContent = w.length === 1 ? `${list} is not a word.` : `${list} are not words.`;
+      $('status').textContent = w.length === 1 ? `${w[0]} is not a word.` : `${w[0]} and ${w.length - 1} more are not words.`;
       setPlayState('invalid'); hideBubble();
     } else { $('status').textContent = v.error ? v.error.charAt(0).toUpperCase() + v.error.slice(1) + (v.error.endsWith('.') ? '' : '.') : 'Invalid play.'; setPlayState('invalid'); hideBubble(); }
   } catch {
@@ -480,7 +485,7 @@ async function doPlay() {
   } catch (e) {
     // Play failed: restore the human turn and its pre-tap clock.
     game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt;
-    $('status').textContent = e.message; renderGame();
+    $('status').textContent = String(e.message || '').slice(0, 48); renderGame();
   }
   finally { playInFlight = false; }
 }
@@ -495,7 +500,7 @@ function showStatWindow(stats) {
   const w = $('statWindow'); w.classList.remove('hidden');
   $('gameDim').classList.add('dimmed');
   const botLabel = (game && game.botType === 'fishstick') ? 'Fishstick' : 'Bot';
-  $('statWinner').textContent = stats.scores.human > stats.scores.bot ? 'you win' : stats.scores.bot > stats.scores.human ? botLabel + ' wins' : 'draw';
+  $('statWinner').textContent = stats.scores.human > stats.scores.bot ? 'You win' : stats.scores.bot > stats.scores.human ? botLabel + ' wins' : 'draw';
   $('statScore').textContent = `${stats.scores.human}–${stats.scores.bot}`;
   $('statReason').textContent = stats.reason || '';
   const fmtMove = (d, v) => v >= 0 ? '+' + v : '' + v;
@@ -506,8 +511,11 @@ function showStatWindow(stats) {
   const row = (label, h, b) => `<div class="stat-row"><span class="stat-label">${label}</span><span>${h}</span><span>${b}</span></div>`;
   const best = (x) => x.best ? `${x.best.word} (${x.best.score} pts)` : '—';
   const longest = (x) => x.longest ? `${x.longest.word} (${x.longest.word.length} letters)` : '—';
-  const opt = (x) => `${x.optimal}/${x.total}` + (x.optimalWords && x.optimalWords.length ? ` (${x.optimalWords.join(', ')})` : '');
-  $('statGrid').innerHTML = row('', 'you', botLabel) + row('Best word', best(stats.human), best(stats.bot)) + row('Longest word', longest(stats.human), longest(stats.bot)) + row('Optimal moves', opt(stats.human), opt(stats.bot));
+  const opt = (x) => `${x.optimal}/${x.total}`;
+  const box = (name, pfp, st) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp">${pfp}</span><span>${name}</span></div><div>Best word: ${best(st)}</div><div>Longest word: ${longest(st)}</div><div>Optimal moves: ${opt(st)}</div></div>`;
+  const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
+  const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.jpeg" alt="Fishstick">' : '🤖';
+  $('statGrid').innerHTML = box('You', humanPfp, stats.human) + box(botLabel, botPfpBox, stats.bot);
   if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">'; else $('statBotPfp').textContent = '🤖';
 }
 $('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) { $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); } });

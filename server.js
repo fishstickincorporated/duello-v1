@@ -821,7 +821,7 @@ const server = http.createServer(async (req, res) => {
       if (game.status === 'finished') out.stats = gameStatsPayload(game);
       return sendJson(res, 200, out);
     }
-    const gameMatch = pathname.match(/^\/api\/games\/(\d+)(?:\/(validate|play|pass|forfeit|shuffle))?$/);
+    const gameMatch = pathname.match(/^\/api\/games\/(\d+)(?:\/(validate|play|pass|forfeit|shuffle|start))?$/);
     if (gameMatch) {
       const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
@@ -849,6 +849,28 @@ const server = http.createServer(async (req, res) => {
             }
           }
           await saveGameRow(game);
+        }
+        const out = serializeGame(game, user);
+        if (game.status === 'finished') out.stats = gameStatsPayload(game);
+        return sendJson(res, 200, out);
+      }
+      if (req.method === 'POST' && action === 'start') {
+        // Countdown end: clocks start HERE, not at game creation. The old
+        // flow let the server clock tick through the 5s countdown (and
+        // the ~1s create round-trip, so the first clock showed 4:59, then
+        // jumped to ~4:55 when the countdown fetch settled it). Only a
+        // fresh, unplayed game is reset, and only once (started flag),
+        // so this can never reset a game already in progress.
+        if (game.status === 'active' && !game.started) {
+          const hm = (game.moves && game.moves.human) || [];
+          const bm = (game.moves && game.moves.bot) || [];
+          if (!hm.length && !bm.length && !game.lastHuman && !game.lastBot) {
+            game.clocks = { human: 300000, bot: 300000 };
+            game.turnStartedAt = Date.now();
+            game.botThinkUntil = game.turn === 'bot' ? Date.now() + 5000 : null;
+            game.started = true;
+            await saveGameRow(game);
+          }
         }
         const out = serializeGame(game, user);
         if (game.status === 'finished') out.stats = gameStatsPayload(game);

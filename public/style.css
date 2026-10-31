@@ -24,7 +24,7 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .bot-options{display:flex;flex-direction:column;gap:20px;margin-top:20px;align-items:center}
 .bot-opt{background:#2f7de1;color:#fff;padding:16px;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:18px;box-shadow:0 4px 0 #1c4f8f}
 .back-pill{display:block;background:#6b7280;color:#fff;padding:8px 18px;border-radius:20px;margin:22px auto 0;font-size:14px}
-.scoreboard{display:flex;flex-direction:row;gap:6px;margin-top:10px;margin-bottom:8px;width:100vw;margin-left:-4px;margin-right:-4px}
+.scoreboard{display:flex;flex-direction:row;gap:6px;margin-top:10px;margin-bottom:8px;width:auto;margin-left:0;margin-right:0}
 /* Each player's panel is three columns with NO visible separation
 between them (gap 0, no dividers). Opponent panel is the mirror image:
 player = identity | score | clock, opponent = clock | score | identity.

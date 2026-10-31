@@ -198,9 +198,10 @@ function renderGame() {
   document.querySelector('.controls').classList.toggle('hidden', finished);
   $('endButtons').classList.toggle('hidden', !finished);
   $('gameDim').classList.toggle('dimmed', finished && !$('statWindow').classList.contains('hidden'));
-  // Final board stays visible for 3s after the game ends (notably time
-  // expiry) before the stats window covers it. Tapping Game Stats shows
-  // it immediately; Main Menu / Play Again cancel the pending show.
+  // Final board stays visible for 3s after time expiry only, before
+  // the stats window covers it. Forfeit and other finishes show stats
+  // immediately (see isTimeoutFinish). Tapping Game Stats shows it
+  // immediately; Main Menu / Play Again cancel the pending show.
   if (finished && game.stats) showStatWindowDelayed(game.stats);
   tickClocks();
   if (countdownActive) { $('clockHuman').textContent = '5:00'; $('clockBot').textContent = '5:00'; }
@@ -572,8 +573,17 @@ $('playBtn').addEventListener('pointerdown', e => { playPointerAt = Date.now(); 
 $('playBtn').addEventListener('click', e => { if (Date.now() - playPointerAt < 1000) return; doPlay(); });
 let statDelayTimer = null, statShownGameId = null;
 function clearStatDelay() { if (statDelayTimer) { clearTimeout(statDelayTimer); statDelayTimer = null; } }
+// 3s delay is ONLY for time expiry: both clocks at 0 (and not a
+// forfeit, which can also end with a clock at 0). Forfeit, consecutive
+// passes, and no-playable-moves finishes show stats immediately, since
+// their clocks are still running and 'Final score' alone does not
+// distinguish a timeout from two passes.
+function isTimeoutFinish() {
+  return !!game && game.status === 'finished' && game.reason !== 'By forfeit' && game.clocks.human <= 0 && game.clocks.bot <= 0;
+}
 function showStatWindowDelayed(stats) {
   if (!game || statShownGameId === game.id || statDelayTimer) return;
+  if (!isTimeoutFinish()) { showStatWindow(stats); return; }
   statDelayTimer = setTimeout(() => { statDelayTimer = null; if (game) showStatWindow(stats); }, 3000);
 }
 function showStatWindow(stats) {

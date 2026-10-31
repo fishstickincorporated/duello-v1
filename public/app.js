@@ -189,7 +189,7 @@ function tickClocks() {
   if (Date.now() >= runoffUntil) $('clockBot').textContent = fmtClock(b);
   // Human clock hit 0: do not leave the game sitting on a dead turn.
   // Fetching flips the server to the bot turn, which then loops on its own.
-  if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0 && !timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleHumanTimeout();
+  if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) { $('status').textContent = 'out of time, opponent plays on'; if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleHumanTimeout(); }
   botWatchdog();
 }
 setInterval(tickClocks, 100);
@@ -273,7 +273,7 @@ function botWatchdog() {
 }
 function beginBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
-  $('status').textContent = 'Waiting for your opponent…';
+  $('status').textContent = game.clocks.human <= 0 ? 'out of time, opponent plays on' : 'Waiting for your opponent…';
   if (botTimer) clearTimeout(botTimer);
   // Perceived think is measured from the tap, not from the server reply:
   // the Play/Pass POST (including the server's optimal-move scan) used to
@@ -308,7 +308,7 @@ function setPlayState(state) {
 async function updateStatus() {
   if (!game) return;
   if (game.status === 'finished') { $('status').textContent = game.reason || 'Game over'; return; }
-  if (game.clocks.turn !== 'human') { $('status').textContent = 'Waiting for your opponent…'; setPlayState('off'); return; }
+  if (game.clocks.turn !== 'human') { $('status').textContent = game.clocks.human <= 0 ? 'out of time, opponent plays on' : 'Waiting for your opponent…'; setPlayState('off'); return; }
   if (!pending.length) { $('status').textContent = game.isFirst ? 'Your move — first word goes entirely inside the glowing 6×6.' : 'Your move'; setPlayState('off'); lastValidate = null; return; }
   setPlayState('validating');
   try {

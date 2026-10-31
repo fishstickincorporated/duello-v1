@@ -487,10 +487,19 @@ function newGame(user, botType) {
   return game;
 }
 function stripBoard(board) { return board.map(row => row.slice()); }
+function isFreshGame(game) {
+  const hm = (game.moves && game.moves.human) || [];
+  const bm = (game.moves && game.moves.bot) || [];
+  return !game.started && !hm.length && !bm.length && !game.lastHuman && !game.lastBot;
+}
 function serializeGame(game, user) {
   const now = Date.now();
   let clockHuman = game.clocks.human, clockBot = game.clocks.bot;
-  if (game.status === 'active') {
+  // Fresh games show 5:00/5:00 until /start, no matter how long the
+  // create round-trip or the countdown took. This is the server half of
+  // the 4:59 glitch: serialize used to subtract create-to-now elapsed.
+  if (isFreshGame(game)) { clockHuman = 300000; clockBot = 300000; }
+  else if (game.status === 'active') {
     const elapsed = now - game.turnStartedAt;
     if (game.turn === 'human') clockHuman = Math.max(0, clockHuman - elapsed);
     else clockBot = Math.max(0, clockBot - elapsed);
@@ -829,8 +838,8 @@ const server = http.createServer(async (req, res) => {
       if (!game) return sendJson(res, 404, { error: 'Game not found.' });
       const action = gameMatch[2];
       if (req.method === 'GET' && !action) {
-        // Auto-advance timeout skips on read, so a timed-out player does not block the game.
-        if (game.status === 'active') {
+        // Fresh games: do not settle or advance anything before /start.
+        if (game.status === 'active' && !isFreshGame(game)) {
           await advanceBotTurnIfReady(game, user);
           settleClock(game);
           let guard = 0;

@@ -165,6 +165,7 @@ function renderGame() {
   $('gameDim').classList.toggle('dimmed', finished && !$('statWindow').classList.contains('hidden'));
   if (finished && game.stats) showStatWindow(game.stats);
   tickClocks();
+  if (countdownActive) { $('clockHuman').textContent = '5:00'; $('clockBot').textContent = '5:00'; }
   updateStatus();
 }
 let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0;
@@ -180,7 +181,13 @@ async function handleHumanTimeout() {
   } catch {} finally { timeoutFetching = false; }
 }
 function tickClocks() {
-  if (!game || countdownActive) return;
+  if (!game) return;
+  // During the countdown both clocks are pinned to 5:00, every tick.
+  // Any render that recomputed from the server create time (4:59) or
+  // from elapsed time during the countdown was the first-seconds glitch
+  // in the screenshots: this overwrites it within 100ms, and renderGame
+  // below does the same immediately.
+  if (countdownActive) { $('clockHuman').textContent = '5:00'; $('clockBot').textContent = '5:00'; return; }
   const elapsed = Date.now() - gameFetchAt;
   let h = game.clocks.human, b = game.clocks.bot;
   if (game.status === 'active') {

@@ -141,7 +141,7 @@ function renderGame() {
     if (!l) return '';
     if (l.passed) return 'passed <span class="pts">-30s</span>';
     const words = (l.words && l.words.length) ? l.words : [l.word];
-    return `${words.join(', ')}<br><span class="pts">+${l.points} pts${l.bingo ? ' · <span class="bingo">bingo!</span> +30' : ''}${l.isDuello ? ' · Duello +30' : ''}</span>`;
+    return `${words.join(', ')}<br><span class="pts">+${l.points} pts${l.bingo ? ' · <span class="bingo">bingo! +30</span>' : ''}${l.isDuello ? ' · Duello +30' : ''}</span>`;
   };
   $('lastHuman').innerHTML = lastHtml(game.lastHuman);
   $('lastBot').innerHTML = lastHtml(game.lastBot);

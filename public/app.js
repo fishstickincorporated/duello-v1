@@ -348,7 +348,7 @@ function beginBotTurn() {
   botTimer = setTimeout(pollBotTurn, delay);
 }
 
-let validateInFlight = null, lastValidate = null, playInFlight = false, validateSeq = 0;
+let validateInFlight = null, lastValidate = null, lastValidatePlacements = null, playInFlight = false, validateSeq = 0;
 function setPlayState(state) {
   // Play colour is class-based, NOT disabled-based, so a grey Play is still
   // tappable and the server decides: a disabled button swallows taps, and
@@ -371,7 +371,7 @@ async function updateStatus() {
   if (!game) return;
   if (game.status === 'finished') { $('status').textContent = sentence(game.reason || 'Game over'); return; }
   if (game.clocks.turn !== 'human') { $('status').textContent = game.clocks.human <= 0 ? 'Out of time, opponent plays on.' : 'Waiting for your opponent.'; setPlayState('off'); return; }
-  if (!pending.length) { $('status').textContent = game.isFirst ? 'First word must fit inside the glowing 6×6.' : 'Your move.'; setPlayState('off'); lastValidate = null; return; }
+  if (!pending.length) { $('status').textContent = game.isFirst ? 'First word must fit inside the glowing 6×6.' : 'Your move.'; setPlayState('off'); lastValidate = null; lastValidatePlacements = null; return; }
   setPlayState('validating');
   try {
     // Seq guard, not just a snapshot check: validations can complete out
@@ -385,7 +385,7 @@ async function updateStatus() {
     const v = await myPromise;
     if (mySeq !== validateSeq) return; // a newer validation superseded this one
     if (validateInFlight === myPromise) validateInFlight = null;
-    lastValidate = v;
+    lastValidate = v; lastValidatePlacements = snapshot;
     if (JSON.stringify(pending.map(p => [p.row, p.col, p.letter])) !== snapshot) return;
     if (v.valid) { $('status').textContent = 'Play?'; setPlayState('valid'); showBubble(v.score, v.mainCells); }
     else if (v.invalidWords && v.invalidWords.length) {
@@ -528,8 +528,20 @@ async function doPlay() {
   const tapAt = Date.now();
   const clientElapsedMs = Math.max(0, tapAt - gameFetchAt);
   const prevHuman = game.clocks.human, prevFetchAt = gameFetchAt;
+  const prevScore = game.scores.human, prevLastHuman = game.lastHuman;
   game.clocks.human = Math.max(0, game.clocks.human - clientElapsedMs);
   game.clocks.turn = 'bot'; gameFetchAt = tapAt;
+  // Score immediately at the tap, not when the Play POST returns: the
+  // validation verdict for these exact placements already carries the
+  // score (including bonuses), so add it now and show the played words
+  // below the clock. The server reply then replaces the whole game
+  // object with the authoritative score, so there is no double count;
+  // a failed Play restores the pre-tap score and last play below.
+  const pendKey = JSON.stringify(pending.map(p => [p.row, p.col, p.letter]));
+  if (lastValidate && lastValidate.valid && lastValidatePlacements === pendKey) {
+    game.scores.human += lastValidate.score;
+    game.lastHuman = { word: lastValidate.mainWord, points: lastValidate.score, bonus: lastValidate.bonus, isDuello: lastValidate.isDuello, bingo: lastValidate.bingo, words: (lastValidate.words || []).map(w => w.word) };
+  }
   // Highlight the opponent's scoreboard AT THE TAP, not when the Play
   // POST returns: render now so the .active border flips immediately.
   renderGame();
@@ -543,8 +555,10 @@ async function doPlay() {
     // back up by the POST duration when the reply lands.
     gameFetchAt = tapAt; pending = []; cleanupStuckDrag(); $('rack').classList.add('instant'); renderGame(); setTimeout(() => $('rack').classList.remove('instant'), 100); beginBotTurn(); loadMe();
   } catch (e) {
-    // Play failed: restore the human turn and its pre-tap clock.
+    // Play failed: restore the human turn, its pre-tap clock, and the
+    // pre-tap score / last play (undoing the optimistic score above).
     game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt;
+    game.scores.human = prevScore; game.lastHuman = prevLastHuman;
     $('status').textContent = sentence(String(e.message || '').slice(0, 48)); renderGame();
   }
   finally { playInFlight = false; }

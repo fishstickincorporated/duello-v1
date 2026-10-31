@@ -636,8 +636,9 @@ function applyMove(game, side, move, bestScoreBefore) {
   game.lastWord = move.mainWord;
   game.lastScore = move.score;
   game.lastBy = side;
-  if (isHuman) game.lastHuman = { word: move.mainWord, points: move.score, bonus: move.bonus, isDuello: move.isDuello, bingo: move.bingo };
-  else game.lastBot = { word: move.mainWord, points: move.score, bonus: move.bonus, isDuello: move.isDuello, bingo: move.bingo };
+  const allWords = (move.words || []).map(w => w.word);
+  if (isHuman) game.lastHuman = { word: move.mainWord, points: move.score, bonus: move.bonus, isDuello: move.isDuello, bingo: move.bingo, words: allWords };
+  else game.lastBot = { word: move.mainWord, points: move.score, bonus: move.bonus, isDuello: move.isDuello, bingo: move.bingo, words: allWords };
   updateStatsForMove(game, side, move, bestScoreBefore);
   game.consecutivePasses = 0;
   game.consecutiveNoMoves = 0;
@@ -647,6 +648,13 @@ function runBotTurn(game) {
   // Returns true if the bot moved, false if it passed / was skipped.
   if (game.status !== 'active' || game.turn !== 'bot') return false;
   if (game.clocks.bot <= 0) { game.turn = 'human'; game.turnStartedAt = Date.now(); return false; }
+  if (game.pendingBotMove) {
+    const { move, bestScore } = game.pendingBotMove;
+    game.pendingBotMove = null;
+    applyMove(game, 'bot', move, bestScore);
+    game.turn = 'human'; game.turnStartedAt = Date.now();
+    return true;
+  }
   const isFirst = boardIsEmpty(game.board);
   const moves = findMoves(game.board, game.botRack, isFirst, true);
   if (!moves.length) {
@@ -679,7 +687,7 @@ async function advanceBotTurnIfReady(game, user) {
   // think timer starts when the Play POST arrives (network time later),
   // so a poll at tap+5s would otherwise miss and need a second poll,
   // pushing the perceived think to ~7s. Within tolerance the move runs.
-  if (Date.now() < until - 1500) return false;
+  if (Date.now() < until - 2500) return false;
   if (game.clocks.bot <= 0) { game.turn = 'human'; game.turnStartedAt = Date.now(); game.botThinkUntil = null; return false; }
   settleClock(game);
   const moved = runBotTurn(game);
@@ -693,8 +701,37 @@ async function advanceBotTurnIfReady(game, user) {
   if (game.status === 'active' && game.turn === 'human' && game.clocks.human <= 0 && game.clocks.bot > 0) startBotTurn(game);
   return moved;
 }
+// Precompute the bot's move during its 5s think, so the poll at 5s does
+// not pay the solver scan on top of the think (that scan is what pushed
+// the perceived think to ~6s). The move is computed after the human
+// move response is sent, saved to the game row, and applied instantly
+// by runBotTurn. If it is not ready in time, runBotTurn falls back to
+// computing on demand, so a slow scan can never break a bot turn.
+function scheduleBotMove(game) {
+  if (!game.id || !game.userId) return;
+  const gameId = game.id, userId = game.userId;
+  const beforeLastBot = game.lastBot ? JSON.stringify(game.lastBot) : '';
+  setTimeout(async () => {
+    try {
+      const g = await loadGameForUser({ id: userId }, gameId);
+      if (!g || g.status !== 'active' || g.turn !== 'bot' || g.pendingBotMove) return;
+      if ((g.lastBot ? JSON.stringify(g.lastBot) : '') !== beforeLastBot) return;
+      const isFirst = boardIsEmpty(g.board);
+      const moves = findMoves(g.board, g.botRack, isFirst, true);
+      if (!moves.length) return;
+      const bestScore = moves[0].score;
+      const move = g.botType === 'fishstick' ? moves[0] : pickCompetitiveMove(moves, g.botElo);
+      const g2 = await loadGameForUser({ id: userId }, gameId);
+      if (!g2 || g2.status !== 'active' || g2.turn !== 'bot' || g2.pendingBotMove) return;
+      if ((g2.lastBot ? JSON.stringify(g2.lastBot) : '') !== beforeLastBot) return;
+      g2.pendingBotMove = { move, bestScore };
+      await saveGameRow(g2);
+    } catch {}
+  }, 500);
+}
 function startBotTurn(game) {
   game.turn = 'bot'; game.turnStartedAt = Date.now(); game.botThinkUntil = Date.now() + 5000;
+  scheduleBotMove(game);
 }
 
 async function finishIfNeeded(game, user) {
@@ -879,6 +916,7 @@ const server = http.createServer(async (req, res) => {
             game.botThinkUntil = game.turn === 'bot' ? Date.now() + 5000 : null;
             game.started = true;
             await saveGameRow(game);
+            if (game.turn === 'bot') scheduleBotMove(game);
           }
         }
         const out = serializeGame(game, user);
@@ -904,6 +942,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, v);
       }
       if (req.method === 'POST' && action === 'play') {
+        const playReqStart = Date.now();
         if (game.status !== 'active') return sendJson(res, 400, { error: 'Game is finished.' });
         const b0 = await readBody(req);
         settleClock(game, b0.clientElapsedMs);
@@ -925,12 +964,14 @@ const server = http.createServer(async (req, res) => {
         const bestScore = bestMoves.length ? bestMoves[0].score : null;
         applyMove(game, 'human', v, bestScore);
         startBotTurn(game);
+        game.botThinkUntil = playReqStart + 5000;
         await saveGameRow(game);
         const out = serializeGame(game, user);
         if (game.status === 'finished') out.stats = gameStatsPayload(game);
         return sendJson(res, 200, out);
       }
       if (req.method === 'POST' && action === 'pass') {
+        const passReqStart = Date.now();
         if (game.status !== 'active') return sendJson(res, 400, { error: 'Game is finished.' });
         const bPass = await readBody(req).catch(() => ({}));
         settleClock(game, bPass.clientElapsedMs);
@@ -940,6 +981,7 @@ const server = http.createServer(async (req, res) => {
         game.consecutiveNoMoves = 0;
         game.lastHuman = { word: null, points: 0, passed: true };
         startBotTurn(game);
+        game.botThinkUntil = passReqStart + 5000;
         if (game.consecutivePasses >= 2) {
           game.botThinkUntil = null;
           const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';

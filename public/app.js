@@ -122,7 +122,12 @@ function renderGame() {
   document.querySelector('.player-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'human');
   document.querySelector('.bot-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'bot');
   $('scoreHuman').textContent = String(game.scores.human); $('scoreBot').textContent = String(game.scores.bot);
-  const lastHtml = (l) => !l ? '—' : l.passed ? 'passed <span class="pts">-30s</span>' : `${l.word}<br><span class="pts">+${l.points} pts${l.bingo ? ' · bingo +30' : ''}${l.isDuello ? ' · Duello +30' : ''}</span>`;
+  const lastHtml = (l) => {
+    if (!l) return '—';
+    if (l.passed) return 'passed <span class="pts">-30s</span>';
+    const words = (l.words && l.words.length) ? l.words : [l.word];
+    return `${words.join(' ')}<br><span class="pts">+${l.points} pts${l.bingo ? ' · bingo +30' : ''}${l.isDuello ? ' · Duello +30' : ''}</span>`;
+  };
   $('lastHuman').innerHTML = lastHtml(game.lastHuman);
   $('lastBot').innerHTML = lastHtml(game.lastBot);
   // Board
@@ -345,10 +350,9 @@ async function updateStatus() {
     if (JSON.stringify(pending.map(p => [p.row, p.col, p.letter])) !== snapshot) return;
     if (v.valid) { $('status').textContent = 'Play?'; setPlayState('valid'); showBubble(v.score, v.mainCells); }
     else if (v.invalidWords && v.invalidWords.length) {
-      // One invalid word named, never a long joined list: a multi-word
-      // list could exceed one line. The full list is not needed to act.
       const w = v.invalidWords;
-      $('status').textContent = w.length === 1 ? `${w[0]} is not a word.` : `${w[0]} and ${w.length - 1} more are not words.`;
+      const list = w.length === 1 ? w[0] : w.slice(0, -1).join(', ') + ' and ' + w[w.length - 1];
+      $('status').textContent = w.length === 1 ? `${list} is not a word.` : `${list} are not words.`;
       setPlayState('invalid'); hideBubble();
     } else { $('status').textContent = v.error ? v.error.charAt(0).toUpperCase() + v.error.slice(1) + (v.error.endsWith('.') ? '' : '.') : 'Invalid play.'; setPlayState('invalid'); hideBubble(); }
   } catch {

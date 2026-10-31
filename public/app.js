@@ -16,6 +16,29 @@ function registerDragCleanup(fn) { if (activeDragCleanup && activeDragCleanup !=
 function clearDragCleanup(fn) { if (activeDragCleanup === fn) activeDragCleanup = null; }
 function cleanupStuckDrag() { if (activeDragCleanup) { const fn = activeDragCleanup; activeDragCleanup = null; try { fn(); } catch {} } }
 const $ = id => document.getElementById(id);
+// Optimistic rack refill (mirrors server refillRack/drawLetter exactly,
+// including the >=2 vowels / >=2 consonants floor). Used only so new
+// tiles appear at the Play tap, not when the Play POST returns; the
+// server reply then replaces the rack with its authoritative letters.
+const OPT_VOWELS = new Set(['A','E','I','O','U']);
+const OPT_FREQ = [['A',8.59],['B',2.46],['C',2.39],['D',4.31],['E',9.43],['F',2.16],['G',3.00],['H',2.39],['I',6.26],['J',1.46],['K',1.77],['L',4.51],['M',2.68],['N',5.62],['O',6.43],['P',2.70],['Q',1.38],['R',6.44],['S',6.12],['T',6.17],['U',4.41],['V',1.94],['W',2.20],['X',1.51],['Y',2.20],['Z',1.48]];
+const OPT_FREQ_CUM = []; { let s = 0; for (const [l, f] of OPT_FREQ) { s += f; OPT_FREQ_CUM.push([s, l]); } }
+function optDrawLetter() { const r = Math.random() * 100; for (const [cum, l] of OPT_FREQ_CUM) if (r <= cum) return l; return 'E'; }
+function optDrawVowel() { for (let i = 0; i < 100; i++) { const l = optDrawLetter(); if (OPT_VOWELS.has(l)) return l; } return 'E'; }
+function optDrawConsonant() { for (let i = 0; i < 100; i++) { const l = optDrawLetter(); if (!OPT_VOWELS.has(l)) return l; } return 'B'; }
+function optRefillRack(rack, usedIndices) {
+  const next = rack.slice(); const usedSet = new Set(usedIndices);
+  const unplayed = next.filter((_, i) => !usedSet.has(i));
+  let needV = Math.max(0, 2 - unplayed.filter(c => OPT_VOWELS.has(c)).length);
+  let needC = Math.max(0, 2 - unplayed.filter(c => !OPT_VOWELS.has(c)).length);
+  for (const idx of usedIndices) {
+    if (needV > 0) { next[idx] = optDrawVowel(); needV--; }
+    else if (needC > 0) { next[idx] = optDrawConsonant(); needC--; }
+    else next[idx] = optDrawLetter();
+  }
+  return next;
+}
+let optimisticPlay = false;
 // Display rounding is CEIL, not floor: with floor, 5:00 dropped to 4:59
 // within ~100ms of starting (299500ms remaining floors to 4:59), so
 // the timer never sat on 5:00 for a full second. With ceil, 5:00 shows
@@ -179,11 +202,11 @@ function renderGame() {
   }
   game.humanRack.forEach((letter, idx) => {
     if (countdownActive) return;
-    if (pending.some(p => p.rackIndex === idx)) { const s = document.createElement('div'); s.style.flex = '1'; rackEl.appendChild(s); return; }
+    if (!optimisticPlay && pending.some(p => p.rackIndex === idx)) { const s = document.createElement('div'); s.style.flex = '1'; rackEl.appendChild(s); return; }
     const t = document.createElement('div'); t.className = 'tile'; t.dataset.idx = idx;
     t.innerHTML = `<span class="letter">${letter}</span><span class="val">${({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter]}</span>`;
     if (selectedRack === idx) t.style.outline = '2px solid #ffd166';
-    enableRackDrag(t, idx);
+    if (!optimisticPlay) enableRackDrag(t, idx);
     rackEl.appendChild(t);
   });
   // Controls / end state
@@ -193,7 +216,7 @@ function renderGame() {
   const yourTurn = game.status === 'active' && game.clocks.turn === 'human' && !playInFlight;
   $('recallBtn').disabled = countdownActive || !(yourTurn && pending.length > 0);
   $('passBtn').disabled = countdownActive || !yourTurn;
-  $('shuffleBtn').disabled = countdownActive;
+  $('shuffleBtn').disabled = countdownActive || playInFlight || optimisticPlay;
   $('forfeitBtn').disabled = countdownActive;
   document.querySelector('.controls').classList.toggle('hidden', finished);
   $('endButtons').classList.toggle('hidden', !finished);
@@ -529,7 +552,7 @@ async function doPlay() {
   const tapAt = Date.now();
   const clientElapsedMs = Math.max(0, tapAt - gameFetchAt);
   const prevHuman = game.clocks.human, prevFetchAt = gameFetchAt;
-  const prevScore = game.scores.human, prevLastHuman = game.lastHuman;
+  const prevScore = game.scores.human, prevLastHuman = game.lastHuman, prevRack = game.humanRack.slice();
   game.clocks.human = Math.max(0, game.clocks.human - clientElapsedMs);
   game.clocks.turn = 'bot'; gameFetchAt = tapAt;
   // Score immediately at the tap, not when the Play POST returns: the
@@ -543,10 +566,24 @@ async function doPlay() {
     game.scores.human += lastValidate.score;
     game.lastHuman = { word: lastValidate.mainWord, points: lastValidate.score, bonus: lastValidate.bonus, isDuello: lastValidate.isDuello, bingo: lastValidate.bingo, words: (lastValidate.words || []).map(w => w.word) };
   }
+  // Tiles replaced immediately at the tap, not when the Play POST
+  // returns: refill the exact slots the server will refill (indexOf
+  // matching, same as applyMove), and render the rack full, with no
+  // spacers for the played tiles, while the board still shows the
+  // played word via pending. The server reply then replaces the rack
+  // with its authoritative letters, so the optimistic letters are
+  // only ever visible during the POST.
+  {
+    const remaining = game.humanRack.slice(); const usedIndices = [];
+    for (const pl of pending) { const idx = remaining.indexOf(pl.letter); if (idx >= 0) { usedIndices.push(idx); remaining[idx] = null; } }
+    game.humanRack = optRefillRack(game.humanRack, usedIndices);
+    optimisticPlay = true;
+  }
   // Highlight the opponent's scoreboard AT THE TAP, not when the Play
   // POST returns: render now so the .active border flips immediately.
+  playInFlight = true;
   renderGame();
-  playInFlight = true; $('playBtn').disabled = true; $('playBtn').classList.remove('validating', 'play-valid', 'play-invalid');
+  $('playBtn').disabled = true; $('playBtn').classList.remove('validating', 'play-valid', 'play-invalid');
   $('status').textContent = 'Waiting for your opponent.'; tickClocks();
   try {
     botTurnTapTime = tapAt;
@@ -554,12 +591,12 @@ async function doPlay() {
     // Keep the bot clock ticking from the tap, not from the reply:
     // gameFetchAt stays at tapAt, so the bot display does not jump
     // back up by the POST duration when the reply lands.
-    gameFetchAt = tapAt; pending = []; cleanupStuckDrag(); $('rack').classList.add('instant'); renderGame(); setTimeout(() => $('rack').classList.remove('instant'), 100); beginBotTurn(); loadMe();
+    gameFetchAt = tapAt; pending = []; optimisticPlay = false; cleanupStuckDrag(); $('rack').classList.add('instant'); renderGame(); setTimeout(() => $('rack').classList.remove('instant'), 100); beginBotTurn(); loadMe();
   } catch (e) {
     // Play failed: restore the human turn, its pre-tap clock, and the
     // pre-tap score / last play (undoing the optimistic score above).
     game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt;
-    game.scores.human = prevScore; game.lastHuman = prevLastHuman;
+    game.scores.human = prevScore; game.lastHuman = prevLastHuman; game.humanRack = prevRack; optimisticPlay = false;
     $('status').textContent = sentence(String(e.message || '').slice(0, 48)); renderGame();
   }
   finally { playInFlight = false; }

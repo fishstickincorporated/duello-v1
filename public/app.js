@@ -138,7 +138,7 @@ function renderGame() {
   document.querySelector('.bot-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'bot');
   $('scoreHuman').textContent = String(game.scores.human); $('scoreBot').textContent = String(game.scores.bot);
   const lastHtml = (l) => {
-    if (!l) return '—';
+    if (!l) return '';
     if (l.passed) return 'passed <span class="pts">-30s</span>';
     const words = (l.words && l.words.length) ? l.words : [l.word];
     return `${words.join(', ')}<br><span class="pts">+${l.points} pts${l.bingo ? ' · <span class="bingo">bingo!</span> +30' : ''}${l.isDuello ? ' · Duello +30' : ''}</span>`;

@@ -80,7 +80,10 @@ async function startGame(bot) {
   game.clocks.human = 300000; game.clocks.bot = 300000;
   gameFetchAt = Date.now(); pending = []; selectedRack = null; armed = {};
   clearStatDelay(); statShownGameId = null;
-  show('gameScreen'); renderGame(); startCountdown();
+  // Set the countdown flag BEFORE the first render, so that render draws
+  // the rack as empty slots (not full letters) from the very first frame.
+  countdownActive = true;
+  show('gameScreen'); $('gameScreen').classList.add('counting'); renderGame(); startCountdown();
 }
 async function endCountdown() {
   // Keep the clocks pinned until the new state actually arrives. The old
@@ -105,6 +108,9 @@ function startCountdown() {
   if (countdownInterval) clearInterval(countdownInterval);
   countdownActive = true;
   $('gameScreen').classList.add('counting');
+  // Re-render so the rack is blank slots (and controls disabled) during
+  // the wait, even if an earlier render drew letters before the flag set.
+  cleanupStuckDrag(); renderGame();
   const ov = $('countdownOverlay'); ov.classList.remove('hidden');
   let n = 5; $('countdownNum').textContent = String(n);
   countdownInterval = setInterval(() => {

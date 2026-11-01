@@ -32,7 +32,7 @@ function show(id) {
   if (id === 'profileScreen') renderProfile();
   if (id === 'friendsScreen') renderFriends();
 }
-function silhouetteSVG(size) { return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="12" cy="8" r="4" fill="#9aa3b2"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#9aa3b2"/></svg>`; }
+function silhouetteSVG(size) { return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#b3b2b1"/></svg>`; }
 function pfpHTML(userLike) {
   if (userLike && userLike.photoData) return `<img src="${userLike.photoData}" alt="">`;
   return silhouetteSVG(36);
@@ -149,6 +149,19 @@ function renderGame() {
   updateStatus();
 }
 let runoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0;
+// Bot-think anchor: the bot clock must drop exactly 5s during think and
+// 15s during runoff, in timeout loops as well as normal turns. The old
+// code derived the bot clock from gameFetchAt, which any unrelated render
+// (shuffle, rack reorder, a fresh GET) could reset mid-think, so the
+// visible think could shrink to ~2s and the runoff stretch to ~18s to
+// reach the same 20s step. Anchoring to the first moment the bot turn is
+// visible, and clamping the think display at anchor-5s, makes the split
+// 5s/15s regardless of fetch resets or solver/network delay.
+let botThinkAnchorAt = 0, botClockAtAnchor = null;
+function clearBotThinkAnchor() { botThinkAnchorAt = 0; botClockAtAnchor = null; }
+function ensureBotThinkAnchor() {
+  if (!botThinkAnchorAt) { botThinkAnchorAt = Date.now(); botClockAtAnchor = game ? game.clocks.bot : null; }
+}
 async function handleHumanTimeout() {
   if (!game || game.status !== 'active' || timeoutFetching) return;
   timeoutFetching = true; timeoutLastAttempt = Date.now();
@@ -163,7 +176,15 @@ function tickClocks() {
   const elapsed = Date.now() - gameFetchAt;
   let h = game.clocks.human, b = game.clocks.bot;
   if (game.status === 'active') {
-    if (game.clocks.turn === 'human') h = Math.max(0, h - elapsed); else b = Math.max(0, b - elapsed);
+    if (game.clocks.turn === 'human') { h = Math.max(0, h - elapsed); clearBotThinkAnchor(); }
+    else {
+      ensureBotThinkAnchor();
+      // During think, tick from the anchor, clamped at anchor-5s: the bot
+      // clock must not keep dropping while the solver/network is late,
+      // and must not jump back up if gameFetchAt was reset mid-think.
+      const anchored = Math.max(botClockAtAnchor - 5000, botClockAtAnchor - (Date.now() - botThinkAnchorAt));
+      b = Math.max(0, anchored);
+    }
   }
   $('clockHuman').textContent = fmtClock(h);
   // During a runoff animation the bot clock is driven by the animation,
@@ -194,7 +215,12 @@ function animateClockRunoff(fromMs, toMs) {
 async function pollBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
   try {
-    const fromMs = parseClockText($('clockBot').textContent);
+    ensureBotThinkAnchor();
+    // Runoff must start at anchor-5s, not at whatever the clock text
+    // happened to show at poll time (which could be 2s down after a
+    // fetch reset, making the runoff 18s). Anchor-5s to the stepped
+    // 20s mark is exactly 15s.
+    const fromMs = botClockAtAnchor !== null ? botClockAtAnchor - 5000 : parseClockText($('clockBot').textContent);
     const prevBot = game.lastBot ? JSON.stringify(game.lastBot) : '';
     const prevBotScore = game.scores ? game.scores.bot : 0;
     const next = await api(`/api/games/${game.id}`);
@@ -203,11 +229,14 @@ async function pollBotTurn() {
     // Animate the runoff whenever the bot actually played, even if the
     // server already flipped to the NEXT bot turn (human clock at 0) —
     // the old code returned early in that case and the runoff never ran.
-    if (botMoved) animateClockRunoff(fromMs, next.clocks.bot);
+    if (botMoved) { animateClockRunoff(fromMs, next.clocks.bot); clearBotThinkAnchor(); }
     if (next.clocks.turn === 'bot' && next.status === 'active') {
-      // Relative remaining time from the server, never the server's absolute
-      // clock: comparing Render time to phone time added a spurious ~2s poll.
-      const delay = next.botThinkRemainingMs != null ? Math.max(200, next.botThinkRemainingMs) : 500;
+      // Next bot think in a timeout loop: poll at anchor+5s, not at a
+      // remaining value that was computed before a fetch reset. If no
+      // anchor is set (fresh turn), fall back to the server remaining.
+      ensureBotThinkAnchor();
+      const anchoredDelay = botThinkAnchorAt ? Math.max(200, botThinkAnchorAt + 5000 - Date.now()) : null;
+      const delay = anchoredDelay !== null ? anchoredDelay : (next.botThinkRemainingMs != null ? Math.max(200, next.botThinkRemainingMs) : 500);
       if (botTimer) clearTimeout(botTimer);
       botTimer = setTimeout(pollBotTurn, delay);
       return;
@@ -222,6 +251,7 @@ function beginBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
   $('status').textContent = 'Bot thinking…';
   if (botTimer) clearTimeout(botTimer);
+  ensureBotThinkAnchor();
   // Perceived think is measured from the tap, not from the server reply:
   // the Play/Pass POST (including the server's optimal-move scan) used to
   // stack on top of the 5s, pushing the feel to ~6s. Starting the 5s at the
@@ -232,10 +262,11 @@ function beginBotTurn() {
     botTimer = setTimeout(pollBotTurn, delay);
     return;
   }
-  // Relative remaining time, less the time since this game state arrived
-  // (network + render), so latencies before the timer starts do not stack
-  // on top of the 5s think.
-  const delay = game.botThinkRemainingMs != null ? Math.max(0, game.botThinkRemainingMs - (Date.now() - gameFetchAt)) : 5000;
+  // No tap time (timeout flip, bot-first, etc.): poll at anchor+5s, not
+  // at a remaining value minus a gameFetchAt that may have been reset
+  // mid-think (that reset is what shrank visible think to ~2s).
+  const anchoredDelay = botThinkAnchorAt ? Math.max(0, botThinkAnchorAt + 5000 - Date.now()) : null;
+  const delay = anchoredDelay !== null ? anchoredDelay : (game.botThinkRemainingMs != null ? Math.max(0, game.botThinkRemainingMs - (Date.now() - gameFetchAt)) : 5000);
   botTimer = setTimeout(pollBotTurn, delay);
 }
 
@@ -680,7 +711,7 @@ async function renderProfile() {
     $('profileElo').textContent = me.elo;
     $('profileEloHigh').textContent = me.eloHigh;
     const icon = document.getElementById('tabProfileIcon');
-    if (icon) icon.innerHTML = me.photoData ? `<img src="${me.photoData}" alt="">` : `<svg viewBox="0 0 24 24" width="28" height="28"><circle cx="12" cy="8" r="4" fill="#9aa3b2"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#4da3ff" opacity="0.85"/></svg>`;
+    if (icon) icon.innerHTML = me.photoData ? `<img src="${me.photoData}" alt="">` : `<svg viewBox="0 0 24 24" width="28" height="28"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#03eaff" opacity="0.85"/></svg>`;
     renderStatsList(); drawEloChart();
   } catch {}
 }
@@ -706,9 +737,9 @@ function drawEloChart() {
   if (chartRange === '1m') hist = hist.filter(h => now - new Date(h.created_at + 'Z').getTime() < 30 * 24 * 3600 * 1000);
   if (chartRange === '1y') hist = hist.filter(h => now - new Date(h.created_at + 'Z').getTime() < 365 * 24 * 3600 * 1000);
   const pts = [1000, ...hist.map(h => h.elo_after)];
-  if (pts.length < 2) { ctx.fillStyle = '#9aa3b2'; ctx.font = '13px Nunito'; ctx.fillText('No Elo history yet — play a game.', 12, 30); return; }
+  if (pts.length < 2) { ctx.fillStyle = '#b3b2b1'; ctx.font = '13px Comfortaa'; ctx.fillText('No Elo history yet — play a game.', 12, 30); return; }
   const min = Math.min(...pts) - 20, max = Math.max(...pts) + 20;
-  ctx.strokeStyle = '#4da3ff'; ctx.lineWidth = 2; ctx.beginPath();
+  ctx.strokeStyle = '#03eaff'; ctx.lineWidth = 2; ctx.beginPath();
   pts.forEach((v, i) => { const x = 10 + i * (cv.width - 20) / (pts.length - 1); const y = cv.height - 10 - ((v - min) / (max - min)) * (cv.height - 20); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
   ctx.stroke();
 }
@@ -769,7 +800,7 @@ async function renderFriends() {
     const reqEl = $('friendRequests'); reqEl.innerHTML = '';
     fr.friends.filter(f => f.status === 'pending' && f.direction === 'in').forEach(f => {
       const row = document.createElement('div'); row.className = 'request-row';
-      row.innerHTML = `<span>${pfpHTML(f)}</span><span><b>${f.firstName} ${f.lastName}</b> <span style="color:#9aa3b2">@${f.username}</span></span><span style="margin-left:auto;display:flex;gap:6px"><button class="mini-btn" data-acc="${f.id}">Accept</button><button class="mini-btn grey" data-dec="${f.id}">Decline</button></span>`;
+      row.innerHTML = `<span>${pfpHTML(f)}</span><span><b>${f.firstName} ${f.lastName}</b> <span style="color:#b3b2b1">@${f.username}</span></span><span style="margin-left:auto;display:flex;gap:6px"><button class="mini-btn" data-acc="${f.id}">Accept</button><button class="mini-btn grey" data-dec="${f.id}">Decline</button></span>`;
       reqEl.appendChild(row);
     });
     reqEl.querySelectorAll('[data-acc]').forEach(b => b.onclick = async () => { await api('/api/friends/respond', { method: 'POST', body: JSON.stringify({ userId: Number(b.dataset.acc), accept: true }) }); renderFriends(); });
@@ -790,7 +821,7 @@ $('friendSearch').addEventListener('input', () => {
       d.results.forEach(r => {
         const row = document.createElement('div'); row.className = 'search-result';
         const btn = r.friendship === 'accepted' ? '<span class="pending-label">Friend</span>' : r.friendship === 'pending_out' ? '<span class="pending-label">Pending</span>' : r.friendship === 'pending_in' ? '<span class="pending-label">Pending</span>' : `<button class="mini-btn" data-req="${r.id}">Add friend</button>`;
-        row.innerHTML = `<span>${pfpHTML(r)}</span><span><b>${r.firstName} ${r.lastName}</b> <span style="color:#9aa3b2">@${r.username}</span></span><span style="margin-left:auto">${btn}</span>`;
+        row.innerHTML = `<span>${pfpHTML(r)}</span><span><b>${r.firstName} ${r.lastName}</b> <span style="color:#b3b2b1">@${r.username}</span></span><span style="margin-left:auto">${btn}</span>`;
         el.appendChild(row);
       });
       el.querySelectorAll('[data-req]').forEach(b => b.onclick = async () => { await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ userId: Number(b.dataset.req) }) }); b.outerHTML = '<span class="pending-label">Pending</span>'; });

@@ -143,6 +143,18 @@ function startCountdown() {
   }, 1000);
 }
 function boardCell(r, c) { return game.board[r][c]; }
+// One SVG tile template for every letter: face, letter, and value are drawn
+// in a single 100x100 viewBox, so the proportions are locked no matter what
+// size the tile is rendered at (board, rack, or drag ghost). The letter can
+// never cover the value: the value sits in the top-right corner above the
+// letter's top edge (letter baseline 68, value baseline 22), and wide letters
+// like W still clear it. Letters come from game state, never from the DOM,
+// so drawing them as SVG text changes nothing about validation or drag.
+function tileSVG(letter) {
+  const val = ({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter];
+  const gid = 'tg' + (tileSVG.n = (tileSVG.n || 0) + 1);
+  return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#7df3ff"/><stop offset="50%" stop-color="#03eaff"/><stop offset="100%" stop-color="#00b8d2"/></linearGradient></defs><rect x="0.5" y="0.5" width="99" height="99" rx="9" fill="url(#${gid})" stroke="rgba(0,90,110,0.4)"/><line x1="14" y1="4" x2="86" y2="4" stroke="rgba(255,255,255,0.75)" stroke-width="1.5" stroke-linecap="round"/><text x="50" y="68" text-anchor="middle" font-family="Comfortaa, sans-serif" font-weight="700" font-size="52" fill="#1a1d24" stroke="#1a1d24" stroke-width="2" stroke-linejoin="round" paint-order="stroke">${letter}</text><text x="90" y="22" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="17" fill="#1a1d24">${val}</text></svg>`;
+}
 function renderGame() {
   if (!game) return;
   // Never rebuild the board/rack while a drag is live: re-creating the
@@ -190,7 +202,7 @@ function renderGame() {
     cell.textContent = letter ? '' : (prem || '');
     if (letter) {
       const t = document.createElement('div'); t.className = 'tile' + (pend ? ' pending' : '');
-      t.innerHTML = `<span class="letter">${letter}</span><span class="val">${({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter]}</span>`;
+      t.innerHTML = tileSVG(letter);
       if (pend) enablePlacedDrag(t, pend);
       else t.addEventListener('pointerdown', () => showDefinition(r, c));
       cell.appendChild(t);
@@ -212,7 +224,7 @@ function renderGame() {
     if (!letter) { const s = document.createElement('div'); s.className = 'tile empty'; rackEl.appendChild(s); return; }
     if (!optimisticPlay && pending.some(p => p.rackIndex === idx)) { const s = document.createElement('div'); s.className = 'tile empty'; rackEl.appendChild(s); return; }
     const t = document.createElement('div'); t.className = 'tile'; t.dataset.idx = idx;
-    t.innerHTML = `<span class="letter">${letter}</span><span class="val">${({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter]}</span>`;
+    t.innerHTML = tileSVG(letter);
     if (selectedRack === idx) t.style.outline = '2px solid #ffd166';
     if (!optimisticPlay) enableRackDrag(t, idx);
     rackEl.appendChild(t);
@@ -779,8 +791,7 @@ function nearestEmptyCell(r0, c0) {
 function clearDropHighlights() { document.querySelectorAll('#board .cell.drop-target').forEach(el => el.classList.remove('drop-target')); }
 function showGhost(letter, x, y) {
   const ghost = $('dragGhost');
-  const val = ({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter];
-  ghost.innerHTML = `<span class="letter">${letter}</span><span class="val">${val}</span>`;
+  ghost.innerHTML = tileSVG(letter);
   ghost.classList.remove('hidden');
   ghost.style.left = x + 'px'; ghost.style.top = y + 'px';
 }

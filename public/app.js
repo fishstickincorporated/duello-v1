@@ -896,10 +896,10 @@ function enableRackDrag(el, idx) {
 // Drag a tile that is already placed on the board to a new cell.
 // Tap (no movement) recalls it, exactly as before; a drag moves it.
 function enablePlacedDrag(el, pend) {
-  let dragging = false, moved = false, startX = 0, startY = 0, drop = null, captureId = null;
+  let dragging = false, moved = false, startX = 0, startY = 0, drop = null, captureId = null, rackSlotEl = null;
+  const clearRackSlot = () => { if (rackSlotEl) { rackSlotEl.style.outline = ''; rackSlotEl = null; } };
   const cleanup = () => {
-    dragging = false; $('dragGhost').classList.add('hidden'); clearDropHighlights();
-    if ($('rack')) $('rack').style.outline = '';
+    dragging = false; $('dragGhost').classList.add('hidden'); clearDropHighlights(); clearRackSlot();
     if (captureId !== null) { try { el.releasePointerCapture(captureId); } catch {} captureId = null; }
     clearDragCleanup(cleanup);
   };
@@ -916,17 +916,22 @@ function enablePlacedDrag(el, pend) {
     if (!moved) return;
     suppressNextClick = true;
     showGhost(pend.letter, e.clientX, e.clientY);
-    clearDropHighlights();
-    if ($('rack')) $('rack').style.outline = '';
+    clearDropHighlights(); clearRackSlot();
     const hit = cellAtPoint(e.clientX, e.clientY);
     if (!hit) {
-      // Not over the board: check the rack (deck) — dropping there
-      // recalls the tile to its rack slot, instead of cancelling.
+      // Not over the board: check the rack (deck). Only an empty rack
+      // slot is a drop target — the whole deck is never highlighted.
+      // Dropping on an empty slot puts the tile back in that slot, so
+      // any available space works, not just the tile's original slot.
       const rackEl = $('rack');
       if (rackEl) {
         const rect = rackEl.getBoundingClientRect();
         if (e.clientY >= rect.top && e.clientY <= rect.bottom && e.clientX >= rect.left && e.clientX <= rect.right) {
-          drop = { kind: 'rack' }; rackEl.style.outline = '2px solid #ffd166'; return;
+          const slot = Math.max(0, Math.min(5, Math.floor((e.clientX - rect.left) / Math.max(1, rect.width) * 6)));
+          const slotEl = rackEl.children[slot];
+          if (slotEl && slotEl.classList.contains('empty')) {
+            drop = { kind: 'rack', slot }; rackSlotEl = slotEl; slotEl.style.outline = '2px solid #ffd166'; return;
+          }
         }
       }
       drop = null; return;
@@ -946,7 +951,28 @@ function enablePlacedDrag(el, pend) {
     cleanup();
     if (playInFlight) return;
     if (!wasMoved) { recallTile(pend); return; }
-    if (myDrop && myDrop.kind === 'rack') { recallTile(pend); return; }
+    if (myDrop && myDrop.kind === 'rack') {
+      if (!game || game.status !== 'active' || game.clocks.turn !== 'human') return;
+      const orig = pend.rackIndex, target = myDrop.slot;
+      if (target === orig) { recallTile(pend); return; }
+      // Recall into a different empty slot: move the letter there in
+      // the rack order (other placed tiles' slots shift like a rack
+      // reorder), then sync that order to the server so the next
+      // server reply does not put the tile back in its old slot.
+      const rack = [...game.humanRack];
+      const [letter] = rack.splice(orig, 1); rack.splice(target, 0, letter);
+      pending.forEach(q => {
+        if (q === pend) return;
+        if (orig < target && q.rackIndex > orig && q.rackIndex <= target) q.rackIndex--;
+        else if (orig > target && q.rackIndex < orig && q.rackIndex >= target) q.rackIndex++;
+      });
+      pending = pending.filter(q => q !== pend);
+      game.humanRack = rack; renderGame();
+      api(`/api/games/${game.id}/shuffle`, { method: 'POST', body: JSON.stringify({ rack }) })
+        .then(d => { game = d; gameFetchAt = Date.now(); renderGame(); })
+        .catch(() => {});
+      return;
+    }
     if (myDrop) { if (!canPlaceTiles()) return; pend.row = myDrop.row; pend.col = myDrop.col; renderGame(); }
   });
   el.addEventListener('pointercancel', () => cleanup());

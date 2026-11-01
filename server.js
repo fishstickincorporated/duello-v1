@@ -39,6 +39,13 @@ for (const line of fs.readFileSync(path.join(DATA_DIR, 'words.txt'), 'utf8').spl
 }
 let DEFS = {};
 try { DEFS = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'definitions.json'), 'utf8')); } catch (e) { DEFS = {}; }
+// Extra definitions (expanded dictionary + Webster) are split into small
+// chunk files because a single 5.8 MB definitions file cannot be pushed
+// through the GitHub MCP tool (413). Chunks override the base file, so
+// placeholder entries in the base file are replaced by real definitions.
+for (const extraFile of ['definitions-extra-a.json', 'definitions-extra-b.json', 'definitions-extra-c.json']) {
+  try { Object.assign(DEFS, JSON.parse(fs.readFileSync(path.join(DATA_DIR, extraFile), 'utf8'))); } catch (e) { /* chunk absent, ignore */ }
+}
 const LETTER_VALUES = { A:1,B:4,C:4,D:3,E:1,F:5,G:3,H:4,I:1,J:9,K:6,L:2,M:4,N:2,O:1,P:4,Q:10,R:1,S:1,T:1,U:2,V:6,W:5,X:8,Y:5,Z:9 };
 const VOWELS = new Set(['A','E','I','O','U']);
 const FREQ = [['A',8.59],['B',2.46],['C',2.39],['D',4.31],['E',9.43],['F',2.16],['G',3.00],['H',2.39],['I',6.26],['J',1.46],['K',1.77],['L',4.51],['M',2.68],['N',5.62],['O',6.43],['P',2.70],['Q',1.38],['R',6.44],['S',6.12],['T',6.17],['U',4.41],['V',1.94],['W',2.20],['X',1.51],['Y',2.20],['Z',1.48]];

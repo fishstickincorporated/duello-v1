@@ -192,7 +192,7 @@ function renderGame() {
       const t = document.createElement('div'); t.className = 'tile' + (pend ? ' pending' : '');
       t.innerHTML = `<span class="letter">${letter}</span><span class="val">${({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter]}</span>`;
       if (pend) enablePlacedDrag(t, pend);
-      else t.onclick = () => showDefinition(r, c);
+      else t.addEventListener('pointerdown', () => showDefinition(r, c));
       cell.appendChild(t);
     } else {
       cell.onclick = () => { if (suppressNextClick) { suppressNextClick = false; return; } if (selectedRack !== null) placeTile(r, c); };
@@ -700,7 +700,16 @@ function hideDefinition() { const pop = $('defPopover'); if (pop) pop.classList.
 // tap on a rack / empty cell closes it and still places / selects.
 document.addEventListener('pointerdown', e => {
   const pop = $('defPopover');
-  if (pop && !pop.classList.contains('hidden') && !pop.contains(e.target)) hideDefinition();
+  if (!pop || pop.classList.contains('hidden') || pop.contains(e.target)) return;
+  // A tap on a board word tile opens that word's definition in the same
+  // tap (its pointerdown handler runs first, on the way up to here), so
+  // do not hide the popover here — hiding it first was why the next tap
+  // only closed the window and never opened the new definition. Pending
+  // tiles are excluded: they drag/recall, they do not open definitions,
+  // so taps on them still close the window as before.
+  const tile = e.target.closest ? e.target.closest('#board .tile') : null;
+  if (tile && !tile.classList.contains('pending')) return;
+  hideDefinition();
 });
 async function showDefinition(r, c) {
   // Find row and column words through this cell, fetch definitions for each.

@@ -65,7 +65,7 @@ function show(id) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   if ((id === 'homeScreen' || id === 'botScreen') && $('tabHome')) $('tabHome').classList.add('active');
 }
-function silhouetteSVG(size) { return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="12" cy="8" r="4" fill="#9aa3b2"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#9aa3b2"/></svg>`; }
+function silhouetteSVG(size) { return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#b3b2b1"/></svg>`; }
 function pfpHTML(userLike) {
   if (userLike && userLike.photoData) return `<img src="${userLike.photoData}" alt="">`;
   return silhouetteSVG(36);

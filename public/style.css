@@ -183,7 +183,8 @@ html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-
    is rendered as empty slots (see .tile.empty), so nothing jumps
    when the letters appear after the wait. */
 #gameScreen.counting #rack,#gameScreen.counting .controls{visibility:visible}
-.rack .tile.empty{background:#262a33;cursor:default}
+#rack .tile.empty{background:#262a33;cursor:default;z-index:0}
+#rack .tile:not(.empty){position:relative;z-index:1}
 .stat-winner{text-align:center;font-size:22px;font-weight:900;margin:0 0 12px}
 .stat-window>div{max-width:96vw}
 .stat-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:6px 0;border-bottom:1px solid #333}

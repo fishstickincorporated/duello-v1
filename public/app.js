@@ -784,7 +784,7 @@ function showGhost(letter, x, y) {
   ghost.classList.remove('hidden');
   ghost.style.left = x + 'px'; ghost.style.top = y + 'px';
 }
-function clearRackShift() { document.querySelectorAll('#rack .tile').forEach(t => { t.style.transform = ''; }); }
+function clearRackShift() { document.querySelectorAll('#rack .tile').forEach(t => { t.style.transform = ''; t.style.zIndex = ''; }); }
 function applyRackShift(dragIdx, hoverIdx) {
   // Phone-app slide, WITHOUT moving any DOM node: neighbours between the
   // dragged slot and the hovered slot translate by exactly one slot width,
@@ -803,6 +803,7 @@ function applyRackShift(dragIdx, hoverIdx) {
       else if (dragIdx > hoverIdx && ti < dragIdx && ti >= hoverIdx) shift = slot;
     }
     t.style.transform = shift ? `translateX(${shift}px)` : '';
+    t.style.zIndex = shift ? '2' : '';
   });
 }
 function enableRackDrag(el, idx) {

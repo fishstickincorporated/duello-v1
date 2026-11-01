@@ -813,15 +813,53 @@ function stemCandidates(w) {
 // definitions.json (pos '' for all 118) still shows a part of speech
 // in the same "(pos) — definition" format as other words.
 const JEFF2_POS = {AA:"noun",AB:"noun",AD:"noun",AE:"noun",AG:"adjective",AH:"interjection",AI:"noun",AL:"noun",AM:"verb",AN:"article",AR:"noun",AS:"adverb",AT:"preposition",AW:"interjection",AX:"noun",AY:"noun",BA:"noun",BE:"verb",BI:"noun",BO:"noun",BY:"noun",DA:"noun",DE:"preposition",DO:"noun",ED:"adjective",EE:"interjection",EF:"noun",EH:"interjection",EL:"noun",EM:"noun",EN:"noun",EO:"noun",ER:"interjection",ES:"noun",ET:"verb",EW:"interjection",EX:"noun",FA:"noun",FE:"noun",FI:"noun",FU:"noun",GI:"noun",GO:"verb",HA:"interjection",HE:"pronoun",HI:"interjection",HM:"interjection",HO:"interjection",ID:"noun",IF:"conjunction",IN:"verb",IO:"noun",IS:"verb",IT:"pronoun",JA:"interjection",JE:"noun",JO:"noun",KA:"noun",KI:"noun",LA:"noun",LI:"noun",LO:"interjection",MA:"noun",ME:"pronoun",MI:"noun",MM:"interjection",MO:"noun",MU:"noun",MY:"pronoun",NA:"adverb",NE:"adjective",NO:"noun",NU:"noun",OD:"noun",OE:"noun",OF:"preposition",OH:"interjection",OI:"interjection",OK:"adjective",OM:"noun",ON:"noun",OO:"noun",OP:"noun",OR:"noun",OS:"noun",OU:"noun",OW:"interjection",OX:"noun",OY:"interjection",PA:"noun",PE:"noun",PI:"noun",PO:"noun",QI:"noun",RE:"noun",SH:"interjection",SI:"noun",SO:"noun",TA:"interjection",TE:"noun",TI:"noun",TO:"preposition",UH:"interjection",UM:"interjection",UN:"noun",UP:"verb",US:"pronoun",UT:"noun",VU:"preposition",WE:"pronoun",WO:"noun",XI:"noun",XU:"noun",YA:"pronoun",YE:"pronoun",YI:"pronoun",YO:"interjection",ZA:"noun"};
+// No definition may ever read "plural of X", "past tense of X", or
+// "form of X — ...": those are replaced with the core word's own
+// definition, directly, with no prefix. Jeff, Nov 1, 2026. This covers
+// stored Webster entries ("form of ABASER — ..."), Wiktionary/dictionary
+// glosses ("plural of aal"), and stemmed forms. Jeff's own 2-letter
+// glosses (AM/IS: 'form of "to be"') do not match these patterns and
+// are left verbatim.
+function coreWordFromDef(def) {
+  const d = String(def || '').trim();
+  let m = d.match(/^form of ([A-Z][A-Z\-]*) — /);
+  if (m) return m[1];
+  m = d.match(/^(?:plural|past tense|past participle|present participle|third-person singular|comparative|superlative|alternative form|elongated form|variant form) of ([A-Za-z][A-Za-z\-']*)/i);
+  if (m) return m[1].toUpperCase();
+  return null;
+}
+function isMorphologicalDef(def) { return !!coreWordFromDef(def); }
+// Resolve a bundled entry to a real, non-morphological definition:
+// follow "form of X — ..." / "plural of x" chains to the core word.
+// Returns {pos, definition} or null if the core has no real definition.
+function resolvedBundledDef(word, seen) {
+  const w = String(word || '').toUpperCase();
+  if (seen && seen.has(w)) return null;
+  const entry = DEFS[w];
+  if (!isRealDef(entry)) return null;
+  const core = coreWordFromDef(entry.def);
+  if (!core || core === w) return { pos: entry.pos || '', definition: entry.def };
+  // Webster "form of X — <X's definition>": the core definition is
+  // already embedded after the dash, so use it even if X is not a
+  // separate bundled entry.
+  const dash = entry.def.indexOf(' — ');
+  const nextSeen = new Set(seen || []); nextSeen.add(w);
+  const coreResolved = resolvedBundledDef(core, nextSeen);
+  if (coreResolved) return coreResolved;
+  if (dash >= 0) return { pos: entry.pos || '', definition: entry.def.slice(dash + 3) };
+  return null;
+}
 function bundledDefinition(word) {
   const w = String(word || '').toUpperCase();
-  if (isRealDef(DEFS[w])) return { word: w, pos: DEFS[w].pos || JEFF2_POS[w] || '', definition: DEFS[w].def };
-  // Stem to a base word with a real definition, labelled as a form of it.
-  // Second pass: stems of stems, so e.g. a plural of an -ING form still lands.
+  const direct = resolvedBundledDef(w, null);
+  if (direct) return { word: w, pos: direct.pos || JEFF2_POS[w] || '', definition: direct.definition };
+  // Stem to a base word and return its core definition directly,
+  // with no "form of" prefix.
   const cands = [...stemCandidates(w)];
   for (const c of [...cands]) for (const c2 of stemCandidates(c)) if (!cands.includes(c2)) cands.push(c2);
   for (const base of cands) {
-    if (isRealDef(DEFS[base])) return { word: w, pos: DEFS[base].pos || '', definition: `form of ${base} — ${DEFS[base].def}` };
+    const resolved = resolvedBundledDef(base, null);
+    if (resolved) return { word: w, pos: resolved.pos || '', definition: resolved.definition };
   }
   return null;
 }
@@ -866,6 +904,25 @@ async function fetchWiktionary(wordLower) {
     return null;
   } catch { return null; }
 }
+// Resolve a live definition that is only a morphological reference
+// ("plural of aal", "past tense of ...") to the core word's own
+// definition, directly. Bundled core first, then a live fetch for the
+// core word, recursing at most 3 levels (e.g. plural -> alternative
+// form -> core). Returns null if no core definition lands.
+async function resolveLiveMorph(live, depth) {
+  if (!live || !isMorphologicalDef(live.definition)) return live;
+  if (depth >= 3) return null;
+  const core = coreWordFromDef(live.definition);
+  if (!core) return null;
+  const bundledCore = bundledDefinition(core);
+  if (bundledCore) return { pos: bundledCore.pos || '', definition: bundledCore.definition };
+  try {
+    const [a, b] = await Promise.all([fetchDictApi(core.toLowerCase()), fetchWiktionary(core.toLowerCase())]);
+    const coreLive = a || b;
+    if (!coreLive) return null;
+    return await resolveLiveMorph(coreLive, depth + 1);
+  } catch { return null; }
+}
 async function getDefinition(word) {
   const w = String(word || '').toUpperCase();
   const bundled = bundledDefinition(w);
@@ -880,14 +937,16 @@ async function getDefinition(word) {
     const [a, b] = await Promise.all([fetchDictApi(lower), fetchWiktionary(lower)]);
     live = a || b;
   } catch {}
+  if (live) live = await resolveLiveMorph(live, 0);
   // Stemmed forms through Wiktionary: plurals / inflections that are
   // not themselves Wiktionary headwords (e.g. ABOILS -> ABOIL).
+  // Return the core definition directly, with no "form of" prefix.
   if (!live) {
     const cands = [...stemCandidates(w)];
     for (const c of [...cands]) for (const c2 of stemCandidates(c)) if (!cands.includes(c2)) cands.push(c2);
     for (const base of cands.slice(0, 5)) {
-      live = await fetchWiktionary(base.toLowerCase());
-      if (live) { live = { pos: live.pos, definition: `form of ${base} — ${live.definition}` }; break; }
+      const baseLive = await fetchWiktionary(base.toLowerCase());
+      if (baseLive) { live = await resolveLiveMorph(baseLive, 0); if (live) break; }
     }
   }
   if (live) {

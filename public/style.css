@@ -218,4 +218,5 @@ itself clips anything left over. */
 /* Score: 3-digit space is always reserved (48px min at 26px font, no
    shrink), and the score is never cut off with an ellipsis. */
 .panel .score-col span{text-overflow:clip}
-.stat-box .stat-val{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat-box .stat-val{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:400}
+.stat-box .stat-label{font-weight:800}

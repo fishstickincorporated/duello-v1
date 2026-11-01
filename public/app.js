@@ -680,7 +680,7 @@ function showStatWindow(stats) {
   const best = (x) => x.best ? `${x.best.word} (${x.best.score} pts)` : '—';
   const longest = (x) => x.longest ? `${x.longest.word} (${x.longest.word.length} letters)` : '—';
   const opt = (x) => `${x.optimal}/${x.total}`;
-  const box = (name, pfp, st) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp">${pfp}</span><span>${name}</span></div><div>Best word:<br><span class="stat-val">${best(st)}</span></div><div>Longest word:<br><span class="stat-val">${longest(st)}</span></div><div>Optimal moves: ${opt(st)}</div></div>`;
+  const box = (name, pfp, st) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp">${pfp}</span><span>${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span> ${opt(st)}</div></div>`;
   const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
   const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.jpeg" alt="Fishstick">' : '🤖';
   $('statGrid').innerHTML = box('You', humanPfp, stats.human) + box(botLabel, botPfpBox, stats.bot);
@@ -899,6 +899,7 @@ function enablePlacedDrag(el, pend) {
   let dragging = false, moved = false, startX = 0, startY = 0, drop = null, captureId = null;
   const cleanup = () => {
     dragging = false; $('dragGhost').classList.add('hidden'); clearDropHighlights();
+    if ($('rack')) $('rack').style.outline = '';
     if (captureId !== null) { try { el.releasePointerCapture(captureId); } catch {} captureId = null; }
     clearDragCleanup(cleanup);
   };
@@ -916,8 +917,20 @@ function enablePlacedDrag(el, pend) {
     suppressNextClick = true;
     showGhost(pend.letter, e.clientX, e.clientY);
     clearDropHighlights();
+    if ($('rack')) $('rack').style.outline = '';
     const hit = cellAtPoint(e.clientX, e.clientY);
-    if (!hit) { drop = null; return; }
+    if (!hit) {
+      // Not over the board: check the rack (deck) — dropping there
+      // recalls the tile to its rack slot, instead of cancelling.
+      const rackEl = $('rack');
+      if (rackEl) {
+        const rect = rackEl.getBoundingClientRect();
+        if (e.clientY >= rect.top && e.clientY <= rect.bottom && e.clientX >= rect.left && e.clientX <= rect.right) {
+          drop = { kind: 'rack' }; rackEl.style.outline = '2px solid #ffd166'; return;
+        }
+      }
+      drop = null; return;
+    }
     // The tile's own cell is pending, not a board letter, so it is not free;
     // nearestEmptyCell therefore snaps to a *different* free cell, never back
     // onto an occupied cell and never recalling the dragged tile.
@@ -933,6 +946,7 @@ function enablePlacedDrag(el, pend) {
     cleanup();
     if (playInFlight) return;
     if (!wasMoved) { recallTile(pend); return; }
+    if (myDrop && myDrop.kind === 'rack') { recallTile(pend); return; }
     if (myDrop) { if (!canPlaceTiles()) return; pend.row = myDrop.row; pend.col = myDrop.col; renderGame(); }
   });
   el.addEventListener('pointercancel', () => cleanup());

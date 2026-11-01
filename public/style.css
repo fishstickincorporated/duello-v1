@@ -85,7 +85,7 @@ present again; a flex-shared cell previously squeezed them to half width. */
 #playBtn.validating{background:#3a3f4b;color:#b3b2b1}
 .stat-window{position:fixed;inset:0;background:rgba(5,7,10,.78);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;z-index:10;overflow:hidden}
 .stat-window>div{max-width:390px;width:100%}
-#gameLogo{margin:0 auto 4px}
+#gameLogo{margin:0 auto 12px}
 .stat-window .stat-top{display:flex;justify-content:space-between;align-items:center;background:#262a33;border:2px solid #e8ecf1;border-radius:16px;padding:16px}
 .stat-pfp{display:flex;flex-direction:column;align-items:center;gap:4px}.stat-pfp img{width:44px;height:44px;border-radius:50%;object-fit:cover}
 .pfp.big{font-size:36px}.elo-move{font-weight:800;min-height:20px;line-height:20px}.elo-move.neg{color:#ff7a7a}.elo-move.pos{color:#4ade80}

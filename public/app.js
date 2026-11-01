@@ -899,7 +899,7 @@ function enablePlacedDrag(el, pend) {
   let dragging = false, moved = false, startX = 0, startY = 0, drop = null, captureId = null, rackSlotEl = null;
   const clearRackSlot = () => { if (rackSlotEl) { rackSlotEl.style.outline = ''; rackSlotEl = null; } };
   const cleanup = () => {
-    dragging = false; $('dragGhost').classList.add('hidden'); clearDropHighlights(); clearRackSlot();
+    dragging = false; $('dragGhost').classList.add('hidden'); clearDropHighlights(); clearRackSlot(); clearRackShift();
     if (captureId !== null) { try { el.releasePointerCapture(captureId); } catch {} captureId = null; }
     clearDragCleanup(cleanup);
   };
@@ -916,13 +916,16 @@ function enablePlacedDrag(el, pend) {
     if (!moved) return;
     suppressNextClick = true;
     showGhost(pend.letter, e.clientX, e.clientY);
-    clearDropHighlights(); clearRackSlot();
+    clearDropHighlights(); clearRackSlot(); clearRackShift();
     const hit = cellAtPoint(e.clientX, e.clientY);
     if (!hit) {
-      // Not over the board: check the rack (deck). Only an empty rack
-      // slot is a drop target — the whole deck is never highlighted.
-      // Dropping on an empty slot puts the tile back in that slot, so
-      // any available space works, not just the tile's original slot.
+      // Not over the board: check the rack (deck). The whole deck is
+      // never highlighted. Two different cases:
+      // - Empty slot: highlight only that slot. Dropping there puts
+      //   the tile back in that slot with no other deck tile moving.
+      // - Occupied deck tile: that tile (and the ones between it and
+      //   the dragged tile's original slot) shifts sideways exactly
+      //   like a rack drag, showing where the tile would insert.
       const rackEl = $('rack');
       if (rackEl) {
         const rect = rackEl.getBoundingClientRect();
@@ -930,7 +933,10 @@ function enablePlacedDrag(el, pend) {
           const slot = Math.max(0, Math.min(5, Math.floor((e.clientX - rect.left) / Math.max(1, rect.width) * 6)));
           const slotEl = rackEl.children[slot];
           if (slotEl && slotEl.classList.contains('empty')) {
-            drop = { kind: 'rack', slot }; rackSlotEl = slotEl; slotEl.style.outline = '2px solid #ffd166'; return;
+            drop = { kind: 'rack', slot, mode: 'open' }; rackSlotEl = slotEl; slotEl.style.outline = '2px solid #ffd166'; return;
+          }
+          if (slotEl) {
+            drop = { kind: 'rack', slot, mode: 'insert' }; applyRackShift(pend.rackIndex, slot); return;
           }
         }
       }
@@ -955,10 +961,26 @@ function enablePlacedDrag(el, pend) {
       if (!game || game.status !== 'active' || game.clocks.turn !== 'human') return;
       const orig = pend.rackIndex, target = myDrop.slot;
       if (target === orig) { recallTile(pend); return; }
-      // Recall into a different empty slot: move the letter there in
-      // the rack order (other placed tiles' slots shift like a rack
-      // reorder), then sync that order to the server so the next
-      // server reply does not put the tile back in its old slot.
+      if (myDrop.mode === 'open') {
+        // Open slot: swap with the placed tile that owns that slot.
+        // The deck tiles themselves do not move at all — only the two
+        // spacers swap, so the returned tile lands in the open slot
+        // and the other placed tile's spacer takes the old slot.
+        const owner = pending.find(q => q !== pend && q.rackIndex === target);
+        if (!owner) { recallTile(pend); return; }
+        const rack = [...game.humanRack];
+        [rack[orig], rack[target]] = [rack[target], rack[orig]];
+        owner.rackIndex = orig;
+        pending = pending.filter(q => q !== pend);
+        game.humanRack = rack; renderGame();
+        api(`/api/games/${game.id}/shuffle`, { method: 'POST', body: JSON.stringify({ rack }) })
+          .then(d => { game = d; gameFetchAt = Date.now(); renderGame(); })
+          .catch(() => {});
+        return;
+      }
+      // Occupied deck tile: insert like a rack reorder — the letter
+      // moves to the hovered slot and the deck tiles between shift
+      // sideways by one, exactly as when dragging from the deck.
       const rack = [...game.humanRack];
       const [letter] = rack.splice(orig, 1); rack.splice(target, 0, letter);
       pending.forEach(q => {

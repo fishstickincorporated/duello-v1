@@ -10,10 +10,12 @@
 // Postgres; sessions are random tokens in the sessions table, stored by
 // the client in localStorage under 'duello_token'. Sign-in is required
 // before entering the app: the client shows the auth screen when there
-// is no valid session. POST /api/guest was removed Nov 2, 2026, but a
-// session issued to a guest before that can still sign up and upgrade
-// that guest row in place, so Elo and game history carry over. No OAuth
-// yet — Google/Apple sign-in is a separate integration.
+// is no valid session. Guests are not an option at all: POST /api/guest
+// was removed Nov 2, 2026, and a session issued to a guest before that
+// authenticates nothing anymore — loading the app with one shows the
+// auth screen, and signing up from there creates a brand-new account,
+// leaving the guest row orphaned and inert. No OAuth yet — Google/Apple
+// sign-in is a separate integration.
 'use strict';
 const http = require('http');
 const fs = require('fs');
@@ -117,7 +119,10 @@ async function authUser(req) {
   if (!m) return null;
   const r = await q('SELECT * FROM sessions WHERE token=$1', [m[1]]);
   if (!r.rows[0]) return null;
-  return getUserById(r.rows[0].user_id);
+  const u = await getUserById(r.rows[0].user_id);
+  // Guests are not an option: a guest session authenticates nothing.
+  if (isGuestUser(u)) return null;
+  return u;
 }
 
 function isGuestUser(u) { return !!u && typeof u.email === 'string' && u.email.endsWith('@guest.local'); }
@@ -1090,22 +1095,18 @@ const server = http.createServer(async (req, res) => {
       if (!firstName || !lastName) return sendJson(res, 400, { error: 'First and last name are required.' });
       if (password.length < 8) return sendJson(res, 400, { error: 'Password must be at least 8 characters.' });
       const current = await authUser(req);
-      if (current && !isGuestUser(current)) return sendJson(res, 400, { error: 'You are already signed in.' });
+      if (current) return sendJson(res, 400, { error: 'You are already signed in.' });
       const byEmail = await getUserByEmail(email);
-      if (byEmail && (!current || byEmail.id !== current.id)) return sendJson(res, 400, { error: 'That email is already registered.' });
+      if (byEmail) return sendJson(res, 400, { error: 'That email is already registered.' });
       const byUsername = await getUserByUsername(username);
-      if (byUsername && (!current || byUsername.id !== current.id)) return sendJson(res, 400, { error: 'That username is taken.' });
+      if (byUsername) return sendJson(res, 400, { error: 'That username is taken.' });
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = hashPassword(password, salt);
-      let user;
-      if (current) {
-        // Guest upgrade in place: same row, same Elo and game history.
-        await q('UPDATE users SET email=$1, username=$2, first_name=$3, last_name=$4, password_salt=$5, password_hash=$6 WHERE id=$7', [email, username, firstName, lastName, salt, hash, current.id]);
-        user = await getUserById(current.id);
-      } else {
-        const r = await q('INSERT INTO users (email, username, first_name, last_name, password_salt, password_hash, elo, elo_high) VALUES ($1,$2,$3,$4,$5,$6,1000,1000) RETURNING id', [email, username, firstName, lastName, salt, hash]);
-        user = await getUserById(r.rows[0].id);
-      }
+      // Signup always creates a brand-new account at 1000. Guest tokens
+      // are ignored: a guest signing up gets a fresh account, and the
+      // guest row is left orphaned and inert.
+      const r = await q('INSERT INTO users (email, username, first_name, last_name, password_salt, password_hash, elo, elo_high) VALUES ($1,$2,$3,$4,$5,$6,1000,1000) RETURNING id', [email, username, firstName, lastName, salt, hash]);
+      const user = await getUserById(r.rows[0].id);
       const token = crypto.randomBytes(32).toString('hex');
       await q('INSERT INTO sessions (token, user_id) VALUES ($1,$2)', [token, user.id]);
       return sendJson(res, 200, { token, user: publicUser(user) });

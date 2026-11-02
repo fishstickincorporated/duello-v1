@@ -28,16 +28,14 @@ Bot play only. Sign-in is required before entering the app since Nov 2, 2026: wi
   friends/global leaderboard tab UI was added Nov 2, 2026 (mock data
   only, no backend). Real accounts landed Nov 2, 2026: email/password
   signup, sign-in, sign-out, `GET /api/me`, `POST /api/me/update`, and
-  real profile stats from finished games; signing up while holding a
-  guest token upgrades that guest row in place, so Elo and game history
-  carry over. Sign-in became required Nov 2, 2026: POST /api/guest
-  removed; the client shows the auth screen with no valid session, and
-  signing out returns to it. Pre-existing guest sessions can still sign
-  up and upgrade in place. Guests upgrade from the Profile tab's
-  Sign in / Sign up button, which keeps the guest token attached.
-  Guests also see Start fresh, which signs the guest out and abandons
-  it, so the next signup is a brand-new account at 1000. No
-  Google/Apple OAuth yet.
+  real profile stats from finished games. Guests are not an option at
+  all: POST /api/guest was removed Nov 2, 2026, and a session issued to
+  a guest before that authenticates nothing anymore — loading the app
+  with one shows the auth screen, and signing up from there creates a
+  brand-new account at 1000, leaving the guest row orphaned and inert.
+  The guest upgrade path and the Start fresh button, both added Nov 2,
+  2026, were removed the same day when guests were taken out entirely.
+  No Google/Apple OAuth yet.
 
 Game logic, validation, scoring, and the bot solver were NOT changed
 in behaviour — only the database layer, the auth surface, and the

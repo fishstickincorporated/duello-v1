@@ -90,12 +90,14 @@
       </div>
     </form>
     <div class="edit-password">
-      <input id="editCurrentPassword" type="password" placeholder="Current password" autocomplete="current-password">
-      <input id="editNewPassword" type="password" placeholder="New password" autocomplete="new-password">
-      <input id="editNewPassword2" type="password" placeholder="New password again" autocomplete="new-password">
-      <p id="editPasswordError" class="error"></p>
-      <p id="editPasswordDone" class="small"></p>
-      <button class="btn primary" id="editPasswordBtn" type="button">Change password</button>
+      <div id="editPasswordFields" class="hidden">
+        <input id="editCurrentPassword" type="password" placeholder="Current password" autocomplete="current-password">
+        <input id="editNewPassword" type="password" placeholder="New password" autocomplete="new-password">
+        <input id="editNewPassword2" type="password" placeholder="New password again" autocomplete="new-password">
+        <p id="editPasswordError" class="error"></p>
+        <p id="editPasswordDone" class="small"></p>
+      </div>
+      <button class="btn blue-border" id="editPasswordBtn" type="button">Change password</button>
     </div>
   </section>
 
@@ -200,4 +202,4 @@
     <button class="tab-btn" id="tabProfile" aria-label="Profile"><span id="tabProfileIcon"><svg viewBox="0 0 24 24" width="28" height="28"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#03eaff" opacity="0.85"/></svg></span></button>
   </nav>
 </div>
-<script src="/app.js?v=5"></script></body></html>
+<script src="/app.js?v=6"></script></body></html>

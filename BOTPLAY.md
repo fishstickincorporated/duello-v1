@@ -53,6 +53,12 @@ Bot play only. Sign-in is required before entering the app since Nov 2, 2026: wi
   idempotent migration). Password change is `POST /api/me/password`
   (signed in, current password plus new password, 8 minimum); it ends
   every other session and keeps the current one.
+  Nov 2, 2026 checklist refinements: the password section starts as a
+  lone Change password button (grey with a Duello blue border only, no
+  solid fill) and the Current/New/Confirm fields appear only after it
+  is tapped, matching the prototype; the profile Joined line shows
+  month and year only; the 1 month / 1 year / All time chart toggles
+  are bold.
   Guests are not an option at
   all: POST /api/guest was removed Nov 2, 2026, and a session issued to
   a guest before that authenticates nothing anymore — loading the app

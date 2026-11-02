@@ -1265,7 +1265,7 @@ function enablePlacedDrag(el, pend) {
 let profileData = null, statsScope = 'aggregate', chartRange = '1m';
 function formatJoined(createdAt) {
   const d = new Date(createdAt);
-  return isNaN(d) ? createdAt : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return isNaN(d) ? createdAt : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short' });
 }
 async function renderProfileUI() {
   // Sign-in is required: no token, or a rejected session, goes to auth.
@@ -1326,6 +1326,7 @@ $('gearBtn').onclick = async () => {
   $('editPhotoRemoveBtn').classList.toggle('hidden', !u.photoData);
   $('editCurrentPassword').value = ''; $('editNewPassword').value = ''; $('editNewPassword2').value = '';
   $('editPasswordError').textContent = ''; $('editPasswordDone').textContent = '';
+  passwordRevealed = false; $('editPasswordFields').classList.add('hidden');
   show('profileEditScreen');
 };
 let editPhotoData;
@@ -1363,7 +1364,16 @@ $('profileEditForm').onsubmit = async e => {
     show('profileScreen'); renderProfileUI();
   } catch (err) { $('editError').textContent = err.message || 'Could not save.'; }
 };
+let passwordRevealed = false;
 $('editPasswordBtn').onclick = async () => {
+  // First tap only reveals the fields, matching the prototype: the
+  // button sits alone until clicked, then Current/New/Confirm appear.
+  if (!passwordRevealed) {
+    passwordRevealed = true;
+    $('editPasswordFields').classList.remove('hidden');
+    $('editCurrentPassword').focus();
+    return;
+  }
   $('editPasswordError').textContent = ''; $('editPasswordDone').textContent = '';
   const currentPassword = $('editCurrentPassword').value, newPassword = $('editNewPassword').value, newPassword2 = $('editNewPassword2').value;
   try {

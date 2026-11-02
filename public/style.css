@@ -13,9 +13,14 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .btn.primary{background:#03eaff;color:#1a1d24;padding:12px;width:100%;font-size:17px;margin-top:10px}
 .link{background:none;border:0;color:#03eaff;margin-top:14px;font-size:15px;cursor:pointer}
 .error{color:#ff7a7a;min-height:20px}.small{color:#b3b2b1;font-size:12px;line-height:1.5}
-.modes{display:flex;flex-direction:column;gap:20px;margin-top:24px}
-.mode{background:#03eaff;color:#1a1d24;height:92px;padding:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:18px;box-shadow:0 4px 0 #008fa3}
-.mode.greyed{background:#3a3f4b;color:#b3b2b1;box-shadow:0 4px 0 #23262e;cursor:not-allowed;opacity:.55}
+.modes{display:flex;flex-direction:column;gap:24px;margin-top:24px}
+.mode{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#fff;height:64px;padding:0 16px;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:14px;font-size:18px;border:2px solid #03eaff;border-radius:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 8px 0 #005a6e}
+.mode.greyed{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#b3b2b1;border:2px solid #3c424e;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 0 #1e222b;cursor:not-allowed;opacity:.55}
+.mode .label{flex:1;text-align:left}
+.mode .sym{flex:0 0 auto}
+.mode .chev{font-size:30px;line-height:1;color:#03eaff}
+.mode.greyed .chev{color:#b3b2b1}
+.mode .soon{background:#23262e;color:#b3b2b1;border-radius:20px;padding:4px 10px;font-size:11px;letter-spacing:1px;white-space:nowrap}
 .sym{font-size:34px;line-height:1}.sym.white{color:#fff}.sym.red-disc{background:#ff1303;border-radius:50%;width:52px;height:52px;display:flex;align-items:center;justify-content:center;font-size:30px}
 .sym.fishstick{width:52px;height:52px;border-radius:50%;background:#bfe3ff;position:relative;display:block}
 .sym.fishstick::before{content:"";position:absolute;left:8px;top:14px;width:36px;height:24px;background:#e0a83c;border-radius:12px}

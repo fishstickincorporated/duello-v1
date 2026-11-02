@@ -147,13 +147,13 @@ function boardCell(r, c) { return game.board[r][c]; }
 // in a single 100x100 viewBox, so the proportions are locked no matter what
 // size the tile is rendered at (board, rack, or drag ghost). The letter can
 // never cover the value: the value sits in the top-right corner above the
-// letter's top edge (letter baseline 74, value baseline 22), and wide letters
+// letter's top edge (letter baseline 76, value baseline 22), and wide letters
 // like W still clear it. Letters come from game state, never from the DOM,
 // so drawing them as SVG text changes nothing about validation or drag.
 function tileSVG(letter) {
   const val = ({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter];
   const gid = 'tg' + (tileSVG.n = (tileSVG.n || 0) + 1);
-  return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#7df3ff"/><stop offset="50%" stop-color="#03eaff"/><stop offset="100%" stop-color="#00b8d2"/></linearGradient></defs><rect x="0.5" y="0.5" width="99" height="99" rx="9" fill="url(#${gid})" stroke="rgba(0,90,110,0.4)"/><line x1="14" y1="4" x2="86" y2="4" stroke="rgba(255,255,255,0.75)" stroke-width="1.5" stroke-linecap="round"/><text x="48" y="74" text-anchor="middle" font-family="Comfortaa, sans-serif" font-weight="700" font-size="58" fill="#1a1d24" stroke="#1a1d24" stroke-width="3" stroke-linejoin="round" paint-order="stroke">${letter}</text><text x="90" y="22" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="20" fill="#1a1d24">${val}</text></svg>`;
+  return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#7df3ff"/><stop offset="50%" stop-color="#03eaff"/><stop offset="100%" stop-color="#00b8d2"/></linearGradient></defs><rect x="0.5" y="0.5" width="99" height="99" rx="9" fill="url(#${gid})" stroke="rgba(0,90,110,0.4)"/><line x1="14" y1="4" x2="86" y2="4" stroke="rgba(255,255,255,0.75)" stroke-width="1.5" stroke-linecap="round"/><text x="46" y="76" text-anchor="middle" font-family="Comfortaa, sans-serif" font-weight="700" font-size="58" fill="#1a1d24" stroke="#1a1d24" stroke-width="3" stroke-linejoin="round" paint-order="stroke">${letter}</text><text x="90" y="22" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="24" fill="#1a1d24" stroke="#1a1d24" stroke-width="1.5" stroke-linejoin="round" paint-order="stroke">${val}</text></svg>`;
 }
 function renderGame() {
   if (!game) return;

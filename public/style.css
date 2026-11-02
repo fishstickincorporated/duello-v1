@@ -56,7 +56,7 @@ name or a big score never reflows the board. Names never wrap. */
 .lastplay .bingo{color:#ffd166;font-weight:800}
 .board{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;width:100%;aspect-ratio:1;background:#11131a;padding:3px;border-radius:10px}
 .cell{aspect-ratio:1;border-radius:5px;background:#262a33;display:flex;align-items:center;justify-content:center;font-size:11px;color:#b3b2b1;position:relative}
-.cell.DL{background:#ff8d03;color:#1a1d24}.cell.TL{background:#1cff03;color:#1a1d24}.cell.DW{background:#ff1303;color:#fff}.cell.TW{background:#ff03ee;color:#fff}
+.cell.DL{background:#ff8d03;color:#fff;font-weight:700}.cell.TL{background:#1cff03;color:#fff;font-weight:700}.cell.DW{background:#ff1303;color:#fff;font-weight:700}.cell.TW{background:#ff03ee;color:#fff;font-weight:700}
 .inner-glow{position:absolute;left:calc(20% + 2.4px);top:calc(20% + 2.4px);width:calc(60% - 4.8px);height:calc(60% - 4.8px);display:grid;grid-template-columns:repeat(6,1fr);grid-template-rows:repeat(6,1fr);gap:3px;pointer-events:none;z-index:5;opacity:0;transition:opacity 200ms}
 .inner-glow.on{opacity:1}
 .inner-glow .glow-cell{border-radius:5px;aspect-ratio:1;animation:glow 3.2s ease-in-out infinite}

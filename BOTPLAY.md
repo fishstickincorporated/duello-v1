@@ -45,6 +45,14 @@ Bot play only. Sign-in is required before entering the app since Nov 2, 2026: wi
   so all devices sign in again. The sign-in screen has a Forgot password
   link leading a three-step flow (email, code, new password plus
   confirmation).
+  Profile editing landed Nov 2, 2026: the gear on the profile tab (a real
+  cog icon; the earlier icon read as a sun) opens an edit screen with
+  photo upload, name, and username, plus a password change section.
+  Photos upload as data URLs through `POST /api/me/update` (image only,
+  750KB cap, null clears the photo; the column already existed via an
+  idempotent migration). Password change is `POST /api/me/password`
+  (signed in, current password plus new password, 8 minimum); it ends
+  every other session and keeps the current one.
   Guests are not an option at
   all: POST /api/guest was removed Nov 2, 2026, and a session issued to
   a guest before that authenticates nothing anymore — loading the app

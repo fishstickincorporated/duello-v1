@@ -1321,7 +1321,33 @@ $('gearBtn').onclick = async () => {
   if (!profileData) return;
   const u = profileData.user;
   $('editFirstName').value = u.firstName; $('editLastName').value = u.lastName; $('editUsername').value = u.username; $('editError').textContent = '';
+  editPhotoData = undefined;
+  $('editPfp').innerHTML = u.photoData ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44);
+  $('editPhotoRemoveBtn').classList.toggle('hidden', !u.photoData);
+  $('editCurrentPassword').value = ''; $('editNewPassword').value = ''; $('editNewPassword2').value = '';
+  $('editPasswordError').textContent = ''; $('editPasswordDone').textContent = '';
   show('profileEditScreen');
+};
+let editPhotoData;
+$('editPhotoBtn').onclick = () => $('editPhotoInput').click();
+$('editPhotoInput').onchange = () => {
+  const f = $('editPhotoInput').files && $('editPhotoInput').files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    const data = String(rd.result || '');
+    if (data.length > 750000) { $('editError').textContent = 'That photo is too large. Pick a smaller one.'; return; }
+    editPhotoData = data;
+    $('editPfp').innerHTML = `<img src="${data}" alt="">`;
+    $('editPhotoRemoveBtn').classList.remove('hidden');
+    $('editError').textContent = '';
+  };
+  rd.readAsDataURL(f);
+};
+$('editPhotoRemoveBtn').onclick = () => {
+  editPhotoData = null;
+  $('editPfp').innerHTML = silhouetteSVG(44);
+  $('editPhotoRemoveBtn').classList.add('hidden');
 };
 $('editCancelBtn').onclick = () => show('profileScreen');
 $('profileEditForm').onsubmit = async e => {
@@ -1330,10 +1356,23 @@ $('profileEditForm').onsubmit = async e => {
   if (!fn) { $('editError').textContent = 'Add a first name.'; return; }
   if (!/^[a-z0-9_]{3,}$/.test(un)) { $('editError').textContent = 'Usernames are 3+ lowercase letters, numbers, or underscores.'; return; }
   try {
-    const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify({ firstName: fn, lastName: ln, username: un }) });
+    const body = { firstName: fn, lastName: ln, username: un };
+    if (editPhotoData !== undefined) body.photoData = editPhotoData;
+    const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify(body) });
     me = d.user; profileData = null;
     show('profileScreen'); renderProfileUI();
   } catch (err) { $('editError').textContent = err.message || 'Could not save.'; }
+};
+$('editPasswordBtn').onclick = async () => {
+  $('editPasswordError').textContent = ''; $('editPasswordDone').textContent = '';
+  const currentPassword = $('editCurrentPassword').value, newPassword = $('editNewPassword').value, newPassword2 = $('editNewPassword2').value;
+  try {
+    if (newPassword.length < 8) throw new Error('Password must be at least 8 characters.');
+    if (newPassword !== newPassword2) throw new Error('Passwords do not match.');
+    await api('/api/me/password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+    $('editCurrentPassword').value = ''; $('editNewPassword').value = ''; $('editNewPassword2').value = '';
+    $('editPasswordDone').textContent = 'Password changed.';
+  } catch (err) { $('editPasswordError').textContent = err.message || 'Could not change password.'; }
 };
 $('profileSignOutBtn').onclick = async () => {
   try { await api('/api/signout', { method: 'POST' }); } catch {}

@@ -1313,9 +1313,44 @@ const server = http.createServer(async (req, res) => {
       if (!/^[a-z0-9_]{3,}$/.test(username)) return sendJson(res, 400, { error: 'Username: lowercase letters, numbers, and underscores only, at least 3 characters.' });
       const byUsername = await getUserByUsername(username);
       if (byUsername && byUsername.id !== user.id) return sendJson(res, 400, { error: 'That username is taken.' });
-      await q('UPDATE users SET first_name=$1, last_name=$2, username=$3 WHERE id=$4', [firstName, lastName, username, user.id]);
+      // photoData is optional: absent means unchanged, null clears the
+      // photo, a data URL sets it. The request body itself is capped at
+      // 1MB by readBody, so the photo cap sits below that.
+      const hasPhoto = Object.prototype.hasOwnProperty.call(b, 'photoData');
+      if (hasPhoto && b.photoData !== null) {
+        const photoData = String(b.photoData);
+        if (!photoData.startsWith('data:image/') || photoData.length > 750000) {
+          return sendJson(res, 400, { error: 'That photo is not a supported image or is too large.' });
+        }
+        await q('UPDATE users SET first_name=$1, last_name=$2, username=$3, photo_data=$4 WHERE id=$5', [firstName, lastName, username, photoData, user.id]);
+      } else if (hasPhoto) {
+        await q('UPDATE users SET first_name=$1, last_name=$2, username=$3, photo_data=NULL WHERE id=$4', [firstName, lastName, username, user.id]);
+      } else {
+        await q('UPDATE users SET first_name=$1, last_name=$2, username=$3 WHERE id=$4', [firstName, lastName, username, user.id]);
+      }
       const updated = await getUserById(user.id);
       return sendJson(res, 200, { user: publicUser(updated) });
+    }
+    if (pathname === '/api/me/password' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const currentPassword = String(b.currentPassword || '');
+      const newPassword = String(b.newPassword || '');
+      if (hashPassword(currentPassword, user.password_salt) !== user.password_hash) {
+        return sendJson(res, 400, { error: 'Current password is not right.' });
+      }
+      if (newPassword.length < 8) return sendJson(res, 400, { error: 'Password must be at least 8 characters.' });
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = hashPassword(newPassword, salt);
+      await q('UPDATE users SET password_salt=$2, password_hash=$3 WHERE id=$1', [user.id, salt, hash]);
+      // Every other session is ended; this session keeps working so the
+      // user is not kicked out by their own password change.
+      const h = req.headers.authorization || '';
+      const m = h.match(/^Bearer\s+(.+)$/);
+      if (m) await q('DELETE FROM sessions WHERE user_id=$1 AND token<>$2', [user.id, m[1]]);
+      else await q('DELETE FROM sessions WHERE user_id=$1', [user.id]);
+      return sendJson(res, 200, { ok: true });
     }
     if (pathname === '/api/define' && req.method === 'GET') {
       return sendJson(res, 200, await getDefinition(url.searchParams.get('word') || ''));

@@ -48,7 +48,7 @@
       <div class="profile-name" id="profileName"></div>
       <div class="profile-username" id="profileUsername"></div>
       <div class="profile-joined" id="profileJoined"></div>
-      <button class="gear-btn" id="gearBtn" title="Edit profile"><svg viewBox="0 0 24 24" width="26" height="26"><circle cx="12" cy="12" r="4" fill="none" stroke="#b3b2b1" stroke-width="1.8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+      <button class="gear-btn" id="gearBtn" title="Edit profile"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M10.5 4.5 L10.6 2.1 L13.4 2.1 L13.5 4.5 L16.2 5.7 L18.0 4.0 L20.0 6.0 L18.3 7.8 L19.5 10.5 L21.9 10.6 L21.9 13.4 L19.5 13.5 L18.3 16.2 L20.0 18.0 L18.0 20.0 L16.2 18.3 L13.5 19.5 L13.4 21.9 L10.6 21.9 L10.5 19.5 L7.8 18.3 L6.0 20.0 L4.0 18.0 L5.7 16.2 L4.5 13.5 L2.1 13.4 L2.1 10.6 L4.5 10.5 L5.7 7.8 L4.0 6.0 L6.0 4.0 L7.8 5.7 Z M 8.4 12.0 a 3.6 3.6 0 1 0 7.2 0 a 3.6 3.6 0 1 0 -7.2 0" fill="#b3b2b1" fill-rule="evenodd"/></svg></button>
     </div>
     <div class="elo-box">
       <div><span class="elo-label">Elo</span><div class="elo-big" id="profileElo"></div></div>
@@ -74,6 +74,12 @@
   <section id="profileEditScreen" class="screen hidden">
     <h1 class="auth-heading">Edit profile</h1>
     <form id="profileEditForm">
+      <div class="edit-photo">
+        <div class="pfp huge" id="editPfp"></div>
+        <input id="editPhotoInput" type="file" accept="image/*" class="hidden">
+        <button class="link" id="editPhotoBtn" type="button">Change photo</button>
+        <button class="link hidden" id="editPhotoRemoveBtn" type="button">Remove photo</button>
+      </div>
       <input id="editFirstName" placeholder="First name">
       <input id="editLastName" placeholder="Last name">
       <input id="editUsername" placeholder="Username">
@@ -83,6 +89,14 @@
         <button class="btn primary" type="submit" id="editSaveBtn">Save</button>
       </div>
     </form>
+    <div class="edit-password">
+      <input id="editCurrentPassword" type="password" placeholder="Current password" autocomplete="current-password">
+      <input id="editNewPassword" type="password" placeholder="New password" autocomplete="new-password">
+      <input id="editNewPassword2" type="password" placeholder="New password again" autocomplete="new-password">
+      <p id="editPasswordError" class="error"></p>
+      <p id="editPasswordDone" class="small"></p>
+      <button class="btn primary" id="editPasswordBtn" type="button">Change password</button>
+    </div>
   </section>
 
   <section id="authScreen" class="screen hidden">
@@ -186,4 +200,4 @@
     <button class="tab-btn" id="tabProfile" aria-label="Profile"><span id="tabProfileIcon"><svg viewBox="0 0 24 24" width="28" height="28"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#03eaff" opacity="0.85"/></svg></span></button>
   </nav>
 </div>
-<script src="/app.js?v=4"></script></body></html>
+<script src="/app.js?v=5"></script></body></html>

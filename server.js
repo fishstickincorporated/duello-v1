@@ -692,6 +692,9 @@ function stepBotClockTo20sMark(game) {
 async function advanceBotTurnIfReady(game, user) {
   // Returns true if the bot actually moved (clock should step), false otherwise.
   if (game.status !== 'active' || game.turn !== 'bot') return false;
+  // An out-of-time bot never consumes think time: skip it at once instead
+  // of waiting out the think and only then handing the turn back.
+  if (game.clocks.bot <= 0) { game.turn = 'human'; game.turnStartedAt = Date.now(); game.botThinkUntil = null; return false; }
   const until = game.botThinkUntil || (game.turnStartedAt + botThinkMsFor(game));
   // Tolerance is half the think: the client polls at think from its tap,
   // but the server's think timer starts when the Play POST arrives
@@ -699,7 +702,6 @@ async function advanceBotTurnIfReady(game, user) {
   // need a second poll. Within tolerance the move runs.
   const thinkSpan = until - game.turnStartedAt;
   if (Date.now() < until - Math.max(500, thinkSpan / 2)) return false;
-  if (game.clocks.bot <= 0) { game.turn = 'human'; game.turnStartedAt = Date.now(); game.botThinkUntil = null; return false; }
   settleClock(game);
   const moved = runBotTurn(game);
   if (moved) stepBotClockTo20sMark(game);
@@ -1177,8 +1179,16 @@ const server = http.createServer(async (req, res) => {
           } catch {}
         });
         applyMove(game, 'human', v, null);
-        startBotTurn(game);
-        game.botThinkUntil = playReqStart + (game.botThinkMs || 5000);
+        if (game.clocks.bot <= 0) {
+          // Opponent out of time: no bot turn at all. The turn stays with
+          // the human, their clock keeps running, and they can play move
+          // after move instead of waiting out a bot think that can never
+          // produce a move.
+          game.turn = 'human'; game.turnStartedAt = Date.now(); game.botThinkUntil = null;
+        } else {
+          startBotTurn(game);
+          game.botThinkUntil = playReqStart + (game.botThinkMs || 5000);
+        }
         await saveGameRow(game);
         const out = serializeGame(game, user);
         if (game.status === 'finished') out.stats = gameStatsPayload(game);
@@ -1199,13 +1209,17 @@ const server = http.createServer(async (req, res) => {
         game.consecutivePasses++;
         game.consecutiveNoMoves = 0;
         game.lastHuman = { word: null, points: 0, passed: true };
-        startBotTurn(game);
-        game.botThinkUntil = passReqStart + (game.botThinkMs || 5000);
         if (game.consecutivePasses >= 2) {
           game.botThinkUntil = null;
           const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';
           await endGame(game, user, 'Final score', winner);
+        } else if (game.clocks.bot <= 0) {
+          // Opponent out of time: no bot turn — the human keeps the turn
+          // and their clock keeps running, same as after a play.
+          game.turn = 'human'; game.turnStartedAt = Date.now(); game.botThinkUntil = null;
         } else {
+          startBotTurn(game);
+          game.botThinkUntil = passReqStart + (game.botThinkMs || 5000);
           // Bot turn is pending: client shows 5s think, then GET advances it.
         }
         await saveGameRow(game);

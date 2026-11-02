@@ -617,9 +617,11 @@ function localValidate(board, placements, isFirst, wordsSet, premiums) {
 }
 function setPlayState(state) {
   // Play colour is class-based, NOT disabled-based, so a grey Play is still
-  // tappable and the server decides: a disabled button swallows taps, and
-  // that swallow was the double-tap. Only no-pending / bot-turn Play is
-  // truly disabled, and the handler returns early there anyway.
+  // tappable: a disabled button swallows taps, and that swallow was the
+  // double-tap. Tapping grey Play with a known-invalid placement does
+  // nothing (doPlay returns before any server call); only no-pending /
+  // bot-turn Play is truly disabled, and the handler returns early there
+  // anyway.
   const b = $('playBtn');
   b.classList.remove('validating', 'play-valid', 'play-invalid');
   if (state === 'valid') { b.classList.add('play-valid'); b.disabled = false; }
@@ -810,6 +812,13 @@ async function doPlay() {
   // validation round-trip to show any feedback.
   cleanupStuckDrag(); suppressNextClick = false;
   if (!game || game.clocks.turn !== 'human' || !pending.length || playInFlight) return;
+  // A Play tap with no valid word does nothing: when the verdict for
+  // these exact placements is known and invalid, return before any clock
+  // switch, rack change, render, or server call. When the verdict is
+  // unknown (validation still in flight or the word list not loaded yet),
+  // fall through and let the server decide authoritatively.
+  const tapKey = JSON.stringify(pending.map(p => [p.row, p.col, p.letter]));
+  if (lastValidate && lastValidatePlacements === tapKey && !lastValidate.valid) return;
   // Do NOT wait for a validation round-trip: the server play call
   // validates authoritatively and will error if the play is truly
   // invalid. Waiting made the first tap look dead (no feedback at all
@@ -1290,6 +1299,7 @@ function renderStatsList() {
   const lines = [
     ['Average game score', st.avgGameScore], ['Highest game score', st.highestGameScore],
     ['Average word score', st.avgWordScore], ['Highest word score', st.highestWordScore],
+    ['>50 point words', st.wordsOver50], ['>100 point words', st.wordsOver100],
     ['Longest word', st.longestWord ? `${st.longestWord} (${st.longestWordLen} letters)` : '—'],
     ['Games played', st.gamesPlayed], ['Lifetime record', st.record || '0W-0L'],
     ['Optimal move %', st.optimalPct + '%'], ['Unique words played', st.uniqueWords],

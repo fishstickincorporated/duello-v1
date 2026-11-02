@@ -111,7 +111,10 @@ function mockFriendship(username) {
   return null;
 }
 function renderFriendsUI() {
-  $('friendsPencil').classList.toggle('hidden', lbScope !== 'friends');
+  // Pencil keeps its layout box on Global (visibility, not display), so the
+  // LEADERBOARD label and everything below it sit at the exact same
+  // position on both tabs instead of shifting when the pencil appears.
+  $('friendsPencil').style.visibility = lbScope !== 'friends' ? 'hidden' : 'visible';
   const rows = lbScope === 'friends'
     ? [...mockFriends, mockYou].sort((a, b) => b.elo - a.elo)
     : [...mockPool, mockYou].sort((a, b) => b.elo - a.elo);

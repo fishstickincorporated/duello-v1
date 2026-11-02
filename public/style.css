@@ -79,8 +79,8 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .controls button:disabled{background:#3a3f4b;color:#b3b2b1}
 #endButtons #mainMenuBtn,#endButtons #gameStatsBtn,.stat-window #statMainMenu{background:#3a3f4b;color:#e8ecf1}
 #endButtons #playAgainBtn,.stat-window #statPlayAgain{background:#03eaff;color:#1a1d24}
-#playBtn:not(:disabled){background:#2ea043}
-#playBtn.play-valid{background:#2ea043}
+#playBtn:not(:disabled){background:#1cff03}
+#playBtn.play-valid{background:#1cff03}
 #playBtn.play-invalid{background:#3a3f4b;color:#b3b2b1}
 #playBtn.validating{background:#3a3f4b;color:#b3b2b1}
 .stat-window{position:fixed;inset:0;background:rgba(5,7,10,.78);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;z-index:10;overflow:hidden}

@@ -1,5 +1,7 @@
 // Duello bot-play frontend (Postgres, no login). Server is the source of truth:
-// every play is validated server-side; this client only renders state and sends placements.
+// Submitted plays are validated server-side; the verdict shown while placing
+// tiles is computed locally once the word list has loaded, so the check is
+// instant instead of a network round-trip per placement.
 // No auth screen in this slice: on load the client creates/reuses a per-device
 // guest via POST /api/guest and stores its token in localStorage ('duello_token').
 let token = localStorage.getItem('duello_token') || '';
@@ -106,6 +108,7 @@ async function startGame(bot) {
   // Set the countdown flag BEFORE the first render, so that render draws
   // the rack as empty slots (not full letters) from the very first frame.
   countdownActive = true;
+  ensureLocalWords();
   show('gameScreen'); $('gameScreen').classList.add('counting'); renderGame(); startCountdown();
 }
 async function endCountdown() {
@@ -397,6 +400,124 @@ function beginBotTurn() {
 }
 
 let validateInFlight = null, lastValidate = null, lastValidatePlacements = null, playInFlight = false, validateSeq = 0;
+// Instant local pre-check: the full word list, fetched once (kicked off at
+// game start, during the countdown) and kept in memory. Until it loads, the
+// server path below is used. Submitted plays are still validated by the
+// server authoritatively; this only decides the status line, Play colour,
+// points bubble, and the optimistic score at the tap.
+let localWords = null, localWordsPromise = null;
+function ensureLocalWords() {
+  if (localWords) return Promise.resolve(localWords);
+  if (!localWordsPromise) {
+    localWordsPromise = fetch('/api/words').then(r => { if (!r.ok) throw new Error('words'); return r.text(); }).then(txt => {
+      const set = new Set();
+      for (const line of txt.split('\n')) { const w = line.trim().toUpperCase(); if (w) set.add(w); }
+      localWords = set; return set;
+    }).catch(() => { localWordsPromise = null; return null; });
+  }
+  return localWordsPromise;
+}
+const LOCAL_VALUES = { A:1,B:4,C:4,D:3,E:1,F:5,G:3,H:4,I:1,J:9,K:6,L:2,M:4,N:2,O:1,P:4,Q:10,R:1,S:1,T:1,U:2,V:6,W:5,X:8,Y:5,Z:9 };
+const SIZE = 10;
+function localWordAt(board, r, c, dir) {
+  let cells = [];
+  if (dir === 'H') {
+    let s = c; while (s > 0 && board[r][s - 1]) s--;
+    let e = c; while (e < SIZE - 1 && board[r][e + 1]) e++;
+    for (let cc = s; cc <= e; cc++) cells.push([r, cc]);
+  } else {
+    let s = r; while (s > 0 && board[s - 1][c]) s--;
+    let e = r; while (e < SIZE - 1 && board[e + 1][c]) e++;
+    for (let rr = s; rr <= e; rr++) cells.push([rr, c]);
+  }
+  return { word: cells.map(([rr, cc]) => board[rr][cc]).join(''), cells };
+}
+function localScoreWord(board, cells, newSet, premiums) {
+  let sum = 0, wordMult = 1;
+  for (const [r, c] of cells) {
+    let v = LOCAL_VALUES[board[r][c]] || 0;
+    if (newSet.has(`${r},${c}`)) {
+      const pr = premiums[`${r},${c}`];
+      if (pr === 'DL') v *= 2; else if (pr === 'TL') v *= 3;
+      else if (pr === 'DW') wordMult *= 2; else if (pr === 'TW') wordMult *= 3;
+    }
+    sum += v;
+  }
+  return sum * wordMult;
+}
+// Mirrors the server's validatePlay verdict (valid/error/invalidWords/
+// score/mainWord/mainCells/bonus/isDuello/bingo/words). Rack and occupancy
+// checks are skipped: placements are built from the rack onto empty cells
+// by construction, and the server re-checks everything on submit.
+function localValidate(board, placements, isFirst, wordsSet, premiums) {
+  if (!placements || !placements.length) return { valid: false, error: 'No tiles placed.' };
+  if (placements.length > 6) return { valid: false, error: 'Too many tiles.' };
+  for (const pl of placements) if (pl.row < 0 || pl.row >= SIZE || pl.col < 0 || pl.col >= SIZE) return { valid: false, error: 'Tile off the board.' };
+  const sameRow = placements.every(pl => pl.row === placements[0].row);
+  const sameCol = placements.every(pl => pl.col === placements[0].col);
+  if (!sameRow && !sameCol) return { valid: false, error: 'all tiles must be connected' };
+  const dir = sameRow ? 'H' : 'V';
+  const sorted = placements.slice().sort((a, b) => dir === 'H' ? a.col - b.col : a.row - b.row);
+  const lineIdx = dir === 'H' ? sorted[0].row : sorted[0].col;
+  const lo = dir === 'H' ? sorted[0].col : sorted[0].row;
+  const hi = dir === 'H' ? sorted[sorted.length - 1].col : sorted[sorted.length - 1].row;
+  const trial = board.map(row => row.slice());
+  for (const pl of placements) trial[pl.row][pl.col] = pl.letter;
+  for (let i = lo; i <= hi; i++) {
+    const cell = dir === 'H' ? trial[lineIdx][i] : trial[i][lineIdx];
+    if (!cell) return { valid: false, error: 'all tiles must be connected' };
+  }
+  const inInner = (r, c) => r >= 2 && r <= 7 && c >= 2 && c <= 7;
+  if (isFirst) {
+    for (const pl of placements) if (!inInner(pl.row, pl.col)) return { valid: false, error: 'First word goes entirely inside the glowing 6x6.' };
+    if (dir === 'H' && (lineIdx < 2 || lineIdx > 7)) return { valid: false, error: 'First word goes entirely inside the glowing 6x6.' };
+    if (dir === 'V' && (lineIdx < 2 || lineIdx > 7)) return { valid: false, error: 'First word goes entirely inside the glowing 6x6.' };
+  } else {
+    let mainIncludesExisting = false;
+    for (let i = lo; i <= hi; i++) { const was = dir === 'H' ? board[lineIdx][i] : board[i][lineIdx]; if (was) mainIncludesExisting = true; }
+    let adjacent = false;
+    for (const pl of placements) {
+      const neigh = [[pl.row - 1, pl.col], [pl.row + 1, pl.col], [pl.row, pl.col - 1], [pl.row, pl.col + 1]];
+      if (neigh.some(([r, c]) => r >= 0 && r < SIZE && c >= 0 && c < SIZE && board[r][c])) adjacent = true;
+    }
+    if (!mainIncludesExisting && !adjacent) return { valid: false, error: 'all tiles must be connected' };
+  }
+  const newSet = new Set(placements.map(pl => `${pl.row},${pl.col}`));
+  if (placements.length === 1 && !isFirst) {
+    const both = [localWordAt(trial, placements[0].row, placements[0].col, 'H'), localWordAt(trial, placements[0].row, placements[0].col, 'V')].filter(w => w.word.length >= 2);
+    if (!both.length) return { valid: false, error: 'Word too short.' };
+    const bad = [...new Set(both.filter(w => !wordsSet.has(w.word)).map(w => w.word))];
+    if (bad.length) return { valid: false, error: 'not a word', invalidWords: bad, words: both };
+    const scored1 = both.map(w => ({ word: w.word, cells: w.cells, score: localScoreWord(trial, w.cells, newSet, premiums) }));
+    const isDuello1 = both.some(w => w.word === 'DUELLO');
+    const bonus1 = isDuello1 ? 30 : 0;
+    const main1 = scored1.find(w => w.word === 'DUELLO') || scored1.reduce((a, b) => (b.score > a.score ? b : a));
+    return { valid: true, words: scored1, score: scored1.reduce((s, w) => s + w.score, 0) + bonus1, mainWord: main1.word, mainCells: main1.cells, bonus: bonus1, isDuello: isDuello1, bingo: false, placements };
+  }
+  const main = localWordAt(trial, placements[0].row, placements[0].col, dir);
+  if (main.word.length < 2) return { valid: false, error: 'Word too short.' };
+  const words = [{ word: main.word, cells: main.cells }];
+  const crossDir = dir === 'H' ? 'V' : 'H';
+  for (const pl of placements) {
+    const cross = localWordAt(trial, pl.row, pl.col, crossDir);
+    if (cross.word.length >= 2 && !words.some(w => w.word === cross.word && w.cells[0][0] === cross.cells[0][0] && w.cells[0][1] === cross.cells[0][1])) words.push({ word: cross.word, cells: cross.cells });
+  }
+  const invalidWords = [];
+  for (const w of words) if (!wordsSet.has(w.word)) invalidWords.push(w.word);
+  if (invalidWords.length) {
+    const uniq = [...new Set(invalidWords)];
+    return { valid: false, error: 'not a word', invalidWords: uniq, words };
+  }
+  let score = 0;
+  const scored = words.map(w => { const s = localScoreWord(trial, w.cells, newSet, premiums); score += s; return { word: w.word, cells: w.cells, score: s }; });
+  const isDuello = main.word === 'DUELLO';
+  const bingo = placements.length === 6;
+  let bonus = 0;
+  if (isDuello) bonus += 30;
+  if (bingo) bonus += 30;
+  score += bonus;
+  return { valid: true, words: scored, score, mainWord: main.word, mainCells: main.cells, bonus, isDuello, bingo, placements };
+}
 function setPlayState(state) {
   // Play colour is class-based, NOT disabled-based, so a grey Play is still
   // tappable and the server decides: a disabled button swallows taps, and
@@ -424,6 +545,16 @@ async function updateStatus() {
   if (game.status === 'finished') { $('status').textContent = sentence(game.reason || 'Game over'); return; }
   if (game.clocks.turn !== 'human') { $('status').textContent = game.clocks.human <= 0 ? 'Out of time, opponent plays on.' : 'Waiting for your opponent.'; setPlayState('off'); return; }
   if (!pending.length) { $('status').textContent = game.isFirst ? 'First word must fit inside the glowing 6×6.' : 'Your move.'; setPlayState('off'); lastValidate = null; lastValidatePlacements = null; return; }
+  if (localWords) {
+    const v = localValidate(game.board, pending, game.isFirst, localWords, game.premiums || {});
+    const snapshot = JSON.stringify(pending.map(p => [p.row, p.col, p.letter]));
+    lastValidate = v; lastValidatePlacements = snapshot;
+    if (v.valid) { $('status').textContent = 'Play?'; setPlayState('valid'); showBubble(v.score, v.mainCells); }
+    else if (v.invalidWords && v.invalidWords.length) { $('status').textContent = invalidWordsStatus(v.invalidWords); setPlayState('invalid'); hideBubble(); }
+    else { $('status').textContent = v.error ? v.error.charAt(0).toUpperCase() + v.error.slice(1) + (v.error.endsWith('.') ? '' : '.') : 'Invalid play.'; setPlayState('invalid'); hideBubble(); }
+    return;
+  }
+  ensureLocalWords();
   setPlayState('validating');
   try {
     // Seq guard, not just a snapshot check: validations can complete out

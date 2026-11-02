@@ -1014,6 +1014,17 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': type });
       return fs.createReadStream(safe).pipe(res);
     }
+    if (pathname === '/api/words' && req.method === 'GET') {
+      // Word list for the client's instant local pre-check (the verdict
+      // shown while placing tiles). The server still validates every
+      // submitted play authoritatively; this only feeds the pre-check.
+      const wordsFile = path.join(DATA_DIR, 'words.txt');
+      const st = fs.statSync(wordsFile);
+      const etag = '"' + st.size + '-' + Math.floor(st.mtimeMs) + '"';
+      if (req.headers['if-none-match'] === etag) { res.writeHead(304); return res.end(); }
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600', 'ETag': etag });
+      return fs.createReadStream(wordsFile).pipe(res);
+    }
     if (pathname === '/api/guest' && req.method === 'POST') {
       // Per-device guest: no email/password screen in this slice.
       for (let attempt = 0; attempt < 3; attempt++) {

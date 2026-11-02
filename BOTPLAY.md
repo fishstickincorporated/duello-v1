@@ -1,4 +1,4 @@
-# Duello bot-play slice — Postgres, no login
+# Duello bot-play slice — Postgres, sign-in required
 
 This folder is a separate test slice. It does NOT touch the live SQLite
 version in `~/workspace/duello-v1/`. It is pushed to GitHub (branch
@@ -9,20 +9,20 @@ https://duello-botplay.onrender.com/ since Oct 30, 2026.
 
 Bot play only. Sign-in is required before entering the app since Nov 2, 2026: with no valid session the client shows the auth screen, and guest creation (POST /api/guest) was removed; pre-existing guests can still upgrade by signing up (see below):
 
-- Opening the app calls `POST /api/guest` once, on first load. The
-  server creates a per-device guest (`guest_<random>`, dummy
-  `guest_<random>@guest.local` email, a random scrypt password hash that
-  is never shown to the user, Elo 1000) plus a session token. The
-  client stores that token in localStorage under the existing
-  `duello_token` key and reuses it, so Elo follows that device.
-  If a stored token is later rejected (for example the database was
-  reset), starting a game creates a fresh guest once and retries.
+- Opening the app requires sign-in: with no stored session, or a
+  rejected one, the client shows the auth screen (email/password
+  sign-in or sign-up) and no tab bar. A valid session token in
+  localStorage under `duello_token` goes straight to Home. Signing
+  out returns to the auth screen. A rejected session during game
+  start also returns to the auth screen.
 - In scope: board, premiums, 6-tile racks, chess clocks (including the
   tap-time clock switch), scoring/bonuses, definitions, Competitive Bot
   and Fishstick, bot 5s think and 20s clock step.
-- Endpoints only: `POST /api/guest`, `POST /api/games`,
-  `GET /api/games/:id`, `POST /api/games/:id/validate`, `/play`,
-  `/pass`, `/forfeit`, `/shuffle`, `GET /api/define`.
+- Endpoints: `POST /api/signup`, `POST /api/signin`,
+  `POST /api/signout`, `GET /api/me`, `POST /api/me/update`,
+  `POST /api/games`, `GET /api/games/:id`,
+  `POST /api/games/:id/validate`, `/play`, `/pass`, `/forfeit`,
+  `/shuffle`, `GET /api/define`, `GET /api/words`.
 - Out of scope, removed in this slice: friends backend and leaderboards,
   `/api/me/password` (password change), and any friends UI backend. A
   friends/global leaderboard tab UI was added Nov 2, 2026 (mock data

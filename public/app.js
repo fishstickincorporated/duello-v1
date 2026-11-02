@@ -111,6 +111,7 @@ function mockFriendship(username) {
   return null;
 }
 function renderFriendsUI() {
+  $('friendsPencil').classList.toggle('hidden', lbScope !== 'friends');
   const rows = lbScope === 'friends'
     ? [...mockFriends, mockYou].sort((a, b) => b.elo - a.elo)
     : [...mockPool, mockYou].sort((a, b) => b.elo - a.elo);

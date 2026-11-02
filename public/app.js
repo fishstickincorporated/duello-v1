@@ -2,8 +2,10 @@
 // Submitted plays are validated server-side; the verdict shown while placing
 // tiles is computed locally once the word list has loaded, so the check is
 // instant instead of a network round-trip per placement.
-// No auth screen in this slice: on load the client creates/reuses a per-device
-// guest via POST /api/guest and stores its token in localStorage ('duello_token').
+// Auth is real: per-device guests via POST /api/guest, plus email/password
+// accounts via POST /api/signup and /api/signin. The token in localStorage
+// ('duello_token') is either a guest token or an account token; games use
+// whichever token is stored, so a signed-in account plays as itself.
 let token = localStorage.getItem('duello_token') || '';
 let me = null, game = null, gameFetchAt = 0;
 let pending = []; // {row,col,letter,rackIndex}
@@ -61,13 +63,13 @@ async function api(path, opts = {}) {
   return j;
 }
 function show(id) {
-  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'gameScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
-  const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen'].includes(id);
+  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'authScreen', 'gameScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
+  const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'authScreen'].includes(id);
   const tb = $('tabBar'); if (tb) tb.classList.toggle('hidden', !isMenu);
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   if ((id === 'homeScreen' || id === 'botScreen') && $('tabHome')) $('tabHome').classList.add('active');
   if (id === 'friendsScreen' && $('tabFriends')) $('tabFriends').classList.add('active');
-  if ((id === 'profileScreen' || id === 'profileEditScreen') && $('tabProfile')) $('tabProfile').classList.add('active');
+  if ((id === 'profileScreen' || id === 'profileEditScreen' || id === 'authScreen') && $('tabProfile')) $('tabProfile').classList.add('active');
 }
 function silhouetteSVG(size) { return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#b3b2b1"/></svg>`; }
 function pfpHTML(userLike) {
@@ -169,10 +171,11 @@ $('friendSearch').addEventListener('input', () => {
 });
 
 async function loadMe() {
-  // No /api/me in the bot-play slice. Elo for the scoreboard comes from
-  // game.player on each game response; this is a no-op kept so game-flow
-  // call sites do not need to change.
-  return !!token;
+  // Real /api/me, but cached: the scoreboard Elo comes from game.player
+  // on each game response, so call sites must not pay a request per play.
+  if (me) return true;
+  try { const d = await api('/api/me'); me = d.user; return true; }
+  catch { return !!token; }
 }
 async function ensureGuest() {
   const d = await api('/api/guest', { method: 'POST' });
@@ -1246,51 +1249,61 @@ function enablePlacedDrag(el, pend) {
   show('homeScreen');
 })();
 
-// ---------- Profile tab (UI only until accounts arrive) ----------
-// Local mock data only. Nothing here touches the server. When accounts
-// land, renderProfileUI is replaced by the real API version (same markup
-// as the main build's profile tab).
-let mockProfile = { firstName: 'You', lastName: '', username: 'you', elo: 1028, eloHigh: 1042, joined: 'Joined Nov 2026' };
-const mockEloHistory = [
-  { elo: 1000, daysAgo: 45 }, { elo: 984, daysAgo: 40 }, { elo: 1001, daysAgo: 36 },
-  { elo: 992, daysAgo: 31 }, { elo: 1015, daysAgo: 27 }, { elo: 1008, daysAgo: 22 },
-  { elo: 1024, daysAgo: 18 }, { elo: 1011, daysAgo: 13 }, { elo: 1030, daysAgo: 9 },
-  { elo: 1042, daysAgo: 5 }, { elo: 1028, daysAgo: 1 },
-];
-const mockBotStats = { avgGameScore: 68, highestGameScore: 142, avgWordScore: 14, highestWordScore: 42, longestWord: 'QUIZZIFY', longestWordLen: 8, gamesPlayed: 24, record: '14W-10L', optimalPct: 61, uniqueWords: 318 };
-const mockStats = {
-  aggregate: mockBotStats,
-  vsBots: mockBotStats,
-  vsHumans: { avgGameScore: '—', highestGameScore: '—', avgWordScore: '—', highestWordScore: '—', longestWord: null, gamesPlayed: 0, record: '0W-0L', optimalPct: '—', uniqueWords: 0 },
-};
-let mockStatsScope = 'aggregate', mockChartRange = '1m';
-function renderProfileUI() {
-  $('profilePfp').innerHTML = silhouetteSVG(44);
-  $('profileName').textContent = [mockProfile.firstName, mockProfile.lastName].filter(Boolean).join(' ') || 'You';
-  $('profileUsername').textContent = '@' + mockProfile.username;
-  $('profileJoined').textContent = mockProfile.joined;
-  $('profileElo').textContent = mockProfile.elo;
-  $('profileEloHigh').textContent = mockProfile.eloHigh;
-  renderMockStatsList(); drawMockEloChart();
+// ---------- Profile tab + real accounts ----------
+// Identity, Elo, Elo history, and stats come from GET /api/me. Guests see
+// their guest profile plus a sign-in button; signing up upgrades the guest
+// row in place, so Elo and game history carry over.
+let profileData = null, statsScope = 'aggregate', chartRange = '1m';
+function isGuestEmail(email) { return typeof email === 'string' && email.endsWith('@guest.local'); }
+function formatJoined(createdAt) {
+  const d = new Date(createdAt);
+  return isNaN(d) ? createdAt : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
-function renderMockStatsList() {
-  const st = mockStats[mockStatsScope];
+async function renderProfileUI() {
+  try {
+    if (!token) await ensureGuest();
+    const d = await api('/api/me');
+    profileData = d; me = d.user;
+  } catch {
+    // Token rejected (database reset, etc.): fresh guest, then real data.
+    try { await ensureGuest(); profileData = await api('/api/me'); me = profileData.user; }
+    catch { return; }
+  }
+  const u = profileData.user;
+  $('profilePfp').innerHTML = u.photoData ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44);
+  $('profileName').textContent = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
+  $('profileUsername').textContent = '@' + u.username;
+  $('profileJoined').textContent = 'Joined ' + formatJoined(u.createdAt);
+  $('profileElo').textContent = u.elo;
+  $('profileEloHigh').textContent = u.eloHigh;
+  const guest = isGuestEmail(u.email);
+  $('profileAuthBtn').classList.toggle('hidden', !guest);
+  $('profileSignOutBtn').classList.toggle('hidden', guest);
+  const note = $('profileNote');
+  if (guest) { note.textContent = "You're playing as a guest. Sign in to turn this into a real account — your Elo and games stay."; note.classList.remove('hidden'); }
+  else { note.textContent = ''; note.classList.add('hidden'); }
+  renderStatsList(); drawEloChart();
+}
+function renderStatsList() {
+  if (!profileData || !profileData.profileStats) return;
+  const st = profileData.profileStats[statsScope] || profileData.profileStats.aggregate;
   const lines = [
     ['Average game score', st.avgGameScore], ['Highest game score', st.highestGameScore],
     ['Average word score', st.avgWordScore], ['Highest word score', st.highestWordScore],
     ['Longest word', st.longestWord ? `${st.longestWord} (${st.longestWordLen} letters)` : '—'],
-    ['Games played', st.gamesPlayed], ['Lifetime record', st.record],
-    ['Optimal move %', st.optimalPct === '—' ? '—' : st.optimalPct + '%'], ['Unique words played', st.uniqueWords],
+    ['Games played', st.gamesPlayed], ['Lifetime record', st.record || '0W-0L'],
+    ['Optimal move %', st.optimalPct + '%'], ['Unique words played', st.uniqueWords],
   ];
   $('statsList').innerHTML = lines.map(([k, v]) => `<div class="stat-line"><span>${k}</span><b>${v}</b></div>`).join('');
 }
-function drawMockEloChart() {
-  const cv = $('eloChart'); if (!cv) return;
+function drawEloChart() {
+  const cv = $('eloChart'); if (!cv || !profileData) return;
   const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, cv.width, cv.height);
-  let hist = mockEloHistory;
-  if (mockChartRange === '1m') hist = hist.filter(h => h.daysAgo < 30);
-  if (mockChartRange === '1y') hist = hist.filter(h => h.daysAgo < 365);
-  const pts = hist.map(h => h.elo);
+  let hist = (profileData.stats && profileData.stats.eloHistory) || [];
+  const now = Date.now();
+  if (chartRange === '1m') hist = hist.filter(h => now - new Date(h.created_at).getTime() < 30 * 24 * 3600 * 1000);
+  if (chartRange === '1y') hist = hist.filter(h => now - new Date(h.created_at).getTime() < 365 * 24 * 3600 * 1000);
+  const pts = [1000, ...hist.map(h => h.elo_after)];
   if (pts.length < 2) { ctx.fillStyle = '#b3b2b1'; ctx.font = '13px Comfortaa'; ctx.fillText('No Elo history yet — play a game.', 12, 30); return; }
   const min = Math.min(...pts) - 20, max = Math.max(...pts) + 20;
   ctx.strokeStyle = '#03eaff'; ctx.lineWidth = 2; ctx.beginPath();
@@ -1298,18 +1311,61 @@ function drawMockEloChart() {
   ctx.stroke();
 }
 $('tabProfile').onclick = () => { show('profileScreen'); renderProfileUI(); };
-document.querySelectorAll('.stats-tab').forEach(b => b.onclick = () => { mockStatsScope = b.dataset.scope; document.querySelectorAll('.stats-tab').forEach(x => x.classList.toggle('active', x === b)); renderMockStatsList(); });
-document.querySelectorAll('.chart-toggle').forEach(b => b.onclick = () => { mockChartRange = b.dataset.range; document.querySelectorAll('.chart-toggle').forEach(x => x.classList.toggle('active', x === b)); drawMockEloChart(); });
-$('gearBtn').onclick = () => {
-  $('editFirstName').value = mockProfile.firstName; $('editLastName').value = mockProfile.lastName; $('editUsername').value = mockProfile.username; $('editError').textContent = '';
+document.querySelectorAll('.stats-tab').forEach(b => b.onclick = () => { statsScope = b.dataset.scope; document.querySelectorAll('.stats-tab').forEach(x => x.classList.toggle('active', x === b)); renderStatsList(); });
+document.querySelectorAll('.chart-toggle').forEach(b => b.onclick = () => { chartRange = b.dataset.range; document.querySelectorAll('.chart-toggle').forEach(x => x.classList.toggle('active', x === b)); drawEloChart(); });
+$('gearBtn').onclick = async () => {
+  if (!profileData) await renderProfileUI();
+  if (!profileData) return;
+  const u = profileData.user;
+  $('editFirstName').value = u.firstName; $('editLastName').value = u.lastName; $('editUsername').value = u.username; $('editError').textContent = '';
   show('profileEditScreen');
 };
 $('editCancelBtn').onclick = () => show('profileScreen');
-$('profileEditForm').onsubmit = e => {
+$('profileEditForm').onsubmit = async e => {
   e.preventDefault();
   const fn = $('editFirstName').value.trim(), ln = $('editLastName').value.trim(), un = $('editUsername').value.trim();
   if (!fn) { $('editError').textContent = 'Add a first name.'; return; }
   if (!/^[a-z0-9_]{3,}$/.test(un)) { $('editError').textContent = 'Usernames are 3+ lowercase letters, numbers, or underscores.'; return; }
-  mockProfile.firstName = fn; mockProfile.lastName = ln; mockProfile.username = un;
-  renderProfileUI(); show('profileScreen');
+  try {
+    const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify({ firstName: fn, lastName: ln, username: un }) });
+    me = d.user; profileData = null;
+    show('profileScreen'); renderProfileUI();
+  } catch (err) { $('editError').textContent = err.message || 'Could not save.'; }
+};
+$('profileAuthBtn').onclick = () => { setAuthMode('signin'); show('authScreen'); };
+$('profileSignOutBtn').onclick = async () => {
+  try { await api('/api/signout', { method: 'POST' }); } catch {}
+  token = ''; localStorage.removeItem('duello_token'); me = null; profileData = null;
+  try { await ensureGuest(); } catch {}
+  renderProfileUI();
+};
+let authMode = 'signin';
+function setAuthMode(mode) {
+  authMode = mode;
+  $('authHeading').textContent = mode === 'signup' ? 'Sign up' : 'Sign in';
+  $('authSubmitBtn').textContent = mode === 'signup' ? 'Sign up' : 'Sign in';
+  $('authToggleBtn').textContent = mode === 'signup' ? 'Already have an account? Sign in' : 'Need an account? Sign up';
+  $('signupFields').classList.toggle('hidden', mode !== 'signup');
+  $('authPassword').setAttribute('autocomplete', mode === 'signup' ? 'new-password' : 'current-password');
+  $('authError').textContent = '';
+}
+$('authToggleBtn').onclick = () => setAuthMode(authMode === 'signup' ? 'signin' : 'signup');
+$('authBackBtn').onclick = () => show('profileScreen');
+$('authForm').onsubmit = async e => {
+  e.preventDefault(); $('authError').textContent = '';
+  const email = $('authEmail').value.trim(), password = $('authPassword').value;
+  try {
+    let d;
+    if (authMode === 'signup') {
+      const firstName = $('authFirstName').value.trim(), lastName = $('authLastName').value.trim(), username = $('authUsername').value.trim();
+      if (!firstName || !lastName) throw new Error('First and last name are required.');
+      if (!/^[a-z0-9_]{3,}$/.test(username)) throw new Error('Username: lowercase letters, numbers, and underscores only, at least 3 characters.');
+      if (password.length < 8) throw new Error('Password must be at least 8 characters.');
+      d = await api('/api/signup', { method: 'POST', body: JSON.stringify({ firstName, lastName, username, email, password }) });
+    } else {
+      d = await api('/api/signin', { method: 'POST', body: JSON.stringify({ email, password }) });
+    }
+    token = d.token; localStorage.setItem('duello_token', token); me = d.user; profileData = null;
+    show('profileScreen'); renderProfileUI();
+  } catch (err) { $('authError').textContent = err.message || 'Something went wrong.'; }
 };

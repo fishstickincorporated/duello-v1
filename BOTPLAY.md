@@ -7,7 +7,7 @@ https://duello-botplay.onrender.com/ since Oct 30, 2026.
 
 ## What this slice is
 
-Bot play only, opened straight to play with no email/password screen:
+Bot play only, opened straight to play with no email/password screen (guest play, no login required); sign-in/sign-up from the Profile tab landed Nov 2, 2026 (see below):
 
 - Opening the app calls `POST /api/guest` once, on first load. The
   server creates a per-device guest (`guest_<random>`, dummy
@@ -23,12 +23,14 @@ Bot play only, opened straight to play with no email/password screen:
 - Endpoints only: `POST /api/guest`, `POST /api/games`,
   `GET /api/games/:id`, `POST /api/games/:id/validate`, `/play`,
   `/pass`, `/forfeit`, `/shuffle`, `GET /api/define`.
-- Out of scope, removed in this slice: friends, leaderboards, `/api/me`,
-  `/api/me/update`, `/api/me/password`, profile stats, and any
-  friends/profile backend. A friends/global leaderboard tab UI was
-  added Nov 2, 2026 (mock data only, no backend, no accounts); the
-  profile tab and real accounts still come later, after bot play is
-  right.
+- Out of scope, removed in this slice: friends backend and leaderboards,
+  `/api/me/password` (password change), and any friends UI backend. A
+  friends/global leaderboard tab UI was added Nov 2, 2026 (mock data
+  only, no backend). Real accounts landed Nov 2, 2026: email/password
+  signup, sign-in, sign-out, `GET /api/me`, `POST /api/me/update`, and
+  real profile stats from finished games; signing up while holding a
+  guest token upgrades that guest row in place, so Elo and game history
+  carry over. No Google/Apple OAuth yet.
 
 Game logic, validation, scoring, and the bot solver were NOT changed
 in behaviour — only the database layer, the auth surface, and the
@@ -108,6 +110,6 @@ Jeff does this himself, later, when bot play is right:
 
 ## Later slices (NOT in this task)
 
-Real accounts (signup/sign-in), friends tab, profile tab, stats
-screens, leaderboards, and the UI pass. Those were deliberately left
-out of this slice.
+Friends backend, password change/reset, Google/Apple OAuth, ads, and
+payments. (Real accounts and the profile tab landed Nov 2, 2026; the
+friends tab UI is mock-only until its backend lands.)

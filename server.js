@@ -5,11 +5,13 @@
 //       Postgres, via DATABASE_URL only. There is NO SQLite fallback in this
 //       slice, so a test run actually proves Postgres works. If DATABASE_URL
 //       is missing the server exits at startup with a clear error.
-// Auth surface for this slice: POST /api/guest only. It creates a per-device
-// guest user (guest_<random>, dummy @guest.local email, random scrypt hash
-// never shown to the user, Elo 1000) plus a session token. The client stores
-// that token in localStorage under the existing 'duello_token' key and
-// reuses it, so Elo follows the device. Real accounts come later.
+// Auth: per-device guests (POST /api/guest) plus real email/password
+// accounts (POST /api/signup, POST /api/signin, POST /api/signout,
+// GET /api/me). Passwords are salted scrypt hashes in Postgres; sessions
+// are random tokens in the sessions table, stored by the client in
+// localStorage under 'duello_token'. Signing up while holding a guest
+// token upgrades that guest row in place, so Elo and game history carry
+// over. No OAuth yet — Google/Apple sign-in is a separate integration.
 'use strict';
 const http = require('http');
 const fs = require('fs');
@@ -114,6 +116,51 @@ async function authUser(req) {
   const r = await q('SELECT * FROM sessions WHERE token=$1', [m[1]]);
   if (!r.rows[0]) return null;
   return getUserById(r.rows[0].user_id);
+}
+
+function isGuestUser(u) { return !!u && typeof u.email === 'string' && u.email.endsWith('@guest.local'); }
+// Profile stats, ported from the main build: finished games only, from the
+// games.state JSONB. All bot-play games are bot games, so vsHumans is
+// empty by construction until real multiplayer exists.
+async function profileStatsFor(userId) {
+  const rows = (await q("SELECT state FROM games WHERE user_id=$1 AND state->>'status'='finished'", [userId])).rows;
+  function empty() { return { gamesPlayed: 0, wins: 0, losses: 0, draws: 0, avgGameScore: 0, highestGameScore: 0, avgWordScore: 0, highestWordScore: 0, longestWord: '', longestWordLen: 0, optimalMoves: 0, totalMoves: 0, optimalPct: 0, uniqueWords: 0 }; }
+  function scope(humans) {
+    const st = empty(); let wordScoreSum = 0, wordCount = 0; const uniq = new Set();
+    const gs = [];
+    for (const r of rows) {
+      let g = r.state;
+      if (typeof g === 'string') { try { g = JSON.parse(g); } catch { continue; } }
+      gs.push(g);
+    }
+    for (const g of gs) {
+      if (humans) continue;
+      st.gamesPlayed++;
+      st.highestGameScore = Math.max(st.highestGameScore, (g.scores && g.scores.human) || 0);
+      if (g.winner === 'human') st.wins++; else if (g.winner === 'bot') st.losses++; else if (g.winner === 'draw') st.draws++;
+      else if (g.reason === 'By forfeit') st.losses++; else if (g.scores.human > g.scores.bot) st.wins++; else if (g.scores.bot > g.scores.human) st.losses++; else st.draws++;
+      const moves = (g.moves && g.moves.human) || [];
+      for (const m of moves) {
+        st.totalMoves++;
+        if (m.isOptimal) st.optimalMoves++;
+        for (const w of (m.words || [])) {
+          wordScoreSum += w.score || 0; wordCount++;
+          if ((w.score || 0) > st.highestWordScore) st.highestWordScore = w.score || 0;
+          if (w.word && w.word.length > st.longestWordLen) { st.longestWordLen = w.word.length; st.longestWord = w.word; }
+          uniq.add(w.word);
+        }
+      }
+    }
+    let totalScore = 0, played = 0;
+    for (const g of gs) { if (humans) continue; totalScore += (g.scores && g.scores.human) || 0; played++; }
+    st.avgGameScore = played ? Math.round(totalScore / played) : 0;
+    st.avgWordScore = wordCount ? Math.round(wordScoreSum / wordCount) : 0;
+    st.optimalPct = st.totalMoves ? Math.round(st.optimalMoves / st.totalMoves * 100) : 0;
+    st.uniqueWords = uniq.size;
+    st.record = `${st.wins}W-${st.losses}L` + (st.draws ? `-${st.draws}D` : '');
+    return st;
+  }
+  return { aggregate: scope(false), vsBots: scope(false), vsHumans: scope(true) };
 }
 
 // ---------- Board / premiums ----------
@@ -1026,6 +1073,75 @@ const server = http.createServer(async (req, res) => {
       if (req.headers['if-none-match'] === etag) { res.writeHead(304); return res.end(); }
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600', 'ETag': etag });
       return fs.createReadStream(wordsFile).pipe(res);
+    }
+    if (pathname === '/api/signup' && req.method === 'POST') {
+      const b = await readBody(req);
+      const email = String(b.email || '').trim().toLowerCase();
+      const username = String(b.username || '').trim();
+      const firstName = String(b.firstName || '').trim();
+      const lastName = String(b.lastName || '').trim();
+      const password = String(b.password || '');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return sendJson(res, 400, { error: 'Enter a valid email.' });
+      if (!/^[a-z0-9_]{3,}$/.test(username)) return sendJson(res, 400, { error: 'Username: lowercase letters, numbers, and underscores only, at least 3 characters.' });
+      if (!firstName || !lastName) return sendJson(res, 400, { error: 'First and last name are required.' });
+      if (password.length < 8) return sendJson(res, 400, { error: 'Password must be at least 8 characters.' });
+      const current = await authUser(req);
+      if (current && !isGuestUser(current)) return sendJson(res, 400, { error: 'You are already signed in.' });
+      const byEmail = await getUserByEmail(email);
+      if (byEmail && (!current || byEmail.id !== current.id)) return sendJson(res, 400, { error: 'That email is already registered.' });
+      const byUsername = await getUserByUsername(username);
+      if (byUsername && (!current || byUsername.id !== current.id)) return sendJson(res, 400, { error: 'That username is taken.' });
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = hashPassword(password, salt);
+      let user;
+      if (current) {
+        // Guest upgrade in place: same row, same Elo and game history.
+        await q('UPDATE users SET email=$1, username=$2, first_name=$3, last_name=$4, password_salt=$5, password_hash=$6 WHERE id=$7', [email, username, firstName, lastName, salt, hash, current.id]);
+        user = await getUserById(current.id);
+      } else {
+        const r = await q('INSERT INTO users (email, username, first_name, last_name, password_salt, password_hash, elo, elo_high) VALUES ($1,$2,$3,$4,$5,$6,1000,1000) RETURNING id', [email, username, firstName, lastName, salt, hash]);
+        user = await getUserById(r.rows[0].id);
+      }
+      const token = crypto.randomBytes(32).toString('hex');
+      await q('INSERT INTO sessions (token, user_id) VALUES ($1,$2)', [token, user.id]);
+      return sendJson(res, 200, { token, user: publicUser(user) });
+    }
+    if (pathname === '/api/signin' && req.method === 'POST') {
+      const b = await readBody(req);
+      const user = await getUserByEmail(String(b.email || '').trim().toLowerCase());
+      if (!user) return sendJson(res, 401, { error: 'Invalid email or password.' });
+      const hash = hashPassword(String(b.password || ''), user.password_salt);
+      if (hash !== user.password_hash) return sendJson(res, 401, { error: 'Invalid email or password.' });
+      const token = crypto.randomBytes(32).toString('hex');
+      await q('INSERT INTO sessions (token, user_id) VALUES ($1,$2)', [token, user.id]);
+      return sendJson(res, 200, { token, user: publicUser(user) });
+    }
+    if (pathname === '/api/signout' && req.method === 'POST') {
+      const h = req.headers.authorization || '';
+      const m = h.match(/^Bearer\s+(.+)$/);
+      if (m) await q('DELETE FROM sessions WHERE token=$1', [m[1]]);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/me' && req.method === 'GET') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const hist = await q('SELECT elo_after, created_at FROM elo_history WHERE user_id=$1 ORDER BY id', [user.id]);
+      return sendJson(res, 200, { user: publicUser(user), stats: { eloHistory: hist.rows }, profileStats: await profileStatsFor(user.id) });
+    }
+    if (pathname === '/api/me/update' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const firstName = String(b.firstName || '').trim();
+      const lastName = String(b.lastName || '').trim();
+      const username = String(b.username || '').trim();
+      if (!firstName) return sendJson(res, 400, { error: 'Add a first name.' });
+      if (!/^[a-z0-9_]{3,}$/.test(username)) return sendJson(res, 400, { error: 'Username: lowercase letters, numbers, and underscores only, at least 3 characters.' });
+      const byUsername = await getUserByUsername(username);
+      if (byUsername && byUsername.id !== user.id) return sendJson(res, 400, { error: 'That username is taken.' });
+      await q('UPDATE users SET first_name=$1, last_name=$2, username=$3 WHERE id=$4', [firstName, lastName, username, user.id]);
+      const updated = await getUserById(user.id);
+      return sendJson(res, 200, { user: publicUser(updated) });
     }
     if (pathname === '/api/guest' && req.method === 'POST') {
       // Per-device guest: no email/password screen in this slice.

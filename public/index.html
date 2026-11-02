@@ -39,7 +39,7 @@
     </div>
     <div id="leaderboardList" class="leaderboard"></div>
     <div id="noFriendsCard" class="no-friends-card hidden">No friends yet…</div>
-    <p class="small">Play Friends is still greyed out — this tab is UI only until accounts arrive.</p>
+    <p class="small">Friends backend still to come — this tab is UI only for now.</p>
   </section>
 
   <section id="profileScreen" class="screen hidden">
@@ -68,7 +68,9 @@
       </div>
       <div id="statsList" class="stats-list"></div>
     </div>
-    <p class="small">Account UI only — sign-in and real stats come later.</p>
+    <button class="btn primary hidden" id="profileAuthBtn">Sign in / Sign up</button>
+    <button class="link hidden" id="profileSignOutBtn">Sign out</button>
+    <p class="small hidden" id="profileNote"></p>
   </section>
 
   <section id="profileEditScreen" class="screen hidden">
@@ -83,6 +85,23 @@
         <button class="btn primary" type="submit" id="editSaveBtn">Save</button>
       </div>
     </form>
+  </section>
+
+  <section id="authScreen" class="screen hidden">
+    <h1 class="auth-heading" id="authHeading">Sign in</h1>
+    <form id="authForm">
+      <div id="signupFields" class="hidden">
+        <input id="authFirstName" placeholder="First name">
+        <input id="authLastName" placeholder="Last name">
+        <input id="authUsername" placeholder="Username">
+      </div>
+      <input id="authEmail" type="email" placeholder="Email" autocomplete="email">
+      <input id="authPassword" type="password" placeholder="Password" autocomplete="current-password">
+      <p id="authError" class="error"></p>
+      <button class="btn primary" type="submit" id="authSubmitBtn">Sign in</button>
+    </form>
+    <button class="link" id="authToggleBtn">Need an account? Sign up</button>
+    <button class="back-pill" id="authBackBtn">← Back</button>
   </section>
 
   <section id="gameScreen" class="screen hidden">

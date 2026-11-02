@@ -7,7 +7,7 @@ https://duello-botplay.onrender.com/ since Oct 30, 2026.
 
 ## What this slice is
 
-Bot play only. Sign-in is required before entering the app since Nov 2, 2026: with no valid session the client shows the auth screen, and guest creation (POST /api/guest) was removed; pre-existing guests can still upgrade by signing up (see below):
+Bot play only. Sign-in is required before entering the app since Nov 2, 2026: with no valid session the client shows the auth screen, and guest creation (POST /api/guest) was removed, and guest sessions from before the gate authenticate nothing anymore (see below):
 
 - Opening the app requires sign-in: with no stored session, or a
   rejected one, the client shows the auth screen (email/password

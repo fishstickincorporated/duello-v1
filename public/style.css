@@ -73,16 +73,16 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .rack .tile{width:52px;flex:1;aspect-ratio:1;font-size:30px;transition:transform 100ms ease,opacity 100ms ease}
 .rack.greyed{opacity:.55}
 .controls{display:flex;gap:6px;margin-top:10px}
-.controls button{flex:1;height:46px;padding:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#03eaff;color:#1a1d24;font-size:14px;touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent}
-.controls button.armed-red{background:#ff1303;color:#fff}
+.controls button{flex:1;height:46px;padding:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#3a3f4b;color:#e8ecf1;border:2px solid transparent;font-size:14px;touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent}
+.controls button:not(:disabled){border-color:#03eaff}
+.controls button.armed-red{background:#ff1303;color:#fff;border-color:transparent}
 .controls button .penalty{display:block;font-size:11px;line-height:1.2;font-weight:700}
-.controls button:disabled{background:#3a3f4b;color:#b3b2b1}
+.controls button:disabled{background:#3a3f4b;color:#b3b2b1;border-color:transparent}
 #endButtons #mainMenuBtn,#endButtons #gameStatsBtn,.stat-window #statMainMenu{background:#3a3f4b;color:#e8ecf1}
 #endButtons #playAgainBtn,.stat-window #statPlayAgain{background:#03eaff;color:#1a1d24}
-#playBtn:not(:disabled){background:#1cff03}
-#playBtn.play-valid{background:#1cff03}
-#playBtn.play-invalid{background:#3a3f4b;color:#b3b2b1}
-#playBtn.validating{background:#3a3f4b;color:#b3b2b1}
+#playBtn.play-valid{background:#03eaff;color:#1a1d24;border-color:#03eaff}
+#playBtn.play-invalid{background:#3a3f4b;color:#b3b2b1;border-color:transparent}
+#playBtn.validating{background:#3a3f4b;color:#b3b2b1;border-color:transparent}
 .stat-window{position:fixed;inset:0;background:rgba(5,7,10,.78);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;z-index:10;overflow:hidden}
 .stat-window>div{max-width:390px;width:100%}
 #gameLogo{margin:0 auto 12px}

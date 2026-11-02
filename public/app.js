@@ -2,10 +2,10 @@
 // Submitted plays are validated server-side; the verdict shown while placing
 // tiles is computed locally once the word list has loaded, so the check is
 // instant instead of a network round-trip per placement.
-// Auth is real: per-device guests via POST /api/guest, plus email/password
-// accounts via POST /api/signup and /api/signin. The token in localStorage
-// ('duello_token') is either a guest token or an account token; games use
-// whichever token is stored, so a signed-in account plays as itself.
+// Auth is required before entering the app: on load, a missing or
+// rejected session shows the auth screen (email/password signup and
+// sign-in). The token in localStorage ('duello_token') is an account
+// session token; games use it, so a signed-in account plays as itself.
 let token = localStorage.getItem('duello_token') || '';
 let me = null, game = null, gameFetchAt = 0;
 let pending = []; // {row,col,letter,rackIndex}
@@ -64,12 +64,12 @@ async function api(path, opts = {}) {
 }
 function show(id) {
   ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'authScreen', 'gameScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
-  const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'authScreen'].includes(id);
+  const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen'].includes(id);
   const tb = $('tabBar'); if (tb) tb.classList.toggle('hidden', !isMenu);
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   if ((id === 'homeScreen' || id === 'botScreen') && $('tabHome')) $('tabHome').classList.add('active');
   if (id === 'friendsScreen' && $('tabFriends')) $('tabFriends').classList.add('active');
-  if ((id === 'profileScreen' || id === 'profileEditScreen' || id === 'authScreen') && $('tabProfile')) $('tabProfile').classList.add('active');
+  if ((id === 'profileScreen' || id === 'profileEditScreen') && $('tabProfile')) $('tabProfile').classList.add('active');
 }
 function silhouetteSVG(size) { return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#b3b2b1"/></svg>`; }
 function pfpHTML(userLike) {
@@ -177,11 +177,6 @@ async function loadMe() {
   try { const d = await api('/api/me'); me = d.user; return true; }
   catch { return !!token; }
 }
-async function ensureGuest() {
-  const d = await api('/api/guest', { method: 'POST' });
-  token = d.token; localStorage.setItem('duello_token', token); me = d.user;
-  return d;
-}
 $('playBotsBtn').onclick = () => show('botScreen');
 $('botBackBtn').onclick = () => show('homeScreen');
 $('competitiveBtn').onclick = () => startGame('competitive');
@@ -191,10 +186,11 @@ async function startGame(bot) {
   try {
     game = await api('/api/games', { method: 'POST', body: JSON.stringify({ bot }) });
   } catch (e) {
-    // Stored guest token was rejected (e.g. database was reset): create a
-    // fresh guest once and retry, instead of stranding the user on Home.
-    await ensureGuest();
-    game = await api('/api/games', { method: 'POST', body: JSON.stringify({ bot }) });
+    // No guest fallback anymore: sign-in is required. A rejected session
+    // sends the user to the auth screen; anything else is a transient
+    // failure and another tap retries.
+    if (e && e.message === 'Not signed in.') { token = ''; localStorage.removeItem('duello_token'); me = null; setAuthMode('signin'); show('authScreen'); return; }
+    return;
   }
   // Display 5:00 during the countdown, not the server's create-round-trip
   // value (4:59): the clocks only start when the countdown ends (see /start).
@@ -1250,10 +1246,14 @@ function enablePlacedDrag(el, pend) {
 }
 
 
-// ---------- Startup: no login, just play ----------
+// ---------- Startup: sign-in is required before entering the app ----------
 (async () => {
-  if (!token) {
-    try { await ensureGuest(); } catch { /* game creation will retry with a fresh guest */ }
+  if (!token) { setAuthMode('signin'); show('authScreen'); return; }
+  try { const d = await api('/api/me'); me = d.user; }
+  catch (err) {
+    // Only a rejected session bounces to auth; a transient network
+    // failure still shows Home and lets the next call surface the error.
+    if (err && err.message === 'Not signed in.') { token = ''; localStorage.removeItem('duello_token'); me = null; setAuthMode('signin'); show('authScreen'); return; }
   }
   show('homeScreen');
 })();
@@ -1263,21 +1263,20 @@ function enablePlacedDrag(el, pend) {
 // their guest profile plus a sign-in button; signing up upgrades the guest
 // row in place, so Elo and game history carry over.
 let profileData = null, statsScope = 'aggregate', chartRange = '1m';
-function isGuestEmail(email) { return typeof email === 'string' && email.endsWith('@guest.local'); }
 function formatJoined(createdAt) {
   const d = new Date(createdAt);
   return isNaN(d) ? createdAt : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 async function renderProfileUI() {
-  try {
-    if (!token) await ensureGuest();
-    const d = await api('/api/me');
-    profileData = d; me = d.user;
-  } catch {
-    // Token rejected (database reset, etc.): fresh guest, then real data.
-    try { await ensureGuest(); profileData = await api('/api/me'); me = profileData.user; }
-    catch { return; }
+  // Sign-in is required: no token, or a rejected session, goes to auth.
+  if (!token) { setAuthMode('signin'); show('authScreen'); return; }
+  let d;
+  try { d = await api('/api/me'); }
+  catch (err) {
+    if (err && err.message === 'Not signed in.') { token = ''; localStorage.removeItem('duello_token'); me = null; profileData = null; setAuthMode('signin'); show('authScreen'); }
+    return;
   }
+  profileData = d; me = d.user;
   const u = profileData.user;
   $('profilePfp').innerHTML = u.photoData ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44);
   $('profileName').textContent = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
@@ -1285,12 +1284,6 @@ async function renderProfileUI() {
   $('profileJoined').textContent = 'Joined ' + formatJoined(u.createdAt);
   $('profileElo').textContent = u.elo;
   $('profileEloHigh').textContent = u.eloHigh;
-  const guest = isGuestEmail(u.email);
-  $('profileAuthBtn').classList.toggle('hidden', !guest);
-  $('profileSignOutBtn').classList.toggle('hidden', guest);
-  const note = $('profileNote');
-  if (guest) { note.textContent = "You're playing as a guest. Sign in to turn this into a real account — your Elo and games stay."; note.classList.remove('hidden'); }
-  else { note.textContent = ''; note.classList.add('hidden'); }
   renderStatsList(); drawEloChart();
 }
 function renderStatsList() {
@@ -1342,12 +1335,10 @@ $('profileEditForm').onsubmit = async e => {
     show('profileScreen'); renderProfileUI();
   } catch (err) { $('editError').textContent = err.message || 'Could not save.'; }
 };
-$('profileAuthBtn').onclick = () => { setAuthMode('signin'); show('authScreen'); };
 $('profileSignOutBtn').onclick = async () => {
   try { await api('/api/signout', { method: 'POST' }); } catch {}
   token = ''; localStorage.removeItem('duello_token'); me = null; profileData = null;
-  try { await ensureGuest(); } catch {}
-  renderProfileUI();
+  setAuthMode('signin'); show('authScreen');
 };
 let authMode = 'signin';
 function setAuthMode(mode) {
@@ -1360,7 +1351,6 @@ function setAuthMode(mode) {
   $('authError').textContent = '';
 }
 $('authToggleBtn').onclick = () => setAuthMode(authMode === 'signup' ? 'signin' : 'signup');
-$('authBackBtn').onclick = () => show('profileScreen');
 $('authForm').onsubmit = async e => {
   e.preventDefault(); $('authError').textContent = '';
   const email = $('authEmail').value.trim(), password = $('authPassword').value;
@@ -1376,6 +1366,6 @@ $('authForm').onsubmit = async e => {
       d = await api('/api/signin', { method: 'POST', body: JSON.stringify({ email, password }) });
     }
     token = d.token; localStorage.setItem('duello_token', token); me = d.user; profileData = null;
-    show('profileScreen'); renderProfileUI();
+    show('homeScreen');
   } catch (err) { $('authError').textContent = err.message || 'Something went wrong.'; }
 };

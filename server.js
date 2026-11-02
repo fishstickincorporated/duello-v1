@@ -5,13 +5,15 @@
 //       Postgres, via DATABASE_URL only. There is NO SQLite fallback in this
 //       slice, so a test run actually proves Postgres works. If DATABASE_URL
 //       is missing the server exits at startup with a clear error.
-// Auth: per-device guests (POST /api/guest) plus real email/password
-// accounts (POST /api/signup, POST /api/signin, POST /api/signout,
-// GET /api/me). Passwords are salted scrypt hashes in Postgres; sessions
-// are random tokens in the sessions table, stored by the client in
-// localStorage under 'duello_token'. Signing up while holding a guest
-// token upgrades that guest row in place, so Elo and game history carry
-// over. No OAuth yet — Google/Apple sign-in is a separate integration.
+// Auth: real email/password accounts (POST /api/signup, POST /api/signin,
+// POST /api/signout, GET /api/me). Passwords are salted scrypt hashes in
+// Postgres; sessions are random tokens in the sessions table, stored by
+// the client in localStorage under 'duello_token'. Sign-in is required
+// before entering the app: the client shows the auth screen when there
+// is no valid session. POST /api/guest was removed Nov 2, 2026, but a
+// session issued to a guest before that can still sign up and upgrade
+// that guest row in place, so Elo and game history carry over. No OAuth
+// yet — Google/Apple sign-in is a separate integration.
 'use strict';
 const http = require('http');
 const fs = require('fs');
@@ -1144,26 +1146,6 @@ const server = http.createServer(async (req, res) => {
       await q('UPDATE users SET first_name=$1, last_name=$2, username=$3 WHERE id=$4', [firstName, lastName, username, user.id]);
       const updated = await getUserById(user.id);
       return sendJson(res, 200, { user: publicUser(updated) });
-    }
-    if (pathname === '/api/guest' && req.method === 'POST') {
-      // Per-device guest: no email/password screen in this slice.
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const suffix = crypto.randomBytes(6).toString('hex');
-        const username = `guest_${suffix}`;
-        try {
-          const salt = crypto.randomBytes(16).toString('hex');
-          const hash = hashPassword(crypto.randomBytes(32).toString('hex'), salt);
-          const r = await q('INSERT INTO users (email, username, first_name, last_name, password_salt, password_hash, elo, elo_high) VALUES ($1,$2,$3,$4,$5,$6,1000,1000) RETURNING id', [`${username}@guest.local`, username, 'Guest', '', salt, hash]);
-          const user = await getUserById(r.rows[0].id);
-          const token = crypto.randomBytes(32).toString('hex');
-          await q('INSERT INTO sessions (token, user_id) VALUES ($1,$2)', [token, user.id]);
-          return sendJson(res, 200, { token, user: publicUser(user) });
-        } catch (e) {
-          if (e.code === '23505' && attempt < 2) continue;
-          throw e;
-        }
-      }
-      return sendJson(res, 500, { error: 'Could not create guest.' });
     }
     if (pathname === '/api/define' && req.method === 'GET') {
       return sendJson(res, 200, await getDefinition(url.searchParams.get('word') || ''));

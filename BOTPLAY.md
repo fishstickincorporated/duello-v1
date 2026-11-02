@@ -7,7 +7,7 @@ https://duello-botplay.onrender.com/ since Oct 30, 2026.
 
 ## What this slice is
 
-Bot play only, opened straight to play with no email/password screen (guest play, no login required); sign-in/sign-up from the Profile tab landed Nov 2, 2026 (see below):
+Bot play only. Sign-in is required before entering the app since Nov 2, 2026: with no valid session the client shows the auth screen, and guest creation (POST /api/guest) was removed; pre-existing guests can still upgrade by signing up (see below):
 
 - Opening the app calls `POST /api/guest` once, on first load. The
   server creates a per-device guest (`guest_<random>`, dummy
@@ -30,7 +30,10 @@ Bot play only, opened straight to play with no email/password screen (guest play
   signup, sign-in, sign-out, `GET /api/me`, `POST /api/me/update`, and
   real profile stats from finished games; signing up while holding a
   guest token upgrades that guest row in place, so Elo and game history
-  carry over. No Google/Apple OAuth yet.
+  carry over. Sign-in became required Nov 2, 2026: POST /api/guest
+  removed; the client shows the auth screen with no valid session, and
+  signing out returns to it. Pre-existing guest sessions can still sign
+  up and upgrade in place. No Google/Apple OAuth yet.
 
 Game logic, validation, scoring, and the bot solver were NOT changed
 in behaviour — only the database layer, the auth surface, and the

@@ -102,7 +102,9 @@ Jeff does this himself, later, when bot play is right:
 4. Redeploy, create a test guest, play a game, redeploy again, and
    confirm the same guest token still loads the same Elo/games.
    Steps 1–3 were done Oct 30, 2026. The redeploy-survival check
-   is in progress as of Nov 2, 2026 (see the dated log).
+   PASSED Nov 2, 2026: a test guest forfeited from Elo 1000 to 984,
+   Render redeployed (words-list ETag changed), and the same guest
+   token reloaded Elo 984 with its finished game intact.
 
 ## Later slices (NOT in this task)
 

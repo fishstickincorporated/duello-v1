@@ -61,11 +61,12 @@ async function api(path, opts = {}) {
   return j;
 }
 function show(id) {
-  ['homeScreen', 'botScreen', 'gameScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
-  const isMenu = ['homeScreen', 'botScreen'].includes(id);
+  ['homeScreen', 'botScreen', 'friendsScreen', 'gameScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
+  const isMenu = ['homeScreen', 'botScreen', 'friendsScreen'].includes(id);
   const tb = $('tabBar'); if (tb) tb.classList.toggle('hidden', !isMenu);
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   if ((id === 'homeScreen' || id === 'botScreen') && $('tabHome')) $('tabHome').classList.add('active');
+  if (id === 'friendsScreen' && $('tabFriends')) $('tabFriends').classList.add('active');
 }
 function silhouetteSVG(size) { return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#b3b2b1"/></svg>`; }
 function pfpHTML(userLike) {
@@ -74,6 +75,93 @@ function pfpHTML(userLike) {
 }
 function goTab(id) { show(id); }
 $('tabHome').onclick = () => show('homeScreen');
+
+// ---------- Friends tab (UI only until accounts arrive) ----------
+// Every row below is local mock data. Nothing here touches the server:
+// no fetching, no friend requests sent, no leaderboard stored. When
+// accounts land, renderFriendsUI is replaced by the real API version
+// (same row markup as the main build's friends tab).
+let lbScope = 'friends', deleteMode = false;
+const mockYou = { name: 'You', username: 'you', elo: 1000, isYou: true };
+let mockFriends = [
+  { name: 'Alex Rivers', username: 'arivers', elo: 1240, friendship: 'accepted' },
+  { name: 'Sam Whitfield', username: 'swhitfield', elo: 1115, friendship: 'accepted' },
+  { name: 'Jordan Blake', username: 'jblake', elo: 980, friendship: 'accepted' },
+  { name: 'Casey Morgan', username: 'cmorgan', elo: 1040, friendship: 'pending_out' },
+];
+let mockRequests = [
+  { name: 'Taylor Reed', username: 'treed', elo: 1065 },
+];
+const mockPool = [
+  { name: 'Maya Chen', username: 'mchen', elo: 1580 },
+  { name: 'Riley Park', username: 'rpark', elo: 1420 },
+  { name: 'Quinn Ellis', username: 'qellis', elo: 1330 },
+  { name: 'Alex Rivers', username: 'arivers', elo: 1240 },
+  { name: 'Sam Whitfield', username: 'swhitfield', elo: 1115 },
+  { name: 'Taylor Reed', username: 'treed', elo: 1065 },
+  { name: 'Casey Morgan', username: 'cmorgan', elo: 1040 },
+  { name: 'Jordan Blake', username: 'jblake', elo: 980 },
+  { name: 'Drew Novak', username: 'dnovak', elo: 890 },
+  { name: 'Noah Kim', username: 'nkim', elo: 760 },
+];
+function mockFriendship(username) {
+  const f = mockFriends.find(x => x.username === username);
+  if (f) return f.friendship;
+  if (mockRequests.some(x => x.username === username)) return 'pending_in';
+  return null;
+}
+function renderFriendsUI() {
+  const rows = lbScope === 'friends'
+    ? [...mockFriends, mockYou].sort((a, b) => b.elo - a.elo)
+    : [...mockPool, mockYou].sort((a, b) => b.elo - a.elo);
+  const list = $('leaderboardList'); list.innerHTML = '';
+  rows.forEach((r, i) => {
+    const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
+    const pend = r.friendship === 'pending_out' || r.friendship === 'pending_in' ? '<span class="pending-label">Pending</span>' : '';
+    const del = (deleteMode && lbScope === 'friends' && !r.isYou && r.friendship === 'accepted') ? `<button class="mini-btn grey" data-del="${r.username}">✕</button>` : '';
+    row.innerHTML = `<span class="rank">${i + 1}</span><span class="lb-pfp">${pfpHTML(r)}</span><span><div class="lb-name">${r.name}</div><div class="lb-user">@${r.username}</div></span>${r.isYou ? '<span class="you-badge">YOU</span>' : ''}<span class="lb-elo">${pend || r.elo}</span>${del}`;
+    list.appendChild(row);
+  });
+  list.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { mockFriends = mockFriends.filter(x => x.username !== b.dataset.del); renderFriendsUI(); });
+  $('noFriendsCard').classList.toggle('hidden', !(lbScope === 'friends' && rows.filter(r => !r.isYou).length === 0));
+  const reqEl = $('friendRequests'); reqEl.innerHTML = '';
+  mockRequests.forEach(f => {
+    const row = document.createElement('div'); row.className = 'request-row';
+    row.innerHTML = `<span class="lb-pfp">${pfpHTML(f)}</span><span><b>${f.name}</b> <span style="color:#b3b2b1">@${f.username}</span></span><span style="margin-left:auto;display:flex;gap:6px"><button class="mini-btn" data-acc="${f.username}">Accept</button><button class="mini-btn grey" data-dec="${f.username}">Decline</button></span>`;
+    reqEl.appendChild(row);
+  });
+  reqEl.querySelectorAll('[data-acc]').forEach(b => b.onclick = () => {
+    const f = mockRequests.find(x => x.username === b.dataset.acc);
+    mockRequests = mockRequests.filter(x => x.username !== b.dataset.acc);
+    if (f) mockFriends.push({ name: f.name, username: f.username, elo: f.elo, friendship: 'accepted' });
+    renderFriendsUI();
+  });
+  reqEl.querySelectorAll('[data-dec]').forEach(b => b.onclick = () => { mockRequests = mockRequests.filter(x => x.username !== b.dataset.dec); renderFriendsUI(); });
+}
+$('tabFriends').onclick = () => { show('friendsScreen'); renderFriendsUI(); };
+$('lbFriendsTab').onclick = () => { lbScope = 'friends'; $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active'); renderFriendsUI(); };
+$('lbGlobalTab').onclick = () => { lbScope = 'global'; $('lbGlobalTab').classList.add('active'); $('lbFriendsTab').classList.remove('active'); renderFriendsUI(); };
+$('friendsPencil').onclick = () => { if (lbScope !== 'friends') return; deleteMode = !deleteMode; renderFriendsUI(); };
+let friendSearchTimer = null;
+$('friendSearch').addEventListener('input', () => {
+  clearTimeout(friendSearchTimer);
+  friendSearchTimer = setTimeout(() => {
+    const q = $('friendSearch').value.trim().toLowerCase(); const el = $('friendSearchResults'); el.innerHTML = '';
+    if (!q) return;
+    mockPool.filter(r => r.name.toLowerCase().includes(q) || r.username.toLowerCase().includes(q)).forEach(r => {
+      const fs = mockFriendship(r.username);
+      const btn = fs === 'accepted' ? '<span class="pending-label">Friend</span>' : fs ? '<span class="pending-label">Pending</span>' : `<button class="mini-btn" data-req="${r.username}">Add friend</button>`;
+      const row = document.createElement('div'); row.className = 'search-result';
+      row.innerHTML = `<span class="lb-pfp">${pfpHTML(r)}</span><span><b>${r.name}</b> <span style="color:#b3b2b1">@${r.username}</span></span><span style="margin-left:auto">${btn}</span>`;
+      el.appendChild(row);
+    });
+    el.querySelectorAll('[data-req]').forEach(b => b.onclick = () => {
+      const r = mockPool.find(x => x.username === b.dataset.req);
+      if (r && !mockFriends.some(x => x.username === r.username)) mockFriends.push({ name: r.name, username: r.username, elo: r.elo, friendship: 'pending_out' });
+      b.outerHTML = '<span class="pending-label">Pending</span>'; renderFriendsUI();
+    });
+  }, 250);
+});
 
 async function loadMe() {
   // No /api/me in the bot-play slice. Elo for the scoreboard comes from

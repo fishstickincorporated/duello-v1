@@ -22,6 +22,26 @@
     <button class="back-pill" id="botBackBtn">← Back</button>
   </section>
 
+  <section id="friendsScreen" class="screen hidden">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input id="friendSearch" type="text" placeholder="Search players" autocomplete="off">
+    </div>
+    <div id="friendSearchResults" class="search-results"></div>
+    <div id="friendRequests" class="requests"></div>
+    <div class="leaderboard-head">
+      <span class="leaderboard-label">LEADERBOARD</span>
+      <button class="pencil" id="friendsPencil" title="Delete friends">✏️</button>
+    </div>
+    <div class="leaderboard-tabs">
+      <button class="lb-tab active" id="lbFriendsTab">Friends</button>
+      <button class="lb-tab" id="lbGlobalTab">Global</button>
+    </div>
+    <div id="leaderboardList" class="leaderboard"></div>
+    <div id="noFriendsCard" class="no-friends-card hidden">No friends yet…</div>
+    <p class="small">Play Friends is still greyed out — this tab is UI only until accounts arrive.</p>
+  </section>
+
   <section id="gameScreen" class="screen hidden">
     <div id="gameDim">
       <img class="logo-img small-logo-img" id="gameLogo" src="/assets/logo.png" alt="DUELLO">
@@ -63,6 +83,7 @@
 
   <nav id="tabBar" class="tab-bar hidden" aria-label="Main navigation">
     <button class="tab-btn active" id="tabHome" aria-label="Home"><svg viewBox="0 0 24 24" width="28" height="28"><path d="M3 11 L12 3 L21 11 L21 21 L14 21 L14 14 L10 14 L10 21 L3 21 Z" fill="#b3b2b1"/><rect x="10.5" y="16" width="3" height="5" fill="#03eaff"/></svg></button>
+    <button class="tab-btn" id="tabFriends" aria-label="Friends"><svg viewBox="0 0 24 24" width="28" height="28"><circle cx="8" cy="8" r="3" fill="#b3b2b1"/><circle cx="16" cy="8" r="3" fill="#b3b2b1"/><path d="M3 20 C3 16 5 14 8 14 C11 14 13 16 13 20 Z" fill="#b3b2b1"/><path d="M11 20 C11 16 13 14 16 14 C19 14 21 16 21 20 Z" fill="#7d8597"/></svg></button>
   </nav>
 </div>
 <script src="/app.js"></script></body></html>

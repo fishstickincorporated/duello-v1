@@ -120,6 +120,7 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .search-results{text-align:left}
 .search-result,.lb-row,.request-row{display:flex;align-items:center;gap:10px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}
 .lb-row .rank{color:#ffd166;font-weight:900;min-width:22px}
+.lb-pfp{flex:0 0 36px}.lb-pfp svg{display:block}
 .lb-row .lb-name{color:#03eaff;font-weight:800}
 .lb-row .lb-user{color:#b3b2b1;font-size:13px}
 .lb-row .lb-elo{margin-left:auto;color:#03eaff;font-weight:800}

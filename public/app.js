@@ -257,7 +257,7 @@ function renderGame() {
   // which is how a drag froze the whole screen. The next render after the
   // drag ends will show any bot move that arrived in the meantime.
   if (activeDragCleanup) return;
-  $('playerName').textContent = 'You';
+  $('playerName').textContent = me && me.firstName ? me.firstName : 'You';
   try { document.querySelector('.player-panel .pfp').innerHTML = pfpHTML(me); document.querySelector('.stat-pfp .pfp').innerHTML = pfpHTML(me); } catch {}
   $('playerElo').textContent = me ? me.elo : game.player.elo;
   const isFish = game.botType === 'fishstick';

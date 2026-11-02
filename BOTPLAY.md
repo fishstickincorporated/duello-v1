@@ -34,9 +34,10 @@ Bot play only. Sign-in is required before entering the app since Nov 2, 2026: wi
   removed; the client shows the auth screen with no valid session, and
   signing out returns to it. Pre-existing guest sessions can still sign
   up and upgrade in place. Guests upgrade from the Profile tab's
-  Sign in / Sign up button, which keeps the guest token attached;
-  signing out first would abandon the guest, so guests see the
-  upgrade button instead of Sign out. No Google/Apple OAuth yet.
+  Sign in / Sign up button, which keeps the guest token attached.
+  Guests also see Start fresh, which signs the guest out and abandons
+  it, so the next signup is a brand-new account at 1000. No
+  Google/Apple OAuth yet.
 
 Game logic, validation, scoring, and the bot solver were NOT changed
 in behaviour — only the database layer, the auth surface, and the

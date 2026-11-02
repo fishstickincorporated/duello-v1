@@ -1286,15 +1286,17 @@ async function renderProfileUI() {
   $('profileJoined').textContent = 'Joined ' + formatJoined(u.createdAt);
   $('profileElo').textContent = u.elo;
   $('profileEloHigh').textContent = u.eloHigh;
-  // Pre-existing guests (from before sign-in was required) get the
-  // upgrade button instead of Sign out: signing up from here carries
-  // the guest token, so the account keeps the guest's Elo and games.
-  // Signing out first would abandon the guest, so guests never see it.
+  // Pre-existing guests (from before sign-in was required) get both
+  // paths: Sign in / Sign up upgrades the guest in place (signing up
+  // from here carries the guest token, so Elo and games stay), while
+  // Start fresh signs the guest out, abandoning it, so the next signup
+  // is a brand-new account at 1000. Real accounts just get Sign out.
   const guest = isGuestEmail(u.email);
   $('profileAuthBtn').classList.toggle('hidden', !guest);
-  $('profileSignOutBtn').classList.toggle('hidden', guest);
+  $('profileSignOutBtn').classList.toggle('hidden', false);
+  $('profileSignOutBtn').textContent = guest ? 'Start fresh' : 'Sign out';
   const note = $('profileNote');
-  if (guest) { note.textContent = "You're still on a guest from before sign-in was required. Sign up from here to turn it into a real account — your Elo and games stay."; note.classList.remove('hidden'); }
+  if (guest) { note.textContent = "You're still on a guest from before sign-in was required. Sign up from here to keep your Elo and games, or start fresh to abandon this guest and begin at 1000."; note.classList.remove('hidden'); }
   else { note.textContent = ''; note.classList.add('hidden'); }
   renderStatsList(); drawEloChart();
 }

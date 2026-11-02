@@ -170,7 +170,7 @@ function sendResendEmail(to, subject, text) {
 // games.state JSONB. All bot-play games are bot games, so vsHumans is
 // empty by construction until real multiplayer exists.
 async function profileStatsFor(userId) {
-  const rows = (await q("SELECT state FROM games WHERE user_id=$1 AND state->>'status'='finished'", [userId])).rows;
+  const rows = (await q("SELECT state, bot_type FROM games WHERE user_id=$1 AND state->>'status'='finished'", [userId])).rows;
   function empty() { return { gamesPlayed: 0, wins: 0, losses: 0, draws: 0, avgGameScore: 0, highestGameScore: 0, avgWordScore: 0, highestWordScore: 0, longestWord: '', longestWordLen: 0, optimalMoves: 0, totalMoves: 0, optimalPct: 0, uniqueWords: 0, wordsOver50: 0, wordsOver100: 0 }; }
   function scope(humans) {
     const st = empty(); let wordScoreSum = 0, wordCount = 0; const uniq = new Set();
@@ -178,14 +178,19 @@ async function profileStatsFor(userId) {
     for (const r of rows) {
       let g = r.state;
       if (typeof g === 'string') { try { g = JSON.parse(g); } catch { continue; } }
+      if (!g.botType && r.bot_type) g.botType = r.bot_type;
       gs.push(g);
     }
     for (const g of gs) {
       if (humans) continue;
-      st.gamesPlayed++;
+      // Fishstick matches never count toward the record or games played.
+      const isFish = g.botType === 'fishstick';
+      if (!isFish) {
+        st.gamesPlayed++;
+        if (g.winner === 'human') st.wins++; else if (g.winner === 'bot') st.losses++; else if (g.winner === 'draw') st.draws++;
+        else if (g.reason === 'By forfeit') st.losses++; else if (g.scores.human > g.scores.bot) st.wins++; else if (g.scores.bot > g.scores.human) st.losses++; else st.draws++;
+      }
       st.highestGameScore = Math.max(st.highestGameScore, (g.scores && g.scores.human) || 0);
-      if (g.winner === 'human') st.wins++; else if (g.winner === 'bot') st.losses++; else if (g.winner === 'draw') st.draws++;
-      else if (g.reason === 'By forfeit') st.losses++; else if (g.scores.human > g.scores.bot) st.wins++; else if (g.scores.bot > g.scores.human) st.losses++; else st.draws++;
       const moves = (g.moves && g.moves.human) || [];
       for (const m of moves) {
         st.totalMoves++;
@@ -201,7 +206,9 @@ async function profileStatsFor(userId) {
       }
     }
     let totalScore = 0, played = 0;
-    for (const g of gs) { if (humans) continue; totalScore += (g.scores && g.scores.human) || 0; played++; }
+    // Average game score counts only games where the player's own clock
+    // fully expired — games ended early (forfeit, stalls) are excluded.
+    for (const g of gs) { if (humans) continue; if (!(g.clocks && g.clocks.human <= 0)) continue; totalScore += (g.scores && g.scores.human) || 0; played++; }
     st.avgGameScore = played ? Math.round(totalScore / played) : 0;
     st.avgWordScore = wordCount ? Math.round(wordScoreSum / wordCount) : 0;
     st.optimalPct = st.totalMoves ? Math.round(st.optimalMoves / st.totalMoves * 100) : 0;
@@ -1313,6 +1320,19 @@ const server = http.createServer(async (req, res) => {
       if (!/^[a-z0-9_]{3,}$/.test(username)) return sendJson(res, 400, { error: 'Username: lowercase letters, numbers, and underscores only, at least 3 characters.' });
       const byUsername = await getUserByUsername(username);
       if (byUsername && byUsername.id !== user.id) return sendJson(res, 400, { error: 'That username is taken.' });
+      // email is optional: absent (or blank) means unchanged. A new
+      // address must be well-formed and not taken by another account.
+      const hasEmail = Object.prototype.hasOwnProperty.call(b, 'email') && String(b.email || '').trim() !== '';
+      let newEmail = null;
+      if (hasEmail) {
+        newEmail = String(b.email).trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) return sendJson(res, 400, { error: 'Enter a valid email.' });
+        if (newEmail === user.email) newEmail = null;
+        else {
+          const byEmail = await getUserByEmail(newEmail);
+          if (byEmail && byEmail.id !== user.id) return sendJson(res, 400, { error: 'That email is already registered.' });
+        }
+      }
       // photoData is optional: absent means unchanged, null clears the
       // photo, a data URL sets it. The request body itself is capped at
       // 1MB by readBody, so the photo cap sits below that.
@@ -1322,12 +1342,14 @@ const server = http.createServer(async (req, res) => {
         if (!photoData.startsWith('data:image/') || photoData.length > 750000) {
           return sendJson(res, 400, { error: 'That photo is not a supported image or is too large.' });
         }
-        await q('UPDATE users SET first_name=$1, last_name=$2, username=$3, photo_data=$4 WHERE id=$5', [firstName, lastName, username, photoData, user.id]);
-      } else if (hasPhoto) {
-        await q('UPDATE users SET first_name=$1, last_name=$2, username=$3, photo_data=NULL WHERE id=$4', [firstName, lastName, username, user.id]);
-      } else {
-        await q('UPDATE users SET first_name=$1, last_name=$2, username=$3 WHERE id=$4', [firstName, lastName, username, user.id]);
       }
+      const sets = ['first_name=$1', 'last_name=$2', 'username=$3'];
+      const params = [firstName, lastName, username];
+      if (hasPhoto && b.photoData !== null) { params.push(String(b.photoData)); sets.push(`photo_data=$${params.length}`); }
+      else if (hasPhoto) { sets.push('photo_data=NULL'); }
+      if (newEmail) { params.push(newEmail); sets.push(`email=$${params.length}`); }
+      params.push(user.id);
+      await q(`UPDATE users SET ${sets.join(', ')} WHERE id=$${params.length}`, params);
       const updated = await getUserById(user.id);
       return sendJson(res, 200, { user: publicUser(updated) });
     }

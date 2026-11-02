@@ -141,11 +141,13 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .pfp.huge img{width:100%;height:100%;object-fit:cover}
 .profile-name{font-size:22px;font-weight:900;margin-top:4px}
 .profile-username{color:#b3b2b1}
-.profile-joined{color:#b3b2b1;font-size:14px}
-.gear-btn{background:none;border:0;font-size:26px;cursor:pointer;margin-top:6px}
-.elo-box{background:#262a33;border-radius:16px;padding:16px;margin:16px 0;text-align:left}
+.profile-joined{color:#b3b2b1;font-size:14px;margin-top:4px}
+.gear-btn{background:none;border:0;font-size:26px;cursor:pointer;margin-top:2px}
+.elo-box{background:#262a33;border-radius:16px;padding:16px;margin:8px 0 16px;text-align:left}
+.elo-row{display:flex;gap:12px}
+.elo-row>div{flex:1}
 .elo-label{color:#b3b2b1;font-size:13px}
-.elo-big{font-size:24px;font-weight:900}
+.elo-big{font-size:24px;font-weight:900;font-family:Arial, Helvetica, sans-serif}
 .chart-toggles{display:flex;gap:6px;margin:10px 0}
 .chart-toggle{flex:1;padding:6px;border:0;border-radius:8px;background:#1a1d24;color:#e8ecf1;cursor:pointer;font-size:13px;font-weight:700}
 .chart-toggle.active{background:#03eaff;color:#1a1d24}
@@ -161,12 +163,20 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .email-row input{flex:1}
 .verified{font-size:18px}
 .btn.secondary{background:#262a33;color:#e8ecf1;padding:12px;width:100%;font-size:16px;margin-top:8px;border:1px solid #333}
-.edit-actions{display:flex;gap:12px;margin-top:12px}
+.edit-actions{display:flex;gap:12px;margin-top:6px}
 .edit-actions .btn{flex:1;margin-top:0}
 .edit-photo{display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:12px}
-.edit-password{margin-top:24px}
+.edit-pfp-wrap{position:relative;cursor:pointer}
+.edit-pfp-wrap .pfp{filter:grayscale(0.7) brightness(0.65)}
+.edit-pfp-pencil{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.edit-pfp-pencil svg{filter:drop-shadow(0 1px 2px rgba(0,0,0,0.8))}
+.edit-photo .link{margin-top:0}
+.edit-field{display:flex;align-items:center;gap:10px;margin:6px 0}
+.edit-field label{flex:0 0 88px;color:#b3b2b1;font-size:14px}
+.edit-field input{margin:0;min-width:0}
+.edit-password{margin-top:12px}
 .btn.cancel{background:transparent;color:#03eaff;border:2px solid #03eaff;padding:12px;font-size:17px}
-.btn.blue-border{background:#3a3f4b;color:#e8ecf1;border:2px solid #03eaff;padding:12px;width:100%;font-size:17px;margin-top:10px}
+.btn.blue-border{background:transparent;color:#03eaff;border:2px solid #03eaff;padding:12px;width:100%;font-size:17px;margin-top:10px}
 .mini-btn{background:#03eaff;color:#1a1d24;border:0;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px}
 .mini-btn.grey{background:#3a3f4b}
 .mini-btn:disabled{background:#3a3f4b;color:#b3b2b1;cursor:not-allowed}
@@ -185,7 +195,7 @@ html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-
 .cell.drop-target{outline:none}
 
 
-.play-bubble{position:absolute;bottom:-10px;right:-10px;background:#ffd166;color:#222;font-size:12px;font-weight:800;padding:2px 6px;border-radius:10px;z-index:50}
+.play-bubble{position:absolute;bottom:-10px;right:-10px;background:#ffd166;color:#1a1d24;font-size:12px;font-weight:800;padding:2px 6px;border-radius:10px;z-index:50}
 .rack.instant .tile{transition:none}
 
 /* Countdown sits over the board only, so the number is in the exact

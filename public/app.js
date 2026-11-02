@@ -224,7 +224,7 @@ function boardCell(r, c) { return game.board[r][c]; }
 function tileSVG(letter) {
   const val = ({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter];
   const gid = 'tg' + (tileSVG.n = (tileSVG.n || 0) + 1);
-  return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#7df3ff"/><stop offset="50%" stop-color="#03eaff"/><stop offset="100%" stop-color="#00b8d2"/></linearGradient></defs><rect x="0.5" y="0.5" width="99" height="99" rx="9" fill="url(#${gid})" stroke="rgba(0,90,110,0.4)"/><text x="46" y="76" text-anchor="middle" font-family="Comfortaa, sans-serif" font-weight="700" font-size="58" fill="#1a1d24" stroke="#1a1d24" stroke-width="3" stroke-linejoin="round" paint-order="stroke">${letter}</text><text x="90" y="28" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="28" fill="#1a1d24">${val}</text></svg>`;
+  return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#7df3ff"/><stop offset="50%" stop-color="#03eaff"/><stop offset="100%" stop-color="#00b8d2"/></linearGradient></defs><rect x="0.5" y="0.5" width="99" height="99" rx="9" fill="url(#${gid})" stroke="rgba(0,90,110,0.4)"/><text x="46" y="76" text-anchor="middle" font-family="Comfortaa, sans-serif" font-weight="700" font-size="58" fill="#1a1d24" stroke="#1a1d24" stroke-width="3" stroke-linejoin="round" paint-order="stroke">${letter}</text><text x="90" y="28" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="28" fill="#1a1d24" stroke="#1a1d24" stroke-width="2" stroke-linejoin="round" paint-order="stroke">${val}</text></svg>`;
 }
 function renderGame() {
   if (!game) return;
@@ -1243,6 +1243,9 @@ function formatJoined(createdAt) {
   const d = new Date(createdAt);
   return isNaN(d) ? createdAt : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short' });
 }
+// Numbers render Arial/Helvetica while words stay Comfortaa: wrap digit
+// runs in .num spans (the .num rule already covers profile numbers).
+function numify(s) { return String(s).replace(/\d+/g, d => `<span class="num">${d}</span>`); }
 async function renderProfileUI() {
   // Sign-in is required: no token, or a rejected session, goes to auth.
   if (!token) { setAuthMode('signin'); show('authScreen'); return; }
@@ -1257,7 +1260,7 @@ async function renderProfileUI() {
   $('profilePfp').innerHTML = u.photoData ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44);
   $('profileName').textContent = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
   $('profileUsername').textContent = '@' + u.username;
-  $('profileJoined').textContent = 'Joined ' + formatJoined(u.createdAt);
+  $('profileJoined').innerHTML = 'Joined ' + numify(formatJoined(u.createdAt));
   $('profileElo').textContent = u.elo;
   $('profileEloHigh').textContent = u.eloHigh;
   renderStatsList(); drawEloChart();
@@ -1273,7 +1276,7 @@ function renderStatsList() {
     ['Games played', st.gamesPlayed], ['Lifetime record', st.record || '0W-0L'],
     ['Optimal move %', st.optimalPct + '%'], ['Unique words played', st.uniqueWords],
   ];
-  $('statsList').innerHTML = lines.map(([k, v]) => `<div class="stat-line"><span>${k}</span><b>${v}</b></div>`).join('');
+  $('statsList').innerHTML = lines.map(([k, v]) => `<div class="stat-line"><span>${k}</span><b>${numify(v)}</b></div>`).join('');
 }
 function drawEloChart() {
   const cv = $('eloChart'); if (!cv || !profileData) return;
@@ -1296,7 +1299,7 @@ $('gearBtn').onclick = async () => {
   if (!profileData) await renderProfileUI();
   if (!profileData) return;
   const u = profileData.user;
-  $('editFirstName').value = u.firstName; $('editLastName').value = u.lastName; $('editUsername').value = u.username; $('editError').textContent = '';
+  $('editFirstName').value = u.firstName; $('editLastName').value = u.lastName; $('editUsername').value = u.username; $('editEmail').value = u.email || ''; $('editError').textContent = '';
   editPhotoData = undefined;
   $('editPfp').innerHTML = u.photoData ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44);
   $('editPhotoRemoveBtn').classList.toggle('hidden', !u.photoData);
@@ -1306,7 +1309,7 @@ $('gearBtn').onclick = async () => {
   show('profileEditScreen');
 };
 let editPhotoData;
-$('editPhotoBtn').onclick = () => $('editPhotoInput').click();
+$('editPfpWrap').onclick = () => $('editPhotoInput').click();
 $('editPhotoInput').onchange = () => {
   const f = $('editPhotoInput').files && $('editPhotoInput').files[0];
   if (!f) return;
@@ -1329,11 +1332,13 @@ $('editPhotoRemoveBtn').onclick = () => {
 $('editCancelBtn').onclick = () => show('profileScreen');
 $('profileEditForm').onsubmit = async e => {
   e.preventDefault();
-  const fn = $('editFirstName').value.trim(), ln = $('editLastName').value.trim(), un = $('editUsername').value.trim();
+  const fn = $('editFirstName').value.trim(), ln = $('editLastName').value.trim(), un = $('editUsername').value.trim(), em = $('editEmail').value.trim().toLowerCase();
   if (!fn) { $('editError').textContent = 'Add a first name.'; return; }
   if (!/^[a-z0-9_]{3,}$/.test(un)) { $('editError').textContent = 'Usernames are 3+ lowercase letters, numbers, or underscores.'; return; }
+  if (em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { $('editError').textContent = 'Enter a valid email.'; return; }
   try {
     const body = { firstName: fn, lastName: ln, username: un };
+    if (em) body.email = em;
     if (editPhotoData !== undefined) body.photoData = editPhotoData;
     const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify(body) });
     me = d.user; profileData = null;

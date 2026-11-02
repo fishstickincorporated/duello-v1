@@ -155,3 +155,28 @@ Jeff does this himself, later, when bot play is right:
 Friends backend, Google/Apple OAuth, ads, and payments. (Real accounts,
 the profile tab, and password change landed Nov 2, 2026; the friends
 tab's Global scope is real users, its Friends scope awaits the backend.)
+
+## Profile/friends polish + stats rules (Nov 2, 2026, cache v9)
+
+- Profile tab: all numbers Arial/Helvetica (Elo + all-time high via
+  CSS; stat values and the Joined year via .num spans on digit runs).
+  Elo and all-time high sit side by side in a flex row. More space
+  between username and Joined; less space above/below the gear.
+- Edit screen: photo change is a pencil over the greyed-out pfp
+  (tap the pfp to pick); Remove photo sits right below the pfp.
+  First name / Last name / Username / Email carry labels beside the
+  inputs. Tighter spacing after the username field and after the
+  Cancel/Save row. New email field (server validates format +
+  uniqueness; no verification code on change — a mistyped address
+  would lock the account out, so an email-change verification step
+  is a possible follow-up). Change password button now matches the
+  other buttons: transparent, Duello blue border and blue text.
+- Friends tab: the "Global shows real registered users" footer is
+  gone; the friends tab icon's second person is Duello blue.
+- Points bubble text is #1a1d24 (was #222, near-black).
+- Tile values carry a 2px same-color stroke (paint-order stroke) so
+  thin glyphs like 1 read at the same weight as 3/4/5.
+- Stats: Fishstick matches no longer count toward win-loss record or
+  games played (other per-game stats still include them). Average
+  game score counts only games where the player's own clock fully
+  expired (saved clocks.human <= 0); games ended early are excluded.

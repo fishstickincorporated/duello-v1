@@ -40,7 +40,6 @@
     </div>
     <div id="leaderboardList" class="leaderboard"></div>
     <div id="noFriendsCard" class="no-friends-card hidden">No friends yet…</div>
-    <p class="small">Global shows real registered users. Friend requests land with the friends backend.</p>
   </section>
 
   <section id="profileScreen" class="screen hidden">
@@ -52,8 +51,10 @@
       <button class="gear-btn" id="gearBtn" title="Edit profile"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M10.5 4.5 L10.6 2.1 L13.4 2.1 L13.5 4.5 L16.2 5.7 L18.0 4.0 L20.0 6.0 L18.3 7.8 L19.5 10.5 L21.9 10.6 L21.9 13.4 L19.5 13.5 L18.3 16.2 L20.0 18.0 L18.0 20.0 L16.2 18.3 L13.5 19.5 L13.4 21.9 L10.6 21.9 L10.5 19.5 L7.8 18.3 L6.0 20.0 L4.0 18.0 L5.7 16.2 L4.5 13.5 L2.1 13.4 L2.1 10.6 L4.5 10.5 L5.7 7.8 L4.0 6.0 L6.0 4.0 L7.8 5.7 Z M 8.4 12.0 a 3.6 3.6 0 1 0 7.2 0 a 3.6 3.6 0 1 0 -7.2 0" fill="#b3b2b1" fill-rule="evenodd"/></svg></button>
     </div>
     <div class="elo-box">
-      <div><span class="elo-label">Elo</span><div class="elo-big" id="profileElo"></div></div>
-      <div><span class="elo-label">All-time high</span><div class="elo-big" id="profileEloHigh"></div></div>
+      <div class="elo-row">
+        <div><span class="elo-label">Elo</span><div class="elo-big" id="profileElo"></div></div>
+        <div><span class="elo-label">All-time high</span><div class="elo-big" id="profileEloHigh"></div></div>
+      </div>
       <div class="chart-toggles">
         <button class="chart-toggle active" data-range="1m">1 month</button>
         <button class="chart-toggle" data-range="1y">1 year</button>
@@ -76,14 +77,17 @@
     <h1 class="auth-heading">Edit profile</h1>
     <form id="profileEditForm">
       <div class="edit-photo">
-        <div class="pfp huge" id="editPfp"></div>
+        <div class="edit-pfp-wrap" id="editPfpWrap" title="Change photo">
+          <div class="pfp huge" id="editPfp"></div>
+          <span class="edit-pfp-pencil"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M16.5 4.5 L19.5 7.5 L8 19 L3 20 L4 15 Z" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 7 L17 10" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+        </div>
         <input id="editPhotoInput" type="file" accept="image/*" class="hidden">
-        <button class="link" id="editPhotoBtn" type="button">Change photo</button>
         <button class="link hidden" id="editPhotoRemoveBtn" type="button">Remove photo</button>
       </div>
-      <input id="editFirstName" placeholder="First name">
-      <input id="editLastName" placeholder="Last name">
-      <input id="editUsername" placeholder="Username">
+      <div class="edit-field"><label for="editFirstName">First name</label><input id="editFirstName" placeholder="First name"></div>
+      <div class="edit-field"><label for="editLastName">Last name</label><input id="editLastName" placeholder="Last name"></div>
+      <div class="edit-field"><label for="editUsername">Username</label><input id="editUsername" placeholder="Username"></div>
+      <div class="edit-field"><label for="editEmail">Email</label><input id="editEmail" type="email" placeholder="Email" autocomplete="email"></div>
       <p id="editError" class="error"></p>
       <div class="edit-actions">
         <button class="btn cancel" type="button" id="editCancelBtn">Cancel</button>
@@ -199,8 +203,8 @@
 
   <nav id="tabBar" class="tab-bar hidden" aria-label="Main navigation">
     <button class="tab-btn active" id="tabHome" aria-label="Home"><svg viewBox="0 0 24 24" width="28" height="28"><path d="M3 11 L12 3 L21 11 L21 21 L14 21 L14 14 L10 14 L10 21 L3 21 Z" fill="#b3b2b1"/><rect x="10.5" y="16" width="3" height="5" fill="#03eaff"/></svg></button>
-    <button class="tab-btn" id="tabFriends" aria-label="Friends"><svg viewBox="0 0 24 24" width="28" height="28"><circle cx="8" cy="8" r="3" fill="#b3b2b1"/><circle cx="16" cy="8" r="3" fill="#b3b2b1"/><path d="M3 20 C3 16 5 14 8 14 C11 14 13 16 13 20 Z" fill="#b3b2b1"/><path d="M11 20 C11 16 13 14 16 14 C19 14 21 16 21 20 Z" fill="#7d8597"/></svg></button>
+    <button class="tab-btn" id="tabFriends" aria-label="Friends"><svg viewBox="0 0 24 24" width="28" height="28"><circle cx="8" cy="8" r="3" fill="#b3b2b1"/><circle cx="16" cy="8" r="3" fill="#03eaff"/><path d="M3 20 C3 16 5 14 8 14 C11 14 13 16 13 20 Z" fill="#b3b2b1"/><path d="M11 20 C11 16 13 14 16 14 C19 14 21 16 21 20 Z" fill="#03eaff"/></svg></button>
     <button class="tab-btn" id="tabProfile" aria-label="Profile"><span id="tabProfileIcon"><svg viewBox="0 0 24 24" width="28" height="28"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#03eaff" opacity="0.85"/></svg></span></button>
   </nav>
 </div>
-<script src="/app.js?v=8"></script></body></html>
+<script src="/app.js?v=9"></script></body></html>

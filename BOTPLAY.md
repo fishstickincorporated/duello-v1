@@ -25,8 +25,10 @@ Bot play only. Sign-in is required before entering the app since Nov 2, 2026: wi
   `/shuffle`, `GET /api/define`, `GET /api/words`.
 - Out of scope, removed in this slice: friends backend and leaderboards,
   `/api/me/password` (password change), and any friends UI backend. A
-  friends/global leaderboard tab UI was added Nov 2, 2026 (mock data
-  only, no backend). Real accounts landed Nov 2, 2026: email/password
+  friends/global leaderboard tab UI was added Nov 2, 2026. Its mock
+  data was removed Nov 2, 2026: the Friends scope is empty until the
+  friends backend lands, and Global is real registered users, top by
+  Elo, from `GET /api/leaderboard` (guest rows excluded). Real accounts landed Nov 2, 2026: email/password
   signup, sign-in, sign-out, `GET /api/me`, `POST /api/me/update`, and
   real profile stats from finished games. Email-verified signup landed
   Nov 2, 2026: `POST /api/auth/request-code` emails a 6-digit code via
@@ -146,6 +148,6 @@ Jeff does this himself, later, when bot play is right:
 
 ## Later slices (NOT in this task)
 
-Friends backend, password change (reset is built), Google/Apple OAuth, ads, and
-payments. (Real accounts and the profile tab landed Nov 2, 2026; the
-friends tab UI is mock-only until its backend lands.)
+Friends backend, Google/Apple OAuth, ads, and payments. (Real accounts,
+the profile tab, and password change landed Nov 2, 2026; the friends
+tab's Global scope is real users, its Friends scope awaits the backend.)

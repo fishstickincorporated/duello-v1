@@ -1352,6 +1352,15 @@ const server = http.createServer(async (req, res) => {
       else await q('DELETE FROM sessions WHERE user_id=$1', [user.id]);
       return sendJson(res, 200, { ok: true });
     }
+    if (pathname === '/api/leaderboard' && req.method === 'GET') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      // Real registered users, top by Elo. Guest rows are not accounts
+      // and never appear; photos ride along so the leaderboard can
+      // render pfps without a second lookup.
+      const r = await q(`SELECT username, first_name, last_name, elo, photo_data FROM users WHERE email NOT LIKE '%@guest.local' ORDER BY elo DESC, created_at ASC LIMIT 20`);
+      return sendJson(res, 200, { users: r.rows.map(u => ({ username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, photoData: u.photo_data || null })) });
+    }
     if (pathname === '/api/define' && req.method === 'GET') {
       return sendJson(res, 200, await getDefinition(url.searchParams.get('word') || ''));
     }

@@ -145,8 +145,8 @@ async function profileStatsFor(userId) {
         if (m.isOptimal) st.optimalMoves++;
         for (const w of (m.words || [])) {
           wordScoreSum += w.score || 0; wordCount++;
-          if ((w.score || 0) > 50) st.wordsOver50++;
-          if ((w.score || 0) > 100) st.wordsOver100++;
+          if ((w.score || 0) >= 50) st.wordsOver50++;
+          if ((w.score || 0) >= 100) st.wordsOver100++;
           if ((w.score || 0) > st.highestWordScore) st.highestWordScore = w.score || 0;
           if (w.word && w.word.length > st.longestWordLen) { st.longestWordLen = w.word.length; st.longestWord = w.word; }
           uniq.add(w.word);

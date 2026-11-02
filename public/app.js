@@ -1299,7 +1299,7 @@ function renderStatsList() {
   const lines = [
     ['Average game score', st.avgGameScore], ['Highest game score', st.highestGameScore],
     ['Average word score', st.avgWordScore], ['Highest word score', st.highestWordScore],
-    ['>50 point words', st.wordsOver50], ['>100 point words', st.wordsOver100],
+    ['50+ point words', st.wordsOver50], ['100+ point words', st.wordsOver100],
     ['Longest word', st.longestWord ? `${st.longestWord} (${st.longestWordLen} letters)` : '—'],
     ['Games played', st.gamesPlayed], ['Lifetime record', st.record || '0W-0L'],
     ['Optimal move %', st.optimalPct + '%'], ['Unique words played', st.uniqueWords],

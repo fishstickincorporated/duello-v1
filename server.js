@@ -16,8 +16,18 @@
 // auth screen, and signing up from there creates a brand-new account,
 // leaving the guest row orphaned and inert. No OAuth yet — Google/Apple
 // sign-in is a separate integration.
+// Signup is email-verified in three steps: (1) POST /api/auth/request-code
+// emails a 6-digit code, (2) POST /api/auth/verify-code checks it and
+// returns a verified token, (3) POST /api/signup requires that token and
+// creates the account. Codes are scrypt hashes in the verification_codes
+// table, expire after 10 minutes, allow 5 wrong guesses, and a new request
+// replaces the old code (60-second cooldown per email). Sending uses
+// Resend (api.resend.com) with RESEND_API_KEY from the environment and the
+// verified domain duellogame.com; without the key, request-code fails
+// cleanly and the rest of the app keeps running.
 'use strict';
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -126,6 +136,29 @@ async function authUser(req) {
 }
 
 function isGuestUser(u) { return !!u && typeof u.email === 'string' && u.email.endsWith('@guest.local'); }
+
+// ---------- Email verification (Resend) ----------
+const CODE_TTL_MS = 10 * 60 * 1000;
+const VERIFIED_TTL_MS = 30 * 60 * 1000;
+const CODE_COOLDOWN_MS = 60 * 1000;
+const CODE_MAX_ATTEMPTS = 5;
+function sendResendEmail(to, subject, text) {
+  return new Promise((resolve, reject) => {
+    const key = process.env.RESEND_API_KEY;
+    if (!key) return reject(new Error('Email sending is not set up yet.'));
+    const body = JSON.stringify({ from: 'Duello <noreply@duellogame.com>', to: [to], subject, text, html: '<p>' + text.replace(/</g, '&lt;') + '</p>' });
+    const req = https.request({ hostname: 'api.resend.com', path: '/emails', method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (res) => {
+      let data = '';
+      res.on('data', c => { data += c; });
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) { try { resolve(JSON.parse(data || '{}')); } catch { resolve({}); } }
+        else reject(new Error('Resend rejected the email (' + res.statusCode + ').'));
+      });
+    });
+    req.on('error', reject);
+    req.write(body); req.end();
+  });
+}
 // Profile stats, ported from the main build: finished games only, from the
 // games.state JSONB. All bot-play games are bot games, so vsHumans is
 // empty by construction until real multiplayer exists.
@@ -1083,6 +1116,51 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600', 'ETag': etag });
       return fs.createReadStream(wordsFile).pipe(res);
     }
+    if (pathname === '/api/auth/request-code' && req.method === 'POST') {
+      const b = await readBody(req);
+      const email = String(b.email || '').trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return sendJson(res, 400, { error: 'Enter a valid email.' });
+      const byEmail = await getUserByEmail(email);
+      if (byEmail) return sendJson(res, 400, { error: 'That email is already registered. Sign in instead.' });
+      const existing = (await q('SELECT * FROM verification_codes WHERE email=$1', [email])).rows[0];
+      if (existing && existing.requested_at && Date.now() - new Date(existing.requested_at).getTime() < CODE_COOLDOWN_MS) {
+        return sendJson(res, 400, { error: 'A code was just sent. Wait a minute before requesting another.' });
+      }
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = hashPassword(code, salt);
+      const expires = new Date(Date.now() + CODE_TTL_MS);
+      await q('INSERT INTO verification_codes (email, code_salt, code_hash, attempts, expires_at, requested_at, verified_token, verified_expires_at) VALUES ($1,$2,$3,0,$4,now(),NULL,NULL) ON CONFLICT (email) DO UPDATE SET code_salt=$2, code_hash=$3, attempts=0, expires_at=$4, requested_at=now(), verified_token=NULL, verified_expires_at=NULL', [email, salt, hash, expires]);
+      try {
+        await sendResendEmail(email, 'Your Duello verification code', 'Your Duello verification code is ' + code + '. It expires in 10 minutes.');
+      } catch (e) {
+        await q('DELETE FROM verification_codes WHERE email=$1', [email]);
+        return sendJson(res, 503, { error: 'Could not send the code. Try again.' });
+      }
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/auth/verify-code' && req.method === 'POST') {
+      const b = await readBody(req);
+      const email = String(b.email || '').trim().toLowerCase();
+      const code = String(b.code || '').trim();
+      const row = (await q('SELECT * FROM verification_codes WHERE email=$1', [email])).rows[0];
+      if (!row || !row.code_hash) return sendJson(res, 400, { error: 'No code was requested for this email.' });
+      if (new Date(row.expires_at).getTime() < Date.now()) {
+        await q('DELETE FROM verification_codes WHERE email=$1', [email]);
+        return sendJson(res, 400, { error: 'That code expired. Request a new one.' });
+      }
+      if (row.attempts >= CODE_MAX_ATTEMPTS) {
+        await q('DELETE FROM verification_codes WHERE email=$1', [email]);
+        return sendJson(res, 400, { error: 'Too many wrong tries. Request a new code.' });
+      }
+      if (hashPassword(code, row.code_salt) !== row.code_hash) {
+        await q('UPDATE verification_codes SET attempts=attempts+1 WHERE email=$1', [email]);
+        return sendJson(res, 400, { error: 'That code is not right.' });
+      }
+      const verifiedToken = crypto.randomBytes(32).toString('hex');
+      await q('UPDATE verification_codes SET code_salt=NULL, code_hash=NULL, attempts=0, verified_token=$2, verified_expires_at=$3 WHERE email=$1', [email, verifiedToken, new Date(Date.now() + VERIFIED_TTL_MS)]);
+      return sendJson(res, 200, { verifiedToken });
+    }
     if (pathname === '/api/signup' && req.method === 'POST') {
       const b = await readBody(req);
       const email = String(b.email || '').trim().toLowerCase();
@@ -1094,6 +1172,13 @@ const server = http.createServer(async (req, res) => {
       if (!/^[a-z0-9_]{3,}$/.test(username)) return sendJson(res, 400, { error: 'Username: lowercase letters, numbers, and underscores only, at least 3 characters.' });
       if (!firstName || !lastName) return sendJson(res, 400, { error: 'First and last name are required.' });
       if (password.length < 8) return sendJson(res, 400, { error: 'Password must be at least 8 characters.' });
+      // Signup requires a verified email: the verified token from
+      // /api/auth/verify-code, single use, 30-minute expiry.
+      const verifiedToken = String(b.verifiedToken || '');
+      const vrow = (await q('SELECT * FROM verification_codes WHERE email=$1', [email])).rows[0];
+      if (!verifiedToken || !vrow || vrow.verified_token !== verifiedToken || !vrow.verified_expires_at || new Date(vrow.verified_expires_at).getTime() < Date.now()) {
+        return sendJson(res, 400, { error: 'Verify your email with a code first.' });
+      }
       const current = await authUser(req);
       if (current) return sendJson(res, 400, { error: 'You are already signed in.' });
       const byEmail = await getUserByEmail(email);
@@ -1109,6 +1194,8 @@ const server = http.createServer(async (req, res) => {
       const user = await getUserById(r.rows[0].id);
       const token = crypto.randomBytes(32).toString('hex');
       await q('INSERT INTO sessions (token, user_id) VALUES ($1,$2)', [token, user.id]);
+      // The verified token is single use: the code is spent.
+      await q('DELETE FROM verification_codes WHERE email=$1', [email]);
       return sendJson(res, 200, { token, user: publicUser(user) });
     }
     if (pathname === '/api/signin' && req.method === 'POST') {

@@ -1341,31 +1341,64 @@ $('profileSignOutBtn').onclick = async () => {
   setAuthMode('signin'); show('authScreen');
 };
 let authMode = 'signin';
+let suEmail = '', suVerifiedToken = '';
 function setAuthMode(mode) {
   authMode = mode;
   $('authHeading').textContent = mode === 'signup' ? 'Sign up' : 'Sign in';
-  $('authSubmitBtn').textContent = mode === 'signup' ? 'Sign up' : 'Sign in';
+  $('authForm').classList.toggle('hidden', mode !== 'signin');
+  $('signupSteps').classList.toggle('hidden', mode !== 'signup');
   $('authToggleBtn').textContent = mode === 'signup' ? 'Already have an account? Sign in' : 'Need an account? Sign up';
-  $('signupFields').classList.toggle('hidden', mode !== 'signup');
-  $('authPassword').setAttribute('autocomplete', mode === 'signup' ? 'new-password' : 'current-password');
   $('authError').textContent = '';
+  if (mode === 'signup') showSignupStep('email');
+}
+function showSignupStep(step) {
+  ['Email', 'Code', 'Profile'].forEach(s => $('signupStep' + s).classList.toggle('hidden', s.toLowerCase() !== step));
+  ['suError', 'suError2', 'suError3'].forEach(id => { $(id).textContent = ''; });
 }
 $('authToggleBtn').onclick = () => setAuthMode(authMode === 'signup' ? 'signin' : 'signup');
 $('authForm').onsubmit = async e => {
   e.preventDefault(); $('authError').textContent = '';
   const email = $('authEmail').value.trim(), password = $('authPassword').value;
   try {
-    let d;
-    if (authMode === 'signup') {
-      const firstName = $('authFirstName').value.trim(), lastName = $('authLastName').value.trim(), username = $('authUsername').value.trim();
-      if (!firstName || !lastName) throw new Error('First and last name are required.');
-      if (!/^[a-z0-9_]{3,}$/.test(username)) throw new Error('Username: lowercase letters, numbers, and underscores only, at least 3 characters.');
-      if (password.length < 8) throw new Error('Password must be at least 8 characters.');
-      d = await api('/api/signup', { method: 'POST', body: JSON.stringify({ firstName, lastName, username, email, password }) });
-    } else {
-      d = await api('/api/signin', { method: 'POST', body: JSON.stringify({ email, password }) });
-    }
+    const d = await api('/api/signin', { method: 'POST', body: JSON.stringify({ email, password }) });
     token = d.token; localStorage.setItem('duello_token', token); me = d.user; profileData = null;
     show('homeScreen');
   } catch (err) { $('authError').textContent = err.message || 'Something went wrong.'; }
+};
+$('suSendBtn').onclick = async () => {
+  $('suError').textContent = '';
+  suEmail = $('suEmail').value.trim();
+  try {
+    await api('/api/auth/request-code', { method: 'POST', body: JSON.stringify({ email: suEmail }) });
+    showSignupStep('code');
+  } catch (err) { $('suError').textContent = err.message || 'Something went wrong.'; }
+};
+$('suResendBtn').onclick = async () => {
+  $('suError2').textContent = '';
+  try {
+    await api('/api/auth/request-code', { method: 'POST', body: JSON.stringify({ email: suEmail }) });
+    $('suError2').textContent = 'New code sent.';
+  } catch (err) { $('suError2').textContent = err.message || 'Something went wrong.'; }
+};
+$('suBackBtn').onclick = () => showSignupStep('email');
+$('suVerifyBtn').onclick = async () => {
+  $('suError2').textContent = '';
+  const code = $('suCode').value.trim();
+  try {
+    const d = await api('/api/auth/verify-code', { method: 'POST', body: JSON.stringify({ email: suEmail, code }) });
+    suVerifiedToken = d.verifiedToken;
+    showSignupStep('profile');
+  } catch (err) { $('suError2').textContent = err.message || 'Something went wrong.'; }
+};
+$('suCreateBtn').onclick = async () => {
+  $('suError3').textContent = '';
+  const firstName = $('suFirstName').value.trim(), lastName = $('suLastName').value.trim(), username = $('suUsername').value.trim(), password = $('suPassword').value;
+  try {
+    if (!firstName || !lastName) throw new Error('First and last name are required.');
+    if (!/^[a-z0-9_]{3,}$/.test(username)) throw new Error('Username: lowercase letters, numbers, and underscores only, at least 3 characters.');
+    if (password.length < 8) throw new Error('Password must be at least 8 characters.');
+    const d = await api('/api/signup', { method: 'POST', body: JSON.stringify({ firstName, lastName, username, email: suEmail, password, verifiedToken: suVerifiedToken }) });
+    token = d.token; localStorage.setItem('duello_token', token); me = d.user; profileData = null;
+    show('homeScreen');
+  } catch (err) { $('suError3').textContent = err.message || 'Something went wrong.'; }
 };

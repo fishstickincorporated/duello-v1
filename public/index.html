@@ -88,16 +88,34 @@
   <section id="authScreen" class="screen hidden">
     <h1 class="auth-heading" id="authHeading">Sign in</h1>
     <form id="authForm">
-      <div id="signupFields" class="hidden">
-        <input id="authFirstName" placeholder="First name">
-        <input id="authLastName" placeholder="Last name">
-        <input id="authUsername" placeholder="Username">
-      </div>
       <input id="authEmail" type="email" placeholder="Email" autocomplete="email">
       <input id="authPassword" type="password" placeholder="Password" autocomplete="current-password">
       <p id="authError" class="error"></p>
       <button class="btn primary" type="submit" id="authSubmitBtn">Sign in</button>
     </form>
+    <div id="signupSteps" class="hidden">
+      <div id="signupStepEmail">
+        <input id="suEmail" type="email" placeholder="Email" autocomplete="email">
+        <p id="suError" class="error"></p>
+        <button class="btn primary" id="suSendBtn" type="button">Send code</button>
+        <p>We will email you a 6-digit code.</p>
+      </div>
+      <div id="signupStepCode" class="hidden">
+        <input id="suCode" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="one-time-code">
+        <p id="suError2" class="error"></p>
+        <button class="btn primary" id="suVerifyBtn" type="button">Verify</button>
+        <button class="link" id="suResendBtn" type="button">Send a new code</button>
+        <button class="link" id="suBackBtn" type="button">Use a different email</button>
+      </div>
+      <div id="signupStepProfile" class="hidden">
+        <input id="suFirstName" placeholder="First name">
+        <input id="suLastName" placeholder="Last name">
+        <input id="suUsername" placeholder="Username">
+        <input id="suPassword" type="password" placeholder="Password" autocomplete="new-password">
+        <p id="suError3" class="error"></p>
+        <button class="btn primary" id="suCreateBtn" type="button">Create account</button>
+      </div>
+    </div>
     <button class="link" id="authToggleBtn">Need an account? Sign up</button>
   </section>
 
@@ -146,4 +164,4 @@
     <button class="tab-btn" id="tabProfile" aria-label="Profile"><span id="tabProfileIcon"><svg viewBox="0 0 24 24" width="28" height="28"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#03eaff" opacity="0.85"/></svg></span></button>
   </nav>
 </div>
-<script src="/app.js"></script></body></html>
+<script src="/app.js?v=2"></script></body></html>

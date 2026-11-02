@@ -28,7 +28,14 @@ Bot play only. Sign-in is required before entering the app since Nov 2, 2026: wi
   friends/global leaderboard tab UI was added Nov 2, 2026 (mock data
   only, no backend). Real accounts landed Nov 2, 2026: email/password
   signup, sign-in, sign-out, `GET /api/me`, `POST /api/me/update`, and
-  real profile stats from finished games. Guests are not an option at
+  real profile stats from finished games. Email-verified signup landed
+  Nov 2, 2026: `POST /api/auth/request-code` emails a 6-digit code via
+  Resend (verified domain duellogame.com, `RESEND_API_KEY` env var),
+  `POST /api/auth/verify-code` checks it and returns a verified token,
+  and `POST /api/signup` requires that token. Codes are scrypt hashes
+  in `verification_codes`, expire after 10 minutes, allow 5 wrong
+  guesses, and a new request replaces the old code (60-second cooldown).
+  Guests are not an option at
   all: POST /api/guest was removed Nov 2, 2026, and a session issued to
   a guest before that authenticates nothing anymore — loading the app
   with one shows the auth screen, and signing up from there creates a

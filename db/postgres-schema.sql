@@ -23,3 +23,9 @@ CREATE TABLE IF NOT EXISTS elo_history (
   id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), game_id INTEGER,
   elo_after INTEGER NOT NULL, delta INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS verification_codes (
+  email TEXT PRIMARY KEY, code_salt TEXT, code_hash TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  expires_at TIMESTAMPTZ, requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  verified_token TEXT, verified_expires_at TIMESTAMPTZ
+);

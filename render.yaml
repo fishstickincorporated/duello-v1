@@ -26,3 +26,9 @@ services:
         value: production
       - key: DATABASE_URL
         sync: false
+      # RESEND_API_KEY is dashboard-managed too (sync: false): the server
+      # reads it to send signup verification codes via Resend. Never put
+      # the key value in this file or in git. The live service is not
+      # created from this blueprint, so set it in the Render dashboard.
+      - key: RESEND_API_KEY
+        sync: false

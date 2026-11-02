@@ -1135,15 +1135,39 @@ const server = http.createServer(async (req, res) => {
         const isFirst = boardIsEmpty(game.board);
         const v = validatePlay(game.board, game.humanRack, placements, game.premiums, isFirst);
         if (!v.valid) return sendJson(res, 400, v);
-        const bestMoves = findMoves(game.board, game.humanRack, isFirst, false);
-        const bestScore = bestMoves.length ? bestMoves[0].score : null;
-        applyMove(game, 'human', v, bestScore);
+        // The exhaustive best-move scan is what made the Play reply slow:
+        // the rack sat blank (played slots emptied at the tap, refilled
+        // only by the reply) until the scan finished. So the scan now runs
+        // AFTER the reply is sent, on a snapshot of the pre-move board and
+        // rack, and only patches the move's isOptimal flag on a fresh load
+        // (loading after the scan means bot saves made in between are kept).
+        // The reply itself carries the refilled rack immediately.
+        const preBoard = game.board.map(row => row.slice());
+        const preRack = game.humanRack.slice();
+        const deferredGameId = game.id, deferredUserId = game.userId, deferredScore = v.score;
+        const runDeferredOptimal = () => setImmediate(async () => {
+          try {
+            const bestMoves = findMoves(preBoard, preRack, isFirst, false);
+            const bestScore = bestMoves.length ? bestMoves[0].score : null;
+            const g2 = await loadGameForUser({ id: deferredUserId }, deferredGameId);
+            if (!g2 || !g2.moves || !g2.moves.human || !g2.moves.human.length) return;
+            const last = g2.moves.human[g2.moves.human.length - 1];
+            last.isOptimal = (bestScore !== null && deferredScore === bestScore);
+            await saveGameRow(g2);
+          } catch {}
+        });
+        applyMove(game, 'human', v, null);
         startBotTurn(game);
         game.botThinkUntil = playReqStart + 5000;
         await saveGameRow(game);
         const out = serializeGame(game, user);
         if (game.status === 'finished') out.stats = gameStatsPayload(game);
-        return sendJson(res, 200, out);
+        // Reply first, scan after: the response (with the refilled rack) is
+        // already handed to the socket before the deferred scan runs, so
+        // the scan can no longer hold the rack blank.
+        sendJson(res, 200, out);
+        runDeferredOptimal();
+        return;
       }
       if (req.method === 'POST' && action === 'pass') {
         const passReqStart = Date.now();

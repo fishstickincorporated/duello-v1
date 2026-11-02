@@ -484,9 +484,9 @@ function showBubble(score, mainCells) {
   const cell = cells[target[0] * 10 + target[1]];
   if (!cell) return;
   const b = document.createElement('div'); b.className = 'play-bubble'; b.textContent = score;
-  cell.style.position = 'relative'; cell.appendChild(b);
+  cell.style.position = 'relative'; cell.style.zIndex = '50'; cell.appendChild(b);
 }
-function hideBubble() { document.querySelectorAll('.play-bubble').forEach(e => e.remove()); }
+function hideBubble() { document.querySelectorAll('.play-bubble').forEach(e => { if (e.parentElement) e.parentElement.style.zIndex = ''; e.remove(); }); }
 function placeTile(r, c) {
   if (!canPlaceTiles()) return;
   if (game.board[r][c]) return;

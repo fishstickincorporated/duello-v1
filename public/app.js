@@ -688,10 +688,10 @@ function showStatWindow(stats) {
   $('eloMoveBot').textContent = '';
   $('eloMoveBot').className = 'elo-move';
   const row = (label, h, b) => `<div class="stat-row"><span class="stat-label">${label}</span><span>${h}</span><span>${b}</span></div>`;
-  const best = (x) => x.best ? `${x.best.word} (${x.best.score} pts)` : '—';
-  const longest = (x) => x.longest ? `${x.longest.word} (${x.longest.word.length} letters)` : '—';
+  const best = (x) => x.best ? `${x.best.word} (<span class="num">${x.best.score} pts</span>)` : '—';
+  const longest = (x) => x.longest ? `${x.longest.word} (<span class="num">${x.longest.word.length} letters</span>)` : '—';
   const opt = (x) => `${x.optimal}/${x.total}`;
-  const box = (name, pfp, st) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp">${pfp}</span><span>${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span> ${opt(st)}</div></div>`;
+  const box = (name, pfp, st) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp">${pfp}</span><span>${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span> <span class="num">${opt(st)}</span></div></div>`;
   const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
   const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.jpeg" alt="Fishstick">' : '🤖';
   $('statGrid').innerHTML = box('You', humanPfp, stats.human) + box(botLabel, botPfpBox, stats.bot);

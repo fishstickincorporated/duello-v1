@@ -222,3 +222,7 @@ itself clips anything left over. */
 .panel .score-col span{text-overflow:clip}
 .stat-box .stat-val{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:400}
 .stat-box .stat-label{font-weight:800}
+
+/* Numbers anywhere in the game are Arial/Helvetica; words and letters stay
+   Comfortaa. Tile point values already use Arial inside their SVG. */
+.num,.score-col span,.clock,.elo,.elo-move,.stat-score,.play-bubble,.countdown-num,.lastplay .pts{font-family:Arial, Helvetica, sans-serif}

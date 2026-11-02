@@ -70,6 +70,7 @@ function show(id) {
   if ((id === 'homeScreen' || id === 'botScreen') && $('tabHome')) $('tabHome').classList.add('active');
   if (id === 'friendsScreen' && $('tabFriends')) $('tabFriends').classList.add('active');
   if ((id === 'profileScreen' || id === 'profileEditScreen') && $('tabProfile')) $('tabProfile').classList.add('active');
+  if (id === 'authScreen') { const ab = $('authBackBtn'); if (ab) ab.classList.toggle('hidden', !token); }
 }
 function silhouetteSVG(size) { return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#b3b2b1"/></svg>`; }
 function pfpHTML(userLike) {
@@ -1263,6 +1264,7 @@ function enablePlacedDrag(el, pend) {
 // their guest profile plus a sign-in button; signing up upgrades the guest
 // row in place, so Elo and game history carry over.
 let profileData = null, statsScope = 'aggregate', chartRange = '1m';
+function isGuestEmail(email) { return typeof email === 'string' && email.endsWith('@guest.local'); }
 function formatJoined(createdAt) {
   const d = new Date(createdAt);
   return isNaN(d) ? createdAt : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -1284,6 +1286,16 @@ async function renderProfileUI() {
   $('profileJoined').textContent = 'Joined ' + formatJoined(u.createdAt);
   $('profileElo').textContent = u.elo;
   $('profileEloHigh').textContent = u.eloHigh;
+  // Pre-existing guests (from before sign-in was required) get the
+  // upgrade button instead of Sign out: signing up from here carries
+  // the guest token, so the account keeps the guest's Elo and games.
+  // Signing out first would abandon the guest, so guests never see it.
+  const guest = isGuestEmail(u.email);
+  $('profileAuthBtn').classList.toggle('hidden', !guest);
+  $('profileSignOutBtn').classList.toggle('hidden', guest);
+  const note = $('profileNote');
+  if (guest) { note.textContent = "You're still on a guest from before sign-in was required. Sign up from here to turn it into a real account — your Elo and games stay."; note.classList.remove('hidden'); }
+  else { note.textContent = ''; note.classList.add('hidden'); }
   renderStatsList(); drawEloChart();
 }
 function renderStatsList() {
@@ -1335,6 +1347,8 @@ $('profileEditForm').onsubmit = async e => {
     show('profileScreen'); renderProfileUI();
   } catch (err) { $('editError').textContent = err.message || 'Could not save.'; }
 };
+$('profileAuthBtn').onclick = () => { setAuthMode('signin'); show('authScreen'); };
+$('authBackBtn').onclick = () => show('profileScreen');
 $('profileSignOutBtn').onclick = async () => {
   try { await api('/api/signout', { method: 'POST' }); } catch {}
   token = ''; localStorage.removeItem('duello_token'); me = null; profileData = null;

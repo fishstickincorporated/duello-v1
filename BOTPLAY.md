@@ -33,7 +33,10 @@ Bot play only. Sign-in is required before entering the app since Nov 2, 2026: wi
   carry over. Sign-in became required Nov 2, 2026: POST /api/guest
   removed; the client shows the auth screen with no valid session, and
   signing out returns to it. Pre-existing guest sessions can still sign
-  up and upgrade in place. No Google/Apple OAuth yet.
+  up and upgrade in place. Guests upgrade from the Profile tab's
+  Sign in / Sign up button, which keeps the guest token attached;
+  signing out first would abandon the guest, so guests see the
+  upgrade button instead of Sign out. No Google/Apple OAuth yet.
 
 Game logic, validation, scoring, and the bot solver were NOT changed
 in behaviour — only the database layer, the auth surface, and the

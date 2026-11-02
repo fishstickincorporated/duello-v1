@@ -263,6 +263,7 @@ function renderGame() {
   const isFish = game.botType === 'fishstick';
   $('botName').textContent = isFish ? 'Fishstick' : 'Bot';
   $('botElo').textContent = isFish ? '∞' : game.botElo;
+  $('botElo').classList.toggle('inf', isFish);
   if (isFish) $('botPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">'; else $('botPfp').textContent = '🤖';
   document.querySelector('.player-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'human');
   document.querySelector('.bot-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'bot');

@@ -380,20 +380,19 @@ function beginBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
   $('status').textContent = game.clocks.human <= 0 ? 'Out of time, opponent plays on.' : 'Waiting for your opponent.';
   if (botTimer) clearTimeout(botTimer);
-  // Perceived think is measured from the tap, not from the server reply:
-  // the Play/Pass POST (including the server's optimal-move scan) used to
-  // stack on top of the 5s, pushing the feel to ~6s. Starting the 5s at the
-  // tap and polling at that mark (the server guard then adds only its
-  // remaining ~network time) lands the word at ~5s, not ~6s.
+  // Perceived think is measured from the tap, not from the server reply.
+  // Think is 5s normally, 2s once the human clock is at 0 (the server
+  // sends its chosen duration as botThinkMs; fall back to the clock rule).
+  const thinkMs = game.botThinkMs || (game.clocks.human <= 0 ? 2000 : 5000);
   if (botTurnTapTime && Date.now() - botTurnTapTime < 10000) {
-    const delay = Math.max(0, 5000 - (Date.now() - botTurnTapTime));
+    const delay = Math.max(0, thinkMs - (Date.now() - botTurnTapTime));
     botTimer = setTimeout(pollBotTurn, delay);
     return;
   }
   // Relative remaining time, less the time since this game state arrived
   // (network + render), so latencies before the timer starts do not stack
-  // on top of the 5s think.
-  const delay = game.botThinkRemainingMs != null ? Math.max(0, game.botThinkRemainingMs - (Date.now() - gameFetchAt)) : 5000;
+  // on top of the think.
+  const delay = game.botThinkRemainingMs != null ? Math.max(0, game.botThinkRemainingMs - (Date.now() - gameFetchAt)) : thinkMs;
   botTimer = setTimeout(pollBotTurn, delay);
 }
 

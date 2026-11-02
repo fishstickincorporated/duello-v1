@@ -482,7 +482,7 @@ function newGame(user, botType) {
     turnStartedAt: Date.now(),
     // Bot think: bot does NOT move instantly. Client shows a 5s wind-down,
     // then fetches; the server only runs the bot once think time has elapsed.
-    botThinkUntil: null,
+    botThinkUntil: null, botThinkMs: null,
     status: 'active', reason: null,
     consecutivePasses: 0, consecutiveNoMoves: 0,
     moves: { human: [], bot: [] },
@@ -490,7 +490,7 @@ function newGame(user, botType) {
     lastHuman: null, lastBot: null,
     eloDeltaHuman: null, eloDeltaBot: null, eloAfterHuman: null, eloAfterBot: null,
   };
-  if (game.turn === 'bot') game.botThinkUntil = Date.now() + 5000;
+  if (game.turn === 'bot') { game.botThinkMs = botThinkMsFor(game); game.botThinkUntil = Date.now() + game.botThinkMs; }
   return game;
 }
 function stripBoard(board) { return board.map(row => row.slice()); }
@@ -521,6 +521,7 @@ function serializeGame(game, user) {
     // client must never compare a Render server clock to the phone clock
     // (skew there added a second poll and pushed the perceived think to ~7s).
     botThinkRemainingMs: game.botThinkUntil ? Math.max(0, game.botThinkUntil - now) : null,
+    botThinkMs: game.botThinkMs || null,
     status: game.status, reason: game.reason,
     lastCells: game.lastCells, lastWord: game.lastWord, lastScore: game.lastScore, lastBy: game.lastBy,
     lastHuman: game.lastHuman, lastBot: game.lastBot,
@@ -691,12 +692,13 @@ function stepBotClockTo20sMark(game) {
 async function advanceBotTurnIfReady(game, user) {
   // Returns true if the bot actually moved (clock should step), false otherwise.
   if (game.status !== 'active' || game.turn !== 'bot') return false;
-  const until = game.botThinkUntil || (game.turnStartedAt + 5000);
-  // 1.5s tolerance: the client polls at 5s from its tap, but the server's
-  // think timer starts when the Play POST arrives (network time later),
-  // so a poll at tap+5s would otherwise miss and need a second poll,
-  // pushing the perceived think to ~7s. Within tolerance the move runs.
-  if (Date.now() < until - 2500) return false;
+  const until = game.botThinkUntil || (game.turnStartedAt + botThinkMsFor(game));
+  // Tolerance is half the think: the client polls at think from its tap,
+  // but the server's think timer starts when the Play POST arrives
+  // (network time later), so a poll at tap+think would otherwise miss and
+  // need a second poll. Within tolerance the move runs.
+  const thinkSpan = until - game.turnStartedAt;
+  if (Date.now() < until - Math.max(500, thinkSpan / 2)) return false;
   if (game.clocks.bot <= 0) { game.turn = 'human'; game.turnStartedAt = Date.now(); game.botThinkUntil = null; return false; }
   settleClock(game);
   const moved = runBotTurn(game);
@@ -705,8 +707,9 @@ async function advanceBotTurnIfReady(game, user) {
   if (await finishIfNeeded(game, user)) { /* finished */ }
   // Timeout loop: if the bot just played and the human's clock is already
   // at 0, do not hand the turn back to a player who cannot move — start
-  // the next bot think immediately, so the bot keeps playing 5s / play /
-  // 15s runoff / 5s / play … until its own clock hits 0 or the game ends.
+  // the next bot think immediately, so the bot keeps playing (2s think
+  // when the human is out of time, otherwise 5s) / play / 15s runoff …
+  // until its own clock hits 0 or the game ends.
   if (game.status === 'active' && game.turn === 'human' && game.clocks.human <= 0 && game.clocks.bot > 0) startBotTurn(game);
   return moved;
 }
@@ -738,8 +741,13 @@ function scheduleBotMove(game) {
     } catch {}
   }, 500);
 }
+// Bot think is 5s normally, but only 2s once the human clock is at 0:
+// with no human moves to wait for, the bot-only stretch should move fast.
+function botThinkMsFor(game) { return game.clocks.human <= 0 ? 2000 : 5000; }
 function startBotTurn(game) {
-  game.turn = 'bot'; game.turnStartedAt = Date.now(); game.botThinkUntil = Date.now() + 5000;
+  game.turn = 'bot'; game.turnStartedAt = Date.now();
+  game.botThinkMs = botThinkMsFor(game);
+  game.botThinkUntil = Date.now() + game.botThinkMs;
   scheduleBotMove(game);
 }
 
@@ -1060,8 +1068,8 @@ const server = http.createServer(async (req, res) => {
             game.turn = game.turn === 'human' ? 'bot' : 'human';
             game.turnStartedAt = Date.now();
             if (game.turn === 'bot') {
-              if (!game.botThinkUntil) game.botThinkUntil = Date.now() + 5000;
-              if (Date.now() >= (game.botThinkUntil || game.turnStartedAt + 5000)) {
+              if (!game.botThinkUntil) { game.botThinkMs = botThinkMsFor(game); game.botThinkUntil = Date.now() + game.botThinkMs; }
+              if (Date.now() >= (game.botThinkUntil || game.turnStartedAt + botThinkMsFor(game))) {
                 const moved = runBotTurn(game);
                 if (moved) stepBotClockTo20sMark(game);
                 game.botThinkUntil = null;
@@ -1088,7 +1096,8 @@ const server = http.createServer(async (req, res) => {
           if (!hm.length && !bm.length && !game.lastHuman && !game.lastBot) {
             game.clocks = { human: 300000, bot: 300000 };
             game.turnStartedAt = Date.now();
-            game.botThinkUntil = game.turn === 'bot' ? Date.now() + 5000 : null;
+            game.botThinkUntil = game.turn === 'bot' ? Date.now() + botThinkMsFor(game) : null;
+            if (game.turn === 'bot') game.botThinkMs = botThinkMsFor(game);
             game.started = true;
             await saveGameRow(game);
             if (game.turn === 'bot') scheduleBotMove(game);
@@ -1158,7 +1167,7 @@ const server = http.createServer(async (req, res) => {
         });
         applyMove(game, 'human', v, null);
         startBotTurn(game);
-        game.botThinkUntil = playReqStart + 5000;
+        game.botThinkUntil = playReqStart + (game.botThinkMs || 5000);
         await saveGameRow(game);
         const out = serializeGame(game, user);
         if (game.status === 'finished') out.stats = gameStatsPayload(game);
@@ -1180,7 +1189,7 @@ const server = http.createServer(async (req, res) => {
         game.consecutiveNoMoves = 0;
         game.lastHuman = { word: null, points: 0, passed: true };
         startBotTurn(game);
-        game.botThinkUntil = passReqStart + 5000;
+        game.botThinkUntil = passReqStart + (game.botThinkMs || 5000);
         if (game.consecutivePasses >= 2) {
           game.botThinkUntil = null;
           const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';

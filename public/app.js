@@ -1344,18 +1344,20 @@ let authMode = 'signin';
 let suEmail = '', suVerifiedToken = '';
 function setAuthMode(mode) {
   authMode = mode;
-  $('authHeading').textContent = mode === 'signup' ? 'Sign up' : 'Sign in';
+  $('authHeading').textContent = mode === 'signup' ? 'Sign up' : mode === 'reset' ? 'Reset password' : 'Sign in';
   $('authForm').classList.toggle('hidden', mode !== 'signin');
   $('signupSteps').classList.toggle('hidden', mode !== 'signup');
-  $('authToggleBtn').textContent = mode === 'signup' ? 'Already have an account? Sign in' : 'Need an account? Sign up';
+  $('resetSteps').classList.toggle('hidden', mode !== 'reset');
+  $('authToggleBtn').textContent = mode === 'signup' ? 'Already have an account? Sign in' : mode === 'reset' ? 'Back to sign in' : 'Need an account? Sign up';
   $('authError').textContent = '';
   if (mode === 'signup') showSignupStep('email');
+  if (mode === 'reset') showResetStep('email');
 }
 function showSignupStep(step) {
   ['Email', 'Code', 'Profile'].forEach(s => $('signupStep' + s).classList.toggle('hidden', s.toLowerCase() !== step));
   ['suError', 'suError2', 'suError3'].forEach(id => { $(id).textContent = ''; });
 }
-$('authToggleBtn').onclick = () => setAuthMode(authMode === 'signup' ? 'signin' : 'signup');
+$('authToggleBtn').onclick = () => setAuthMode(authMode === 'signin' ? 'signup' : 'signin');
 $('authForm').onsubmit = async e => {
   e.preventDefault(); $('authError').textContent = '';
   const email = $('authEmail').value.trim(), password = $('authPassword').value;
@@ -1401,4 +1403,47 @@ $('suCreateBtn').onclick = async () => {
     token = d.token; localStorage.setItem('duello_token', token); me = d.user; profileData = null;
     show('homeScreen');
   } catch (err) { $('suError3').textContent = err.message || 'Something went wrong.'; }
+};
+let rpEmail = '', rpVerifiedToken = '';
+function showResetStep(step) {
+  ['Email', 'Code', 'Password'].forEach(s => $('resetStep' + s).classList.toggle('hidden', s.toLowerCase() !== step));
+  ['rpError', 'rpError2', 'rpError3'].forEach(id => { $(id).textContent = ''; });
+}
+$('forgotPasswordBtn').onclick = () => setAuthMode('reset');
+$('rpSendBtn').onclick = async () => {
+  $('rpError').textContent = '';
+  rpEmail = $('rpEmail').value.trim();
+  try {
+    await api('/api/auth/request-reset', { method: 'POST', body: JSON.stringify({ email: rpEmail }) });
+    showResetStep('code');
+  } catch (err) { $('rpError').textContent = err.message || 'Something went wrong.'; }
+};
+$('rpResendBtn').onclick = async () => {
+  $('rpError2').textContent = '';
+  try {
+    await api('/api/auth/request-reset', { method: 'POST', body: JSON.stringify({ email: rpEmail }) });
+    $('rpError2').textContent = 'If an account exists for that email, a code was sent.';
+  } catch (err) { $('rpError2').textContent = err.message || 'Something went wrong.'; }
+};
+$('rpBackBtn').onclick = () => showResetStep('email');
+$('rpVerifyBtn').onclick = async () => {
+  $('rpError2').textContent = '';
+  const code = $('rpCode').value.trim();
+  try {
+    const d = await api('/api/auth/verify-reset-code', { method: 'POST', body: JSON.stringify({ email: rpEmail, code }) });
+    rpVerifiedToken = d.verifiedToken;
+    showResetStep('password');
+  } catch (err) { $('rpError2').textContent = err.message || 'Something went wrong.'; }
+};
+$('rpResetBtn').onclick = async () => {
+  $('rpError3').textContent = '';
+  const password = $('rpPassword').value, password2 = $('rpPassword2').value;
+  try {
+    if (password.length < 8) throw new Error('Password must be at least 8 characters.');
+    if (password !== password2) throw new Error('Passwords do not match.');
+    await api('/api/auth/reset-password', { method: 'POST', body: JSON.stringify({ email: rpEmail, password, verifiedToken: rpVerifiedToken }) });
+    rpVerifiedToken = '';
+    setAuthMode('signin');
+    $('authError').textContent = 'Password changed. Sign in with your new password.';
+  } catch (err) { $('rpError3').textContent = err.message || 'Something went wrong.'; }
 };

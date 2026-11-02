@@ -35,6 +35,16 @@ Bot play only. Sign-in is required before entering the app since Nov 2, 2026: wi
   and `POST /api/signup` requires that token. Codes are scrypt hashes
   in `verification_codes`, expire after 10 minutes, allow 5 wrong
   guesses, and a new request replaces the old code (60-second cooldown).
+  Password reset landed Nov 2, 2026, reusing the same code machinery with
+  a separate `password_reset_codes` table: `POST /api/auth/request-reset`,
+  `POST /api/auth/verify-reset-code`, and `POST /api/auth/reset-password`.
+  Reset responses never reveal whether an address has an account: the
+  request endpoint always reports success for a well-formed email, and
+  every verify failure uses the same message. A successful reset changes
+  the password, spends the code, and deletes every session for that user,
+  so all devices sign in again. The sign-in screen has a Forgot password
+  link leading a three-step flow (email, code, new password plus
+  confirmation).
   Guests are not an option at
   all: POST /api/guest was removed Nov 2, 2026, and a session issued to
   a guest before that authenticates nothing anymore — loading the app
@@ -122,6 +132,6 @@ Jeff does this himself, later, when bot play is right:
 
 ## Later slices (NOT in this task)
 
-Friends backend, password change/reset, Google/Apple OAuth, ads, and
+Friends backend, password change (reset is built), Google/Apple OAuth, ads, and
 payments. (Real accounts and the profile tab landed Nov 2, 2026; the
 friends tab UI is mock-only until its backend lands.)

@@ -25,6 +25,13 @@
 // Resend (api.resend.com) with RESEND_API_KEY from the environment and the
 // verified domain duellogame.com; without the key, request-code fails
 // cleanly and the rest of the app keeps running.
+// Password reset reuses the same code machinery with a separate
+// password_reset_codes table: (1) POST /api/auth/request-reset,
+// (2) POST /api/auth/verify-reset-code, (3) POST /api/auth/reset-password.
+// Reset responses never reveal whether an address has an account: the
+// request endpoint always reports success for a well-formed email, and
+// every verify failure uses the same message. A successful reset changes
+// the password and deletes every session for that user.
 'use strict';
 const http = require('http');
 const https = require('https');
@@ -1160,6 +1167,81 @@ const server = http.createServer(async (req, res) => {
       const verifiedToken = crypto.randomBytes(32).toString('hex');
       await q('UPDATE verification_codes SET code_salt=NULL, code_hash=NULL, attempts=0, verified_token=$2, verified_expires_at=$3 WHERE email=$1', [email, verifiedToken, new Date(Date.now() + VERIFIED_TTL_MS)]);
       return sendJson(res, 200, { verifiedToken });
+    }
+    // Password reset. Responses never reveal whether an address has an
+    // account: the request endpoint always reports success for a
+    // well-formed email, and every verify failure uses the same message.
+    if (pathname === '/api/auth/request-reset' && req.method === 'POST') {
+      const b = await readBody(req);
+      const email = String(b.email || '').trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return sendJson(res, 400, { error: 'Enter a valid email.' });
+      const user = await getUserByEmail(email);
+      if (!user) return sendJson(res, 200, { ok: true });
+      const existing = (await q('SELECT * FROM password_reset_codes WHERE email=$1', [email])).rows[0];
+      if (existing && existing.requested_at && Date.now() - new Date(existing.requested_at).getTime() < CODE_COOLDOWN_MS) {
+        return sendJson(res, 200, { ok: true });
+      }
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = hashPassword(code, salt);
+      const expires = new Date(Date.now() + CODE_TTL_MS);
+      await q('INSERT INTO password_reset_codes (email, code_salt, code_hash, attempts, expires_at, requested_at, verified_token, verified_expires_at) VALUES ($1,$2,$3,0,$4,now(),NULL,NULL) ON CONFLICT (email) DO UPDATE SET code_salt=$2, code_hash=$3, attempts=0, expires_at=$4, requested_at=now(), verified_token=NULL, verified_expires_at=NULL', [email, salt, hash, expires]);
+      try {
+        await sendResendEmail(email, 'Your Duello password reset code', 'Your Duello password reset code is ' + code + '. It expires in 10 minutes.');
+      } catch (e) {
+        // Return the generic success even on a send failure: a 503 here
+        // would reveal that the address has an account. The failure is
+        // logged server-side; the user can request a new code.
+        console.error('password reset send failed for', email, e.message);
+        await q('DELETE FROM password_reset_codes WHERE email=$1', [email]);
+      }
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/auth/verify-reset-code' && req.method === 'POST') {
+      const b = await readBody(req);
+      const email = String(b.email || '').trim().toLowerCase();
+      const code = String(b.code || '').trim();
+      const row = (await q('SELECT * FROM password_reset_codes WHERE email=$1', [email])).rows[0];
+      // Every failure reads the same: a distinct message for a missing,
+      // expired, or exhausted row would reveal that a code was requested,
+      // which would reveal that the address has an account.
+      if (!row || !row.code_hash) return sendJson(res, 400, { error: 'That code is not right.' });
+      if (new Date(row.expires_at).getTime() < Date.now()) {
+        await q('DELETE FROM password_reset_codes WHERE email=$1', [email]);
+        return sendJson(res, 400, { error: 'That code is not right.' });
+      }
+      if (row.attempts >= CODE_MAX_ATTEMPTS) {
+        await q('DELETE FROM password_reset_codes WHERE email=$1', [email]);
+        return sendJson(res, 400, { error: 'That code is not right.' });
+      }
+      if (hashPassword(code, row.code_salt) !== row.code_hash) {
+        await q('UPDATE password_reset_codes SET attempts=attempts+1 WHERE email=$1', [email]);
+        return sendJson(res, 400, { error: 'That code is not right.' });
+      }
+      const verifiedToken = crypto.randomBytes(32).toString('hex');
+      await q('UPDATE password_reset_codes SET code_salt=NULL, code_hash=NULL, attempts=0, verified_token=$2, verified_expires_at=$3 WHERE email=$1', [email, verifiedToken, new Date(Date.now() + VERIFIED_TTL_MS)]);
+      return sendJson(res, 200, { verifiedToken });
+    }
+    if (pathname === '/api/auth/reset-password' && req.method === 'POST') {
+      const b = await readBody(req);
+      const email = String(b.email || '').trim().toLowerCase();
+      const password = String(b.password || '');
+      if (password.length < 8) return sendJson(res, 400, { error: 'Password must be at least 8 characters.' });
+      const verifiedToken = String(b.verifiedToken || '');
+      const vrow = (await q('SELECT * FROM password_reset_codes WHERE email=$1', [email])).rows[0];
+      if (!verifiedToken || !vrow || vrow.verified_token !== verifiedToken || !vrow.verified_expires_at || new Date(vrow.verified_expires_at).getTime() < Date.now()) {
+        return sendJson(res, 400, { error: 'That reset is no longer valid. Request a new code.' });
+      }
+      const user = await getUserByEmail(email);
+      if (!user) return sendJson(res, 400, { error: 'That reset is no longer valid. Request a new code.' });
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = hashPassword(password, salt);
+      await q('UPDATE users SET password_salt=$2, password_hash=$3 WHERE id=$1', [user.id, salt, hash]);
+      // Single use, and every session is ended: a reset is a credential
+      // change, so all devices sign in again with the new password.
+      await q('DELETE FROM password_reset_codes WHERE email=$1', [email]);
+      await q('DELETE FROM sessions WHERE user_id=$1', [user.id]);
+      return sendJson(res, 200, { ok: true });
     }
     if (pathname === '/api/signup' && req.method === 'POST') {
       const b = await readBody(req);

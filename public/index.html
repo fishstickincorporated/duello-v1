@@ -42,6 +42,49 @@
     <p class="small">Play Friends is still greyed out — this tab is UI only until accounts arrive.</p>
   </section>
 
+  <section id="profileScreen" class="screen hidden">
+    <div class="profile-top">
+      <div class="pfp huge" id="profilePfp"></div>
+      <div class="profile-name" id="profileName"></div>
+      <div class="profile-username" id="profileUsername"></div>
+      <div class="profile-joined" id="profileJoined"></div>
+      <button class="gear-btn" id="gearBtn" title="Edit profile"><svg viewBox="0 0 24 24" width="26" height="26"><circle cx="12" cy="12" r="4" fill="none" stroke="#b3b2b1" stroke-width="1.8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="elo-box">
+      <div><span class="elo-label">Elo</span><div class="elo-big" id="profileElo"></div></div>
+      <div><span class="elo-label">All-time high</span><div class="elo-big" id="profileEloHigh"></div></div>
+      <div class="chart-toggles">
+        <button class="chart-toggle active" data-range="1m">1 month</button>
+        <button class="chart-toggle" data-range="1y">1 year</button>
+        <button class="chart-toggle" data-range="all">All time</button>
+      </div>
+      <canvas id="eloChart" width="340" height="110"></canvas>
+    </div>
+    <div class="stats-board">
+      <div class="stats-tabs">
+        <button class="stats-tab active" data-scope="aggregate">Aggregate</button>
+        <button class="stats-tab" data-scope="vsHumans">Vs Humans</button>
+        <button class="stats-tab" data-scope="vsBots">Vs Bots</button>
+      </div>
+      <div id="statsList" class="stats-list"></div>
+    </div>
+    <p class="small">Account UI only — sign-in and real stats come later.</p>
+  </section>
+
+  <section id="profileEditScreen" class="screen hidden">
+    <h1 class="auth-heading">Edit profile</h1>
+    <form id="profileEditForm">
+      <input id="editFirstName" placeholder="First name">
+      <input id="editLastName" placeholder="Last name">
+      <input id="editUsername" placeholder="Username">
+      <p id="editError" class="error"></p>
+      <div class="edit-actions">
+        <button class="btn cancel" type="button" id="editCancelBtn">Cancel</button>
+        <button class="btn primary" type="submit" id="editSaveBtn">Save</button>
+      </div>
+    </form>
+  </section>
+
   <section id="gameScreen" class="screen hidden">
     <div id="gameDim">
       <img class="logo-img small-logo-img" id="gameLogo" src="/assets/logo.png" alt="DUELLO">
@@ -84,6 +127,7 @@
   <nav id="tabBar" class="tab-bar hidden" aria-label="Main navigation">
     <button class="tab-btn active" id="tabHome" aria-label="Home"><svg viewBox="0 0 24 24" width="28" height="28"><path d="M3 11 L12 3 L21 11 L21 21 L14 21 L14 14 L10 14 L10 21 L3 21 Z" fill="#b3b2b1"/><rect x="10.5" y="16" width="3" height="5" fill="#03eaff"/></svg></button>
     <button class="tab-btn" id="tabFriends" aria-label="Friends"><svg viewBox="0 0 24 24" width="28" height="28"><circle cx="8" cy="8" r="3" fill="#b3b2b1"/><circle cx="16" cy="8" r="3" fill="#b3b2b1"/><path d="M3 20 C3 16 5 14 8 14 C11 14 13 16 13 20 Z" fill="#b3b2b1"/><path d="M11 20 C11 16 13 14 16 14 C19 14 21 16 21 20 Z" fill="#7d8597"/></svg></button>
+    <button class="tab-btn" id="tabProfile" aria-label="Profile"><span id="tabProfileIcon"><svg viewBox="0 0 24 24" width="28" height="28"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#03eaff" opacity="0.85"/></svg></span></button>
   </nav>
 </div>
 <script src="/app.js"></script></body></html>

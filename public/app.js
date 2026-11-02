@@ -61,12 +61,13 @@ async function api(path, opts = {}) {
   return j;
 }
 function show(id) {
-  ['homeScreen', 'botScreen', 'friendsScreen', 'gameScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
-  const isMenu = ['homeScreen', 'botScreen', 'friendsScreen'].includes(id);
+  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'gameScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
+  const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen'].includes(id);
   const tb = $('tabBar'); if (tb) tb.classList.toggle('hidden', !isMenu);
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   if ((id === 'homeScreen' || id === 'botScreen') && $('tabHome')) $('tabHome').classList.add('active');
   if (id === 'friendsScreen' && $('tabFriends')) $('tabFriends').classList.add('active');
+  if ((id === 'profileScreen' || id === 'profileEditScreen') && $('tabProfile')) $('tabProfile').classList.add('active');
 }
 function silhouetteSVG(size) { return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#b3b2b1"/></svg>`; }
 function pfpHTML(userLike) {
@@ -82,7 +83,7 @@ $('tabHome').onclick = () => show('homeScreen');
 // accounts land, renderFriendsUI is replaced by the real API version
 // (same row markup as the main build's friends tab).
 let lbScope = 'friends', deleteMode = false;
-const mockYou = { name: 'You', username: 'you', elo: 1000, isYou: true };
+const mockYou = { name: 'You', username: 'you', elo: 1028, isYou: true };
 let mockFriends = [
   { name: 'Alex Rivers', username: 'arivers', elo: 1240, friendship: 'accepted' },
   { name: 'Sam Whitfield', username: 'swhitfield', elo: 1115, friendship: 'accepted' },
@@ -1244,3 +1245,71 @@ function enablePlacedDrag(el, pend) {
   }
   show('homeScreen');
 })();
+
+// ---------- Profile tab (UI only until accounts arrive) ----------
+// Local mock data only. Nothing here touches the server. When accounts
+// land, renderProfileUI is replaced by the real API version (same markup
+// as the main build's profile tab).
+let mockProfile = { firstName: 'You', lastName: '', username: 'you', elo: 1028, eloHigh: 1042, joined: 'Joined Nov 2026' };
+const mockEloHistory = [
+  { elo: 1000, daysAgo: 45 }, { elo: 984, daysAgo: 40 }, { elo: 1001, daysAgo: 36 },
+  { elo: 992, daysAgo: 31 }, { elo: 1015, daysAgo: 27 }, { elo: 1008, daysAgo: 22 },
+  { elo: 1024, daysAgo: 18 }, { elo: 1011, daysAgo: 13 }, { elo: 1030, daysAgo: 9 },
+  { elo: 1042, daysAgo: 5 }, { elo: 1028, daysAgo: 1 },
+];
+const mockBotStats = { avgGameScore: 68, highestGameScore: 142, avgWordScore: 14, highestWordScore: 42, longestWord: 'QUIZZIFY', longestWordLen: 8, gamesPlayed: 24, record: '14W-10L', optimalPct: 61, uniqueWords: 318 };
+const mockStats = {
+  aggregate: mockBotStats,
+  vsBots: mockBotStats,
+  vsHumans: { avgGameScore: '—', highestGameScore: '—', avgWordScore: '—', highestWordScore: '—', longestWord: null, gamesPlayed: 0, record: '0W-0L', optimalPct: '—', uniqueWords: 0 },
+};
+let mockStatsScope = 'aggregate', mockChartRange = '1m';
+function renderProfileUI() {
+  $('profilePfp').innerHTML = silhouetteSVG(44);
+  $('profileName').textContent = [mockProfile.firstName, mockProfile.lastName].filter(Boolean).join(' ') || 'You';
+  $('profileUsername').textContent = '@' + mockProfile.username;
+  $('profileJoined').textContent = mockProfile.joined;
+  $('profileElo').textContent = mockProfile.elo;
+  $('profileEloHigh').textContent = mockProfile.eloHigh;
+  renderMockStatsList(); drawMockEloChart();
+}
+function renderMockStatsList() {
+  const st = mockStats[mockStatsScope];
+  const lines = [
+    ['Average game score', st.avgGameScore], ['Highest game score', st.highestGameScore],
+    ['Average word score', st.avgWordScore], ['Highest word score', st.highestWordScore],
+    ['Longest word', st.longestWord ? `${st.longestWord} (${st.longestWordLen} letters)` : '—'],
+    ['Games played', st.gamesPlayed], ['Lifetime record', st.record],
+    ['Optimal move %', st.optimalPct === '—' ? '—' : st.optimalPct + '%'], ['Unique words played', st.uniqueWords],
+  ];
+  $('statsList').innerHTML = lines.map(([k, v]) => `<div class="stat-line"><span>${k}</span><b>${v}</b></div>`).join('');
+}
+function drawMockEloChart() {
+  const cv = $('eloChart'); if (!cv) return;
+  const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, cv.width, cv.height);
+  let hist = mockEloHistory;
+  if (mockChartRange === '1m') hist = hist.filter(h => h.daysAgo < 30);
+  if (mockChartRange === '1y') hist = hist.filter(h => h.daysAgo < 365);
+  const pts = hist.map(h => h.elo);
+  if (pts.length < 2) { ctx.fillStyle = '#b3b2b1'; ctx.font = '13px Comfortaa'; ctx.fillText('No Elo history yet — play a game.', 12, 30); return; }
+  const min = Math.min(...pts) - 20, max = Math.max(...pts) + 20;
+  ctx.strokeStyle = '#03eaff'; ctx.lineWidth = 2; ctx.beginPath();
+  pts.forEach((v, i) => { const x = 10 + i * (cv.width - 20) / (pts.length - 1); const y = cv.height - 10 - ((v - min) / (max - min)) * (cv.height - 20); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+  ctx.stroke();
+}
+$('tabProfile').onclick = () => { show('profileScreen'); renderProfileUI(); };
+document.querySelectorAll('.stats-tab').forEach(b => b.onclick = () => { mockStatsScope = b.dataset.scope; document.querySelectorAll('.stats-tab').forEach(x => x.classList.toggle('active', x === b)); renderMockStatsList(); });
+document.querySelectorAll('.chart-toggle').forEach(b => b.onclick = () => { mockChartRange = b.dataset.range; document.querySelectorAll('.chart-toggle').forEach(x => x.classList.toggle('active', x === b)); drawMockEloChart(); });
+$('gearBtn').onclick = () => {
+  $('editFirstName').value = mockProfile.firstName; $('editLastName').value = mockProfile.lastName; $('editUsername').value = mockProfile.username; $('editError').textContent = '';
+  show('profileEditScreen');
+};
+$('editCancelBtn').onclick = () => show('profileScreen');
+$('profileEditForm').onsubmit = e => {
+  e.preventDefault();
+  const fn = $('editFirstName').value.trim(), ln = $('editLastName').value.trim(), un = $('editUsername').value.trim();
+  if (!fn) { $('editError').textContent = 'Add a first name.'; return; }
+  if (!/^[a-z0-9_]{3,}$/.test(un)) { $('editError').textContent = 'Usernames are 3+ lowercase letters, numbers, or underscores.'; return; }
+  mockProfile.firstName = fn; mockProfile.lastName = ln; mockProfile.username = un;
+  renderProfileUI(); show('profileScreen');
+};

@@ -61,6 +61,10 @@ Bot play only. Sign-in is required before entering the app since Nov 2, 2026: wi
   is tapped, matching the prototype; the profile Joined line shows
   month and year only; the 1 month / 1 year / All time chart toggles
   are bold.
+  Nov 2, 2026 black-screen hardening: saved-login access goes through
+  try/catch wrappers (storeGet/storeSet/storeDel), so a browser that
+  blocks site data shows the auth screen instead of a permanent black
+  screen; a noscript message covers JavaScript-off browsers.
   Guests are not an option at
   all: POST /api/guest was removed Nov 2, 2026, and a session issued to
   a guest before that authenticates nothing anymore — loading the app

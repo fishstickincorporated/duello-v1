@@ -6,7 +6,14 @@
 // rejected session shows the auth screen (email/password signup and
 // sign-in). The token in localStorage ('duello_token') is an account
 // session token; games use it, so a signed-in account plays as itself.
-let token = localStorage.getItem('duello_token') || '';
+// Saved-login access must never kill the page: a browser that blocks
+// site data (e.g. Safari's Block All Cookies) throws on localStorage
+// access, and a throw on the very first line used to leave every screen
+// hidden forever. These wrappers degrade to a memory-only session.
+function storeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function storeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+function storeDel(k) { try { localStorage.removeItem(k); } catch {} }
+let token = storeGet('duello_token') || '';
 let me = null, game = null, gameFetchAt = 0;
 let pending = []; // {row,col,letter,rackIndex}
 let selectedRack = null, armed = {}, currentBot = 'competitive';
@@ -158,7 +165,7 @@ async function startGame(bot) {
     // No guest fallback anymore: sign-in is required. A rejected session
     // sends the user to the auth screen; anything else is a transient
     // failure and another tap retries.
-    if (e && e.message === 'Not signed in.') { token = ''; localStorage.removeItem('duello_token'); me = null; setAuthMode('signin'); show('authScreen'); return; }
+    if (e && e.message === 'Not signed in.') { token = ''; storeDel('duello_token'); me = null; setAuthMode('signin'); show('authScreen'); return; }
     return;
   }
   // Display 5:00 during the countdown, not the server's create-round-trip
@@ -1222,7 +1229,7 @@ function enablePlacedDrag(el, pend) {
   catch (err) {
     // Only a rejected session bounces to auth; a transient network
     // failure still shows Home and lets the next call surface the error.
-    if (err && err.message === 'Not signed in.') { token = ''; localStorage.removeItem('duello_token'); me = null; setAuthMode('signin'); show('authScreen'); return; }
+    if (err && err.message === 'Not signed in.') { token = ''; storeDel('duello_token'); me = null; setAuthMode('signin'); show('authScreen'); return; }
   }
   show('homeScreen');
 })();
@@ -1242,7 +1249,7 @@ async function renderProfileUI() {
   let d;
   try { d = await api('/api/me'); }
   catch (err) {
-    if (err && err.message === 'Not signed in.') { token = ''; localStorage.removeItem('duello_token'); me = null; profileData = null; setAuthMode('signin'); show('authScreen'); }
+    if (err && err.message === 'Not signed in.') { token = ''; storeDel('duello_token'); me = null; profileData = null; setAuthMode('signin'); show('authScreen'); }
     return;
   }
   profileData = d; me = d.user;
@@ -1355,7 +1362,7 @@ $('editPasswordBtn').onclick = async () => {
 };
 $('profileSignOutBtn').onclick = async () => {
   try { await api('/api/signout', { method: 'POST' }); } catch {}
-  token = ''; localStorage.removeItem('duello_token'); me = null; profileData = null;
+  token = ''; storeDel('duello_token'); me = null; profileData = null;
   setAuthMode('signin'); show('authScreen');
 };
 let authMode = 'signin';
@@ -1381,7 +1388,7 @@ $('authForm').onsubmit = async e => {
   const email = $('authEmail').value.trim(), password = $('authPassword').value;
   try {
     const d = await api('/api/signin', { method: 'POST', body: JSON.stringify({ email, password }) });
-    token = d.token; localStorage.setItem('duello_token', token); me = d.user; profileData = null;
+    token = d.token; storeSet('duello_token', token); me = d.user; profileData = null;
     show('homeScreen');
   } catch (err) { $('authError').textContent = err.message || 'Something went wrong.'; }
 };
@@ -1418,7 +1425,7 @@ $('suCreateBtn').onclick = async () => {
     if (!/^[a-z0-9_]{3,}$/.test(username)) throw new Error('Username: lowercase letters, numbers, and underscores only, at least 3 characters.');
     if (password.length < 8) throw new Error('Password must be at least 8 characters.');
     const d = await api('/api/signup', { method: 'POST', body: JSON.stringify({ firstName, lastName, username, email: suEmail, password, verifiedToken: suVerifiedToken }) });
-    token = d.token; localStorage.setItem('duello_token', token); me = d.user; profileData = null;
+    token = d.token; storeSet('duello_token', token); me = d.user; profileData = null;
     show('homeScreen');
   } catch (err) { $('suError3').textContent = err.message || 'Something went wrong.'; }
 };

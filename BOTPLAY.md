@@ -1,8 +1,9 @@
 # Duello bot-play slice — Postgres, no login
 
 This folder is a separate test slice. It does NOT touch the live SQLite
-version in `~/workspace/duello-v1/`, and nothing here has been pushed to
-GitHub or deployed to Render.
+version in `~/workspace/duello-v1/`. It is pushed to GitHub (branch
+`duello-botplay`) and deployed to Render at
+https://duello-botplay.onrender.com/ since Oct 30, 2026.
 
 ## What this slice is
 
@@ -24,9 +25,10 @@ Bot play only, opened straight to play with no email/password screen:
   `/pass`, `/forfeit`, `/shuffle`, `GET /api/define`.
 - Out of scope, removed in this slice: friends, leaderboards, `/api/me`,
   `/api/me/update`, `/api/me/password`, profile stats, and any
-  friends/profile UI. There is no dead friends/profile tab in the UI.
-  Real accounts, friends tab, and profile tab come later, after bot
-  play is right.
+  friends/profile backend. A friends/global leaderboard tab UI was
+  added Nov 2, 2026 (mock data only, no backend, no accounts); the
+  profile tab and real accounts still come later, after bot play is
+  right.
 
 Game logic, validation, scoring, and the bot solver were NOT changed
 in behaviour — only the database layer, the auth surface, and the
@@ -84,8 +86,8 @@ Prerequisites: Node >= 22, PostgreSQL 16, and the dictionary files in
   human, bot clock stepped to 280,000 ms (the next 20s mark).
 - Shuffle preserved the rack multiset; Fishstick game created with
   botElo 3000.
-- Frontend shell: `/` contains home/bot/game screens only, no
-  auth/friends/profile sections; `/app.js` calls only `/api/guest`,
+- Frontend shell: `/` contains home/bot/game/friends screens
+  (friends is UI only); `/app.js` calls only `/api/guest`,
   `/api/games`, and `/api/define`.
 
 ## Later Render step (NOT done in this task)
@@ -99,8 +101,8 @@ Jeff does this himself, later, when bot play is right:
    instance. Do NOT put the URL in git or in `render.yaml`.
 4. Redeploy, create a test guest, play a game, redeploy again, and
    confirm the same guest token still loads the same Elo/games.
-   That redeploy-survival check has NOT been done yet — it is the
-   first verification to do after the Render step.
+   Steps 1–3 were done Oct 30, 2026. The redeploy-survival check
+   is in progress as of Nov 2, 2026 (see the dated log).
 
 ## Later slices (NOT in this task)
 

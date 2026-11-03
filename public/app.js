@@ -240,7 +240,7 @@ function renderGame() {
   if (activeDragCleanup) return;
   $('playerName').textContent = me && me.firstName ? me.firstName : 'You';
   try { document.querySelector('.player-panel .pfp').innerHTML = pfpHTML(me); document.querySelector('.stat-pfp .pfp').innerHTML = pfpHTML(me); } catch {}
-  $('playerElo').textContent = me ? me.elo : game.player.elo;
+  $('playerElo').textContent = (game.player && game.player.elo != null) ? game.player.elo : (me ? me.elo : '');
   const isFish = game.botType === 'fishstick';
   $('botName').textContent = isFish ? 'Fishstick' : 'Bot';
   $('botElo').textContent = isFish ? '∞' : game.botElo;

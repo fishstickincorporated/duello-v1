@@ -251,3 +251,16 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   games included, like the other word stats). Past games cannot
   contribute: their saved moves never stored the flag, so the
   count starts from this change.
+
+## Scoreboard Elo staleness (Nov 2, 2026, cache v17)
+
+- The scoreboard showed the human Elo from the sign-in copy
+  (me.elo, cached all session) instead of the fresh game
+  response, so after a loss the human number looked unchanged
+  while the bot number (game.botElo, mutated by endGame) moved
+  — and Play Again showed the old number again until leaving
+  the game screen refetched /api/me. The scoreboard now reads
+  game.player.elo first (fresh from the database on every game
+  response), falling back to the cached copy only if absent.
+  The database update itself was always correct; only the
+  display was stale.

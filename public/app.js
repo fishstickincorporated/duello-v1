@@ -1327,7 +1327,7 @@ $('gearBtn').onclick = async () => {
   $('editPhotoRemoveBtn').classList.toggle('hidden', !u.photoData);
   $('editCurrentPassword').value = ''; $('editNewPassword').value = ''; $('editNewPassword2').value = '';
   $('editPasswordError').textContent = ''; $('editPasswordDone').textContent = '';
-  $('editPasswordFields').classList.add('hidden');
+  $('editPasswordFields').classList.add('hidden'); renderPwReqs('editPwReqs', '');
   show('profileEditScreen');
 };
 let editPhotoData;
@@ -1377,22 +1377,41 @@ $('editPasswordSaveBtn').onclick = async () => {
   $('editPasswordError').textContent = ''; $('editPasswordDone').textContent = '';
   const currentPassword = $('editCurrentPassword').value, newPassword = $('editNewPassword').value, newPassword2 = $('editNewPassword2').value;
   try {
-    if (newPassword.length < 8) throw new Error('Password must be at least 8 characters.');
+    if (!pwPolicyOk(newPassword)) throw new Error('Password needs 8+ characters, a capital letter, a lowercase letter, and a number.');
     if (newPassword !== newPassword2) throw new Error('Passwords do not match.');
     await api('/api/me/password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
     $('editCurrentPassword').value = ''; $('editNewPassword').value = ''; $('editNewPassword2').value = '';
+    renderPwReqs('editPwReqs', '');
     $('editPasswordDone').textContent = 'Password changed.';
   } catch (err) { $('editPasswordError').textContent = err.message || 'Could not change password.'; }
 };
 // Eye toggles for every password field: tap to see what was typed.
-document.querySelectorAll('.pw-eye').forEach(btn => {
-  btn.onclick = () => {
-    const inp = $(btn.dataset.target); if (!inp) return;
-    const show = inp.type === 'password';
-    inp.type = show ? 'text' : 'password';
-    btn.textContent = show ? '🙈' : '👁';
-    btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
-  };
+// Delegated on the document (not wired per button at load) so the
+// toggle works no matter when the field's screen is shown, and taps
+// on the icon's SVG paths still land on the button. Grey eye = hidden,
+// Duello blue eye = visible. No emoji anywhere in the toggle.
+document.addEventListener('click', e => {
+  const btn = e.target.closest ? e.target.closest('.pw-eye') : null;
+  if (!btn) return;
+  const inp = $(btn.dataset.target); if (!inp) return;
+  const show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  btn.classList.toggle('on', show);
+  btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+});
+// Password policy: 8+ characters with a capital, a lowercase, and a
+// number. Shown live under every new-password field.
+function pwPolicy(pw) {
+  return { len: pw.length >= 8, upper: /[A-Z]/.test(pw), lower: /[a-z]/.test(pw), digit: /[0-9]/.test(pw) };
+}
+function pwPolicyOk(pw) { const r = pwPolicy(pw); return r.len && r.upper && r.lower && r.digit; }
+function renderPwReqs(listId, pw) {
+  const el = $(listId); if (!el) return;
+  const r = pwPolicy(pw);
+  el.querySelectorAll('li[data-req]').forEach(li => li.classList.toggle('met', !!r[li.dataset.req]));
+}
+[['suPassword', 'suPwReqs'], ['rpPassword', 'rpPwReqs'], ['editNewPassword', 'editPwReqs']].forEach(([inputId, listId]) => {
+  const inp = $(inputId); if (inp) inp.addEventListener('input', () => renderPwReqs(listId, inp.value));
 });
 $('profileSignOutBtn').onclick = async () => {
   try { await api('/api/signout', { method: 'POST' }); } catch {}
@@ -1430,6 +1449,7 @@ function showSignupStep(step) {
   ['Email', 'Code', 'Profile'].forEach(s => $('signupStep' + s).classList.toggle('hidden', s.toLowerCase() !== step));
   ['suError', 'suError2', 'suError3'].forEach(id => { $(id).textContent = ''; });
   if (step === 'email') $('suSentMsg').textContent = '';
+  if (step === 'profile') renderPwReqs('suPwReqs', $('suPassword').value || '');
 }
 $('authToggleBtn').onclick = () => setAuthMode(authMode === 'signin' ? 'signup' : 'signin');
 $('authForm').onsubmit = async e => {
@@ -1473,7 +1493,7 @@ $('suCreateBtn').onclick = async () => {
   try {
     if (!firstName || !lastName) throw new Error('First and last name are required.');
     if (!/^[a-z0-9_]{3,}$/.test(username)) throw new Error('Username: lowercase letters, numbers, and underscores only, at least 3 characters.');
-    if (password.length < 8) throw new Error('Password must be at least 8 characters.');
+    if (!pwPolicyOk(password)) throw new Error('Password needs 8+ characters, a capital letter, a lowercase letter, and a number.');
     const d = await api('/api/signup', { method: 'POST', body: JSON.stringify({ firstName, lastName, username, email: suEmail, password, verifiedToken: suVerifiedToken }) });
     token = d.token; storeSet('duello_token', token); me = d.user; profileData = null;
     show('homeScreen');
@@ -1484,6 +1504,7 @@ function showResetStep(step) {
   ['Email', 'Code', 'Password'].forEach(s => $('resetStep' + s).classList.toggle('hidden', s.toLowerCase() !== step));
   ['rpError', 'rpError2', 'rpError3'].forEach(id => { $(id).textContent = ''; });
   if (step === 'email') $('rpSentMsg').textContent = '';
+  if (step === 'password') renderPwReqs('rpPwReqs', $('rpPassword').value || '');
 }
 $('forgotPasswordBtn').onclick = () => setAuthMode('reset');
 $('rpSendBtn').onclick = async () => {
@@ -1516,11 +1537,12 @@ $('rpResetBtn').onclick = async () => {
   $('rpError3').textContent = '';
   const password = $('rpPassword').value, password2 = $('rpPassword2').value;
   try {
-    if (password.length < 8) throw new Error('Password must be at least 8 characters.');
+    if (!pwPolicyOk(password)) throw new Error('Password needs 8+ characters, a capital letter, a lowercase letter, and a number.');
     if (password !== password2) throw new Error('Passwords do not match.');
     await api('/api/auth/reset-password', { method: 'POST', body: JSON.stringify({ email: rpEmail, password, verifiedToken: rpVerifiedToken }) });
     rpVerifiedToken = '';
     $('rpPassword').value = ''; $('rpPassword2').value = ''; $('rpCode').value = '';
+    renderPwReqs('rpPwReqs', '');
     setAuthMode('signin');
     $('authSuccess').textContent = 'Password has been reset, please log in.';
   } catch (err) { $('rpError3').textContent = err.message || 'Something went wrong.'; }

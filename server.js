@@ -122,6 +122,8 @@ async function initDb() {
 }
 async function q(text, params) { return pool.query(text, params); }
 function hashPassword(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }
+function passwordPolicyOk(pw) { return pw.length >= 8 && /[A-Z]/.test(pw) && /[a-z]/.test(pw) && /[0-9]/.test(pw); }
+const PASSWORD_POLICY_ERROR = 'Password needs 8+ characters, a capital letter, a lowercase letter, and a number.';
 async function getUserByEmail(email) { const r = await q('SELECT * FROM users WHERE email=$1', [email.toLowerCase()]); return r.rows[0] || null; }
 async function getUserByUsername(username) { const r = await q('SELECT * FROM users WHERE username=$1', [username]); return r.rows[0] || null; }
 async function getUserById(id) { const r = await q('SELECT * FROM users WHERE id=$1', [id]); return r.rows[0] || null; }
@@ -1234,7 +1236,7 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const email = String(b.email || '').trim().toLowerCase();
       const password = String(b.password || '');
-      if (password.length < 8) return sendJson(res, 400, { error: 'Password must be at least 8 characters.' });
+      if (!passwordPolicyOk(password)) return sendJson(res, 400, { error: PASSWORD_POLICY_ERROR });
       const verifiedToken = String(b.verifiedToken || '');
       const vrow = (await q('SELECT * FROM password_reset_codes WHERE email=$1', [email])).rows[0];
       if (!verifiedToken || !vrow || vrow.verified_token !== verifiedToken || !vrow.verified_expires_at || new Date(vrow.verified_expires_at).getTime() < Date.now()) {
@@ -1261,7 +1263,7 @@ const server = http.createServer(async (req, res) => {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return sendJson(res, 400, { error: 'Enter a valid email.' });
       if (!/^[a-z0-9_]{3,}$/.test(username)) return sendJson(res, 400, { error: 'Username: lowercase letters, numbers, and underscores only, at least 3 characters.' });
       if (!firstName || !lastName) return sendJson(res, 400, { error: 'First and last name are required.' });
-      if (password.length < 8) return sendJson(res, 400, { error: 'Password must be at least 8 characters.' });
+      if (!passwordPolicyOk(password)) return sendJson(res, 400, { error: PASSWORD_POLICY_ERROR });
       // Signup requires a verified email: the verified token from
       // /api/auth/verify-code, single use, 30-minute expiry.
       const verifiedToken = String(b.verifiedToken || '');
@@ -1363,7 +1365,7 @@ const server = http.createServer(async (req, res) => {
       if (hashPassword(currentPassword, user.password_salt) !== user.password_hash) {
         return sendJson(res, 400, { error: 'Current password is not right.' });
       }
-      if (newPassword.length < 8) return sendJson(res, 400, { error: 'Password must be at least 8 characters.' });
+      if (!passwordPolicyOk(newPassword)) return sendJson(res, 400, { error: PASSWORD_POLICY_ERROR });
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = hashPassword(newPassword, salt);
       await q('UPDATE users SET password_salt=$2, password_hash=$3 WHERE id=$1', [user.id, salt, hash]);

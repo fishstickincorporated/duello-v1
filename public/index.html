@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=31"></head>
+<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=32"></head>
 <body><div id="bootError" style="display:none;position:fixed;top:12px;left:12px;right:12px;z-index:9999;background:#ffd166;color:#1a1d24;padding:12px;border-radius:10px;font-size:14px;line-height:1.4" onclick="this.style.display='none'"></div><div id="app">
   <noscript><p style="color:#e8ecf1;text-align:center;padding:40px 20px">Duello needs JavaScript enabled to run. Turn JavaScript on in your browser settings and reload.</p></noscript>
 
@@ -96,9 +96,10 @@
     </form>
     <div class="edit-password">
       <div id="editPasswordFields" class="hidden">
-        <div class="pw-wrap"><input id="editCurrentPassword" type="password" placeholder="Current password" autocomplete="off"><button class="pw-eye" type="button" data-target="editCurrentPassword" aria-label="Show password">👁</button></div>
-        <div class="pw-wrap"><input id="editNewPassword" type="password" placeholder="New password" autocomplete="off"><button class="pw-eye" type="button" data-target="editNewPassword" aria-label="Show password">👁</button></div>
-        <div class="pw-wrap"><input id="editNewPassword2" type="password" placeholder="New password again" autocomplete="off"><button class="pw-eye" type="button" data-target="editNewPassword2" aria-label="Show password">👁</button></div>
+        <div class="pw-wrap"><input id="editCurrentPassword" type="password" placeholder="Current password" autocomplete="off"><button class="pw-eye" type="button" data-target="editCurrentPassword" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+        <div class="pw-wrap"><input id="editNewPassword" type="password" placeholder="New password" autocomplete="off"><button class="pw-eye" type="button" data-target="editNewPassword" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+        <div class="pw-wrap"><input id="editNewPassword2" type="password" placeholder="New password again" autocomplete="off"><button class="pw-eye" type="button" data-target="editNewPassword2" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+        <ul class="pw-reqs" id="editPwReqs"><li data-req="len">At least 8 characters</li><li data-req="upper">A capital letter</li><li data-req="lower">A lowercase letter</li><li data-req="digit">A number</li></ul>
         <button class="btn primary" id="editPasswordSaveBtn" type="button">Save new password</button>
         <p id="editPasswordError" class="error"></p>
         <p id="editPasswordDone" class="success"></p>
@@ -123,7 +124,7 @@
     <h1 class="auth-heading" id="authHeading">Sign in</h1>
     <form id="authForm" autocomplete="off">
       <input id="authEmail" type="email" placeholder="Email" autocomplete="off">
-      <div class="pw-wrap"><input id="authPassword" type="password" placeholder="Password" autocomplete="off"><button class="pw-eye" type="button" data-target="authPassword" aria-label="Show password">👁</button></div>
+      <div class="pw-wrap"><input id="authPassword" type="password" placeholder="Password" autocomplete="off"><button class="pw-eye" type="button" data-target="authPassword" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
       <p id="authError" class="error"></p>
       <p id="authSuccess" class="success"></p>
       <button class="btn primary" type="submit" id="authSubmitBtn">Sign in</button>
@@ -148,7 +149,8 @@
         <input id="suFirstName" placeholder="First name">
         <input id="suLastName" placeholder="Last name">
         <input id="suUsername" placeholder="Username">
-        <div class="pw-wrap"><input id="suPassword" type="password" placeholder="Password" autocomplete="off"><button class="pw-eye" type="button" data-target="suPassword" aria-label="Show password">👁</button></div>
+        <div class="pw-wrap"><input id="suPassword" type="password" placeholder="Password" autocomplete="off"><button class="pw-eye" type="button" data-target="suPassword" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+        <ul class="pw-reqs" id="suPwReqs"><li data-req="len">At least 8 characters</li><li data-req="upper">A capital letter</li><li data-req="lower">A lowercase letter</li><li data-req="digit">A number</li></ul>
         <p id="suError3" class="error"></p>
         <button class="btn primary" id="suCreateBtn" type="button">Create account</button>
       </div>
@@ -169,8 +171,9 @@
         <button class="link" id="rpBackBtn" type="button">Use a different email</button>
       </div>
       <div id="resetStepPassword" class="hidden">
-        <div class="pw-wrap"><input id="rpPassword" type="password" placeholder="New password" autocomplete="off"><button class="pw-eye" type="button" data-target="rpPassword" aria-label="Show password">👁</button></div>
-        <div class="pw-wrap"><input id="rpPassword2" type="password" placeholder="New password again" autocomplete="off"><button class="pw-eye" type="button" data-target="rpPassword2" aria-label="Show password">👁</button></div>
+        <div class="pw-wrap"><input id="rpPassword" type="password" placeholder="New password" autocomplete="off"><button class="pw-eye" type="button" data-target="rpPassword" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+        <div class="pw-wrap"><input id="rpPassword2" type="password" placeholder="New password again" autocomplete="off"><button class="pw-eye" type="button" data-target="rpPassword2" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+        <ul class="pw-reqs" id="rpPwReqs"><li data-req="len">At least 8 characters</li><li data-req="upper">A capital letter</li><li data-req="lower">A lowercase letter</li><li data-req="digit">A number</li></ul>
         <p id="rpError3" class="error"></p>
         <button class="btn primary" id="rpResetBtn" type="button">Set new password</button>
       </div>
@@ -243,4 +246,4 @@
   });
 })();
 </script>
-<script src="/app.js?v=31" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>
+<script src="/app.js?v=32" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>

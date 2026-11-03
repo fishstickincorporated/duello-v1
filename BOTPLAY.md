@@ -381,6 +381,21 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Eye icon + password policy v32 (Nov 3, 2026, cache v32)
+
+- The eye toggle is now a real SVG eye icon, not emoji — grey eye
+  when the password is hidden, Duello blue eye when it is visible.
+  The toggle also moved to document-level delegation (taps on the
+  icon's SVG paths count as taps on the button) with a larger
+  32px tap target, after the change-password eyes were reported
+  not working; no monkey icon anywhere.
+- Password policy, client and server: a new password must have
+  8+ characters, a capital letter, a lowercase letter, and a
+  number, enforced in sign-up, reset, and change (server returns
+  the same wording). The four requirements show live under every
+  new-password field, turning Duello blue with a check as each one
+  is met.
+
 ## Password reset/change UX v31 (Nov 3, 2026, cache v31)
 
 - Password change finally has a real submit: the gear screen's

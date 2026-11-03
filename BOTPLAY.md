@@ -381,6 +381,14 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Delete-account restyle v28 (Nov 3, 2026, cache v28)
+
+- The Delete account trigger on the gear/edit screen is now plain
+  red text (`.link.danger`, DW red #ff1303) like the Sign out link
+  above it, instead of a full-width bright red button. The
+  confirmation's "Yes, delete my account" button stays a big red
+  button, so the final destructive tap is still unmistakable.
+
 ## App Store blockers v27: delete account + privacy policy + sign-out move (Nov 3, 2026, cache v27)
 
 - Delete account (Apple requirement): POST /api/me/delete, signed-in

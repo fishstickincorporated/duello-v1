@@ -381,6 +381,16 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Highest word shows the word v34 (Nov 3, 2026, cache v34)
+
+- The profile stats "Highest word score" line now lists the word
+  next to the score, exactly like "Longest word" does, e.g.
+  JAZZED (86 pts). The server previously tracked only the score
+  and threw the word away; it now keeps highestWord alongside
+  highestWordScore, computed from finished games' stored moves, so
+  past games contribute with no migration needed. No games yet
+  shows —, same as Longest word.
+
 ## Eye toggle on pointerdown v33 (Nov 3, 2026, cache v33)
 
 - The eye toggle now runs on pointerdown instead of click, after

@@ -1291,7 +1291,7 @@ function renderStatsList() {
   const st = profileData.profileStats[statsScope] || profileData.profileStats.aggregate;
   const lines = [
     ['Average game score', st.avgGameScore], ['Highest game score', st.highestGameScore],
-    ['Average word score', st.avgWordScore], ['Highest word score', st.highestWordScore],
+    ['Average word score', st.avgWordScore], ['Highest word score', st.highestWord ? `${st.highestWord} (${st.highestWordScore} pts)` : '—'],
     ['50+ point words', st.wordsOver50], ['100+ point words', st.wordsOver100],
     ['Lifetime bingos', st.bingos],
     ['Longest word', st.longestWord ? `${st.longestWord} (${st.longestWordLen} letters)` : '—'],

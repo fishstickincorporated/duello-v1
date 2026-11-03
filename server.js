@@ -173,7 +173,7 @@ function sendResendEmail(to, subject, text) {
 // empty by construction until real multiplayer exists.
 async function profileStatsFor(userId) {
   const rows = (await q("SELECT state, bot_type FROM games WHERE user_id=$1 AND state->>'status'='finished'", [userId])).rows;
-  function empty() { return { gamesPlayed: 0, wins: 0, losses: 0, draws: 0, avgGameScore: 0, highestGameScore: 0, avgWordScore: 0, highestWordScore: 0, longestWord: '', longestWordLen: 0, optimalMoves: 0, totalMoves: 0, optimalPct: 0, uniqueWords: 0, wordsOver50: 0, wordsOver100: 0, bingos: 0 }; }
+  function empty() { return { gamesPlayed: 0, wins: 0, losses: 0, draws: 0, avgGameScore: 0, highestGameScore: 0, avgWordScore: 0, highestWordScore: 0, highestWord: '', longestWord: '', longestWordLen: 0, optimalMoves: 0, totalMoves: 0, optimalPct: 0, uniqueWords: 0, wordsOver50: 0, wordsOver100: 0, bingos: 0 }; }
   function scope(humans) {
     const st = empty(); let wordScoreSum = 0, wordCount = 0; const uniq = new Set();
     const gs = [];
@@ -202,7 +202,7 @@ async function profileStatsFor(userId) {
           wordScoreSum += w.score || 0; wordCount++;
           if ((w.score || 0) >= 50) st.wordsOver50++;
           if ((w.score || 0) >= 100) st.wordsOver100++;
-          if ((w.score || 0) > st.highestWordScore) st.highestWordScore = w.score || 0;
+          if ((w.score || 0) > st.highestWordScore) { st.highestWordScore = w.score || 0; st.highestWord = w.word || ''; }
           if (w.word && w.word.length > st.longestWordLen) { st.longestWordLen = w.word.length; st.longestWord = w.word; }
           uniq.add(w.word);
         }

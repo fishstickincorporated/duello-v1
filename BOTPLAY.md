@@ -268,3 +268,21 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
 - Last-play bingo tag (Nov 2, 2026, cache v18): "bingo! +30"
   never splits across lines (nowrap on the bingo span); the whole
   tag moves to the next line as a unit when the column is tight.
+
+## Last-play full-width row, no shrinking (Nov 2, 2026, cache v19)
+
+- The last-play line moved out of the cramped clock column into
+  its own full-width row under each panel (identity | score |
+  clock on top, last play below), because the 3-column math
+  could not fit every 6-letter word at full size: the clock
+  column gave the line 42px at phone width while PLANET alone
+  is 45.3px at 11px. The row gives the line the whole panel
+  width (~174px), so any 6-letter word plus a comma fits on one
+  line at the standard 11px with room to spare, and longer word
+  lists wrap between words, never mid-word, never clipped: the
+  panel is now auto height (both panels stretch to match) and
+  the row reserves two lines (27px min-height) so the board
+  never jumps when the first play lands. The v16 shrink logic
+  (fitLastplay) is removed entirely; the words line is standard
+  size again, points stay blue directly below the words, and
+  the bingo tag stays nowrap from v18.

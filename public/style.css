@@ -38,7 +38,8 @@ between them (gap 0, no dividers). Opponent panel is the mirror image:
 player = identity | score | clock, opponent = clock | score | identity.
 Dimensions are fixed and rigid: same width/height always, so a long
 name or a big score never reflows the board. Names never wrap. */
-.panel{display:flex;align-items:stretch;flex:1 1 0;min-width:0;height:88px;overflow:hidden;border:2px solid transparent;background:#262a33}
+.panel{display:flex;flex-direction:column;flex:1 1 0;min-width:0;height:auto;overflow:hidden;border:2px solid transparent;background:#262a33}
+.panel-top{display:flex;align-items:stretch}
 .player-panel{border-radius:12px}
 .bot-panel{border-radius:12px}
 .panel.active{border-color:#03eaff}
@@ -60,8 +61,9 @@ name or a big score never reflows the board. Names never wrap. */
 .panel .elo{color:#03eaff;font-size:12px;line-height:1.25;white-space:nowrap}
 .panel .elo.inf{font-size:20px;line-height:1}
 .panel .clock{font-size:20px;line-height:1.1}
-.lastplay{color:#b3b2b1;font-size:11px;font-weight:400;line-height:1.2;white-space:normal;overflow:hidden}
-.lastplay .lp-words{white-space:nowrap;display:block;overflow:hidden}
+.lastplay{color:#b3b2b1;font-size:11px;font-weight:400;line-height:1.2;white-space:normal;overflow:hidden;padding:0 4px 6px;min-height:27px}
+.player-panel .lastplay{text-align:right}
+.bot-panel .lastplay{text-align:left}
 .lastplay .pts{color:#03eaff;font-weight:700}
 .lastplay .bingo{color:#ffd166;font-weight:800;white-space:nowrap}
 .board{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;width:100%;aspect-ratio:1;background:#11131a;padding:3px;border-radius:10px}

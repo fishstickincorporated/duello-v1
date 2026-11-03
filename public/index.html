@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=18"></head>
+<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=19"></head>
 <body><div id="bootError" style="display:none;position:fixed;top:12px;left:12px;right:12px;z-index:9999;background:#ffd166;color:#1a1d24;padding:12px;border-radius:10px;font-size:14px;line-height:1.4" onclick="this.style.display='none'"></div><div id="app">
   <noscript><p style="color:#e8ecf1;text-align:center;padding:40px 20px">Duello needs JavaScript enabled to run. Turn JavaScript on in your browser settings and reload.</p></noscript>
 
@@ -167,14 +167,20 @@
       <img class="logo-img small-logo-img" id="gameLogo" src="/assets/logo.png" alt="DUELLO">
       <div class="scoreboard" id="scoreboard">
         <div class="panel player-panel" id="playerPanel">
+          <div class="panel-top">
           <div class="col identity-col"><div class="pfp">👤</div><div class="name" id="playerName">You</div><div class="elo" id="playerElo">1000</div></div>
           <div class="col score-col"><span id="scoreHuman">0</span></div>
-          <div class="col clock-col"><span class="clock" id="clockHuman">5:00</span><div class="lastplay" id="lastHuman"></div></div>
+          <div class="col clock-col"><span class="clock" id="clockHuman">5:00</span></div>
+          </div>
+          <div class="lastplay" id="lastHuman"></div>
         </div>
         <div class="panel bot-panel" id="botPanel">
-          <div class="col clock-col"><span class="clock" id="clockBot">5:00</span><div class="lastplay" id="lastBot"></div></div>
+          <div class="panel-top">
+          <div class="col clock-col"><span class="clock" id="clockBot">5:00</span></div>
           <div class="col score-col"><span id="scoreBot">0</span></div>
           <div class="col identity-col"><div class="pfp" id="botPfp">🤖</div><div class="name" id="botName">Bot</div><div class="elo" id="botElo">1000</div></div>
+          </div>
+          <div class="lastplay" id="lastBot"></div>
         </div>
       </div>
       <div class="board-wrap"><div id="board" class="board"></div><div id="innerGlow" class="inner-glow"><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div><div class="glow-cell"></div></div><div id="countdownOverlay" class="countdown-overlay hidden"><div class="countdown-num" id="countdownNum">5</div></div></div>
@@ -223,4 +229,4 @@
   });
 })();
 </script>
-<script src="/app.js?v=18" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>
+<script src="/app.js?v=19" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>

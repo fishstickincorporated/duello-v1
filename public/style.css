@@ -124,6 +124,7 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .lb-pfp{width:36px;height:36px;flex:0 0 36px;border-radius:50%;overflow:hidden;background:#3a3f4b;display:flex;align-items:center;justify-content:center}
 .lb-pfp img{width:36px;height:36px;border-radius:50%;object-fit:cover;display:block}
 .lb-pfp svg{width:36px;height:36px;display:block}
+.pfp.no-photo,.lb-pfp.no-photo{border:2px solid #03eaff;box-sizing:border-box}
 .lb-pfp{flex:0 0 36px}.lb-pfp svg{display:block}
 .lb-row .lb-name{color:#03eaff;font-weight:800;font-size:18px}
 .lb-row .lb-user{color:#b3b2b1;font-size:14px}

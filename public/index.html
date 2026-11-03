@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=29"></head>
+<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=30"></head>
 <body><div id="bootError" style="display:none;position:fixed;top:12px;left:12px;right:12px;z-index:9999;background:#ffd166;color:#1a1d24;padding:12px;border-radius:10px;font-size:14px;line-height:1.4" onclick="this.style.display='none'"></div><div id="app">
   <noscript><p style="color:#e8ecf1;text-align:center;padding:40px 20px">Duello needs JavaScript enabled to run. Turn JavaScript on in your browser settings and reload.</p></noscript>
 
@@ -181,7 +181,7 @@
       <div class="scoreboard" id="scoreboard">
         <div class="panel player-panel" id="playerPanel">
           <div class="panel-top">
-          <div class="col identity-col"><div class="pfp">👤</div><div class="name" id="playerName">You</div><div class="elo" id="playerElo">1000</div></div>
+          <div class="col identity-col"><div class="pfp no-photo">👤</div><div class="name" id="playerName">You</div><div class="elo" id="playerElo">1000</div></div>
           <div class="col clock-col"><span class="clock" id="clockHuman">5:00</span><span class="game-score" id="scoreHuman">0</span></div>
           </div>
         </div>
@@ -206,7 +206,7 @@
     </div>
     <div id="statWindow" class="stat-window hidden">
       <div class="stat-winner" id="statWinner"></div>
-      <div class="stat-top"><div class="stat-pfp"><div class="pfp big">👤</div><div class="elo-move" id="eloMoveHuman">+0</div></div>
+      <div class="stat-top"><div class="stat-pfp"><div class="pfp big no-photo">👤</div><div class="elo-move" id="eloMoveHuman">+0</div></div>
       <div class="stat-score" id="statScore">0–0</div>
       <div class="stat-pfp"><div class="pfp big" id="statBotPfp">🤖</div><div class="elo-move" id="eloMoveBot">+0</div></div></div>
       <div class="stat-reason" id="statReason"></div>
@@ -239,4 +239,4 @@
   });
 })();
 </script>
-<script src="/app.js?v=29" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>
+<script src="/app.js?v=30" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>

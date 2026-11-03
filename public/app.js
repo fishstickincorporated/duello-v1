@@ -125,7 +125,7 @@ async function renderFriendsUI() {
   const list = $('leaderboardList'); list.innerHTML = '';
   rows.forEach((r, i) => {
     const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
-    row.innerHTML = `<span class="rank">${i + 1}</span><span class="lb-pfp">${pfpHTML(r)}</span><span><div class="lb-name">${r.name}</div><div class="lb-user">@${r.username}</div></span>${r.isYou ? '<span class="you-badge">YOU</span>' : ''}<span class="lb-elo">${r.elo}</span>`;
+    row.innerHTML = `<span class="rank">${i + 1}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span><div class="lb-name">${r.name}</div><div class="lb-user">@${r.username}</div></span>${r.isYou ? '<span class="you-badge">YOU</span>' : ''}<span class="lb-elo">${r.elo}</span>`;
     list.appendChild(row);
   });
   $('noFriendsCard').classList.toggle('hidden', !(lbScope === 'friends' && rows.length === 0));
@@ -145,7 +145,7 @@ $('friendSearch').addEventListener('input', () => {
     users.filter(u => (`${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q) || u.username.toLowerCase().includes(q))).forEach(u => {
       const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
       const row = document.createElement('div'); row.className = 'search-result';
-      row.innerHTML = `<span class="lb-pfp">${pfpHTML({ photoData: u.photoData || null })}</span><span><b>${name}</b> <span style="color:#b3b2b1">@${u.username}</span></span>`;
+      row.innerHTML = `<span class="lb-pfp${u.photoData ? '' : ' no-photo'}">${pfpHTML({ photoData: u.photoData || null })}</span><span><b>${name}</b> <span style="color:#b3b2b1">@${u.username}</span></span>`;
       el.appendChild(row);
     });
   }, 250);
@@ -245,7 +245,7 @@ function renderGame() {
   // drag ends will show any bot move that arrived in the meantime.
   if (activeDragCleanup) return;
   $('playerName').textContent = me && me.firstName ? me.firstName : 'You';
-  try { document.querySelector('.player-panel .pfp').innerHTML = pfpHTML(me); document.querySelector('.stat-pfp .pfp').innerHTML = pfpHTML(me); } catch {}
+  try { const pp = document.querySelector('.player-panel .pfp'); pp.innerHTML = pfpHTML(me); pp.classList.toggle('no-photo', !(me && me.photoData)); const sp = document.querySelector('.stat-pfp .pfp'); sp.innerHTML = pfpHTML(me); sp.classList.toggle('no-photo', !(me && me.photoData)); } catch {}
   $('playerElo').textContent = (game.player && game.player.elo != null) ? game.player.elo : (me ? me.elo : '');
   const isFish = game.botType === 'fishstick';
   $('botName').textContent = isFish ? 'Fishstick' : 'Bot';
@@ -913,10 +913,10 @@ function showStatWindow(stats) {
   const best = (x) => x.best ? `${x.best.word} (<span class="num">${x.best.score} pts</span>)` : '—';
   const longest = (x) => x.longest ? `${x.longest.word} (<span class="num">${x.longest.word.length} letters</span>)` : '—';
   const opt = (x) => `${x.optimal}/${x.total}`;
-  const box = (name, pfp, st) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp">${pfp}</span><span>${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span> <span class="num">${opt(st)}</span></div></div>`;
+  const box = (name, pfp, st, noPhoto) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}">${pfp}</span><span>${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span> <span class="num">${opt(st)}</span></div></div>`;
   const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
   const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.jpeg" alt="Fishstick">' : '🤖';
-  $('statGrid').innerHTML = box('You', humanPfp, stats.human) + box(botLabel, botPfpBox, stats.bot);
+  $('statGrid').innerHTML = box('You', humanPfp, stats.human, !(me && me.photoData)) + box(botLabel, botPfpBox, stats.bot, false);
   if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">'; else $('statBotPfp').textContent = '🤖';
 }
 $('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) { clearStatDelay(); $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); } });
@@ -1278,7 +1278,7 @@ async function renderProfileUI() {
   }
   profileData = d; me = d.user;
   const u = profileData.user;
-  $('profilePfp').innerHTML = u.photoData ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44);
+  $('profilePfp').innerHTML = u.photoData ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44); $('profilePfp').classList.toggle('no-photo', !u.photoData);
   $('profileName').textContent = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
   $('profileUsername').textContent = '@' + u.username;
   $('profileJoined').innerHTML = 'Joined ' + numify(formatJoined(u.createdAt));
@@ -1323,7 +1323,7 @@ $('gearBtn').onclick = async () => {
   const u = profileData.user;
   $('editFirstName').value = u.firstName; $('editLastName').value = u.lastName; $('editUsername').value = u.username; $('editEmail').value = u.email || ''; $('editError').textContent = '';
   editPhotoData = undefined;
-  $('editPfp').innerHTML = u.photoData ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44);
+  $('editPfp').innerHTML = u.photoData ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44); $('editPfp').classList.toggle('no-photo', !u.photoData);
   $('editPhotoRemoveBtn').classList.toggle('hidden', !u.photoData);
   $('editCurrentPassword').value = ''; $('editNewPassword').value = ''; $('editNewPassword2').value = '';
   $('editPasswordError').textContent = ''; $('editPasswordDone').textContent = '';
@@ -1340,7 +1340,7 @@ $('editPhotoInput').onchange = () => {
     const data = String(rd.result || '');
     if (data.length > 750000) { $('editError').textContent = 'That photo is too large. Pick a smaller one.'; return; }
     editPhotoData = data;
-    $('editPfp').innerHTML = `<img src="${data}" alt="">`;
+    $('editPfp').innerHTML = `<img src="${data}" alt="">`; $('editPfp').classList.remove('no-photo');
     $('editPhotoRemoveBtn').classList.remove('hidden');
     $('editError').textContent = '';
   };
@@ -1348,7 +1348,7 @@ $('editPhotoInput').onchange = () => {
 };
 $('editPhotoRemoveBtn').onclick = () => {
   editPhotoData = null;
-  $('editPfp').innerHTML = silhouetteSVG(44);
+  $('editPfp').innerHTML = silhouetteSVG(44); $('editPfp').classList.add('no-photo');
   $('editPhotoRemoveBtn').classList.add('hidden');
 };
 $('editCancelBtn').onclick = () => show('profileScreen');

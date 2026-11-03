@@ -381,6 +381,18 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## No-photo pfp border v30 (Nov 3, 2026, cache v30)
+
+- When a user has no profile photo, the silhouette icon now gets a
+  2px Duello blue (#03eaff) circular border, everywhere it appears:
+  profile tab, gear/edit screen (including after Remove photo, and
+  removed again on upload), scoreboard player panel, end-of-game
+  stat window (top and stat-box rows), Global leaderboard rows, and
+  friend-search rows. It is a `.no-photo` class on the circular
+  container, toggled from the user's actual photoData, so a real
+  photo never gets the border and bots (Fishstick image / robot
+  emoji) are untouched.
+
 ## Change-password restyle v29 (Nov 3, 2026, cache v29)
 
 - Change password on the gear/edit screen is now plain text (the

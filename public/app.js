@@ -255,8 +255,7 @@ function renderGame() {
     const words = (l.words && l.words.length) ? l.words : [l.word];
     return `<span class="lp-words">${words.join(', ')}</span><span class="pts">+${l.points}${l.bingo ? ' <span class="bingo">bingo! +30</span>' : ''}${l.isDuello ? ' Duello +30' : ''}</span>`;
   };
-  $('lastHuman').innerHTML = lastHtml(game.lastHuman);
-  $('lastBot').innerHTML = lastHtml(game.lastBot);
+  $('lastPlay').innerHTML = lastHtml(game.clocks.turn === 'human' ? (game.lastBot || game.lastHuman) : (game.lastHuman || game.lastBot));
   // Inner 6x6 glow lives in a persistent overlay (see index.html), not on
   // the board cells: renderGame rebuilds every cell, and each rebuild
   // restarted the 3.2s pulse, so the glow visibly jumped at the end of

@@ -343,3 +343,18 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   Points line drops "pts" and the dot separator to match the
   mockup: "+38 bingo! +30" (points blue, bingo gold; Duello
   +30 stays blue when it applies).
+
+## Scoreboard v23: clock matches score, last play outside (Nov 3, 2026, cache v23)
+
+- Clock grows from 20px to 32px, matching the score exactly
+  (both Arial Bold 32px now); score stays Duello blue under
+  the clock.
+- Last play moves out of the panels into one shared centered
+  block below the scoreboard (words, then points/bingo line),
+  showing the most recent play from either side, picked by
+  whose turn it is (turn human -> bot's last, turn bot ->
+  human's last, falling back to whichever exists). The block
+  reserves 2 lines (27px min-height) even with no play yet,
+  so the board sits a fixed distance below the scoreboard and
+  never jumps when the first play lands. Panels are now just
+  the top row (pfp / name / Elo | clock / score).

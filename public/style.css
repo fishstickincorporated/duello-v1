@@ -56,8 +56,8 @@ name or a big score never reflows the board. Names never wrap. */
 .panel .name{font-weight:700;font-size:11px;line-height:1.25;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .panel .elo{color:#03eaff;font-size:12px;line-height:1.25;white-space:nowrap}
 .panel .elo.inf{font-size:20px;line-height:15px}
-.panel .clock{font-size:20px;line-height:1.1}
-.lastplay{display:flex;flex-direction:column;justify-content:flex-end;color:#b3b2b1;font-size:11px;font-weight:400;line-height:1.2;white-space:normal;overflow:hidden;padding:0 6px 6px;min-height:40px;text-align:center}
+.panel .clock{font-size:32px;line-height:1.1}
+.lastplay{display:flex;flex-direction:column;justify-content:flex-end;color:#b3b2b1;font-size:11px;font-weight:400;line-height:1.2;white-space:normal;overflow-wrap:break-word;overflow:hidden;padding:0 6px;min-height:27px;margin-bottom:8px;text-align:center}
 .lastplay .pts{color:#03eaff;font-weight:700}
 .lastplay .bingo{color:#ffd166;font-weight:800;white-space:nowrap}
 .board{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;width:100%;aspect-ratio:1;background:#11131a;padding:3px;border-radius:10px}
@@ -237,9 +237,8 @@ column boundary into the score column. Now every text element is
 exactly its column's width, clipped/wrapped inside it, and the column
 itself clips anything left over. */
 .panel .col{overflow:hidden}
-.panel .name,.panel .elo,.panel .clock,.panel .lastplay{width:100%;max-width:100%;box-sizing:border-box}
+.panel .name,.panel .elo,.panel .clock{width:100%;max-width:100%;box-sizing:border-box}
 .panel .name,.panel .elo,.panel .clock{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.panel .lastplay{white-space:normal;overflow-wrap:break-word;word-break:break-word}
 .stat-box .stat-val{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:400}
 .stat-box .stat-label{font-weight:800}
 

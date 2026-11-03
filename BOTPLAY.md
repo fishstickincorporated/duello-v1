@@ -381,6 +381,20 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Eye toggle on pointerdown v33 (Nov 3, 2026, cache v33)
+
+- The eye toggle now runs on pointerdown instead of click, after
+  the reset-password eyes were reported not working: on iOS a tap
+  next to a focused password field can lose its click when the tap
+  dismisses the keyboard and the layout shifts, but pointerdown
+  fires at touch start, before any of that. preventDefault keeps
+  focus in the field so the keyboard stays up, and the click
+  handler remains only as a guarded fallback for keyboard
+  activation (same 1000ms guard pattern as the Play button), so a
+  tap never toggles twice. touch-action: manipulation on the eye
+  button removes the double-tap-zoom delay. No logic change to
+  what the toggle does, only when it fires.
+
 ## Eye icon + password policy v32 (Nov 3, 2026, cache v32)
 
 - The eye toggle is now a real SVG eye icon, not emoji — grey eye

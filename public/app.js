@@ -1390,14 +1390,33 @@ $('editPasswordSaveBtn').onclick = async () => {
 // toggle works no matter when the field's screen is shown, and taps
 // on the icon's SVG paths still land on the button. Grey eye = hidden,
 // Duello blue eye = visible. No emoji anywhere in the toggle.
-document.addEventListener('click', e => {
-  const btn = e.target.closest ? e.target.closest('.pw-eye') : null;
-  if (!btn) return;
+// The toggle runs on pointerdown, not click: on iOS a tap next to a
+// focused password field can lose its click when the tap dismisses
+// the keyboard and the layout shifts, but pointerdown fires at touch
+// start, before any of that. preventDefault keeps focus in the field
+// so the keyboard stays up. The click handler below is only a
+// fallback for keyboard activation, guarded like the Play button so
+// a pointerdown tap does not toggle twice.
+function toggleEye(btn) {
   const inp = $(btn.dataset.target); if (!inp) return;
   const show = inp.type === 'password';
   inp.type = show ? 'text' : 'password';
   btn.classList.toggle('on', show);
   btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+}
+let lastEyePointerAt = 0;
+document.addEventListener('pointerdown', e => {
+  const btn = e.target.closest ? e.target.closest('.pw-eye') : null;
+  if (!btn) return;
+  e.preventDefault();
+  lastEyePointerAt = Date.now();
+  toggleEye(btn);
+});
+document.addEventListener('click', e => {
+  if (Date.now() - lastEyePointerAt < 1000) return;
+  const btn = e.target.closest ? e.target.closest('.pw-eye') : null;
+  if (!btn) return;
+  toggleEye(btn);
 });
 // Password policy: 8+ characters with a capital, a lowercase, and a
 // number. Shown live under every new-password field.

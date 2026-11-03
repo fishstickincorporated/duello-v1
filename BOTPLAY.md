@@ -381,6 +381,25 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Tiles v26: outlined letter/value paths (Nov 3, 2026, cache v26)
+
+- tileSVG no longer renders letters or values as font text: both are
+  baked-in vector paths, so bold thickness can no longer vary by
+  device font rendering. Letters are Comfortaa Bold outlines at the
+  same size/position as before (58px, centered at x=46, baseline 76,
+  stroke 3, unchanged); values are Liberation Sans Bold outlines
+  (metric-compatible Arial substitute) at the same size/position
+  (28px, anchored end at x=90, baseline 28) with the value stroke
+  thinned from 2 to 1 at Jeff's approval after he reviewed examples
+  (W first, then a thinner-numbers revision). Paths were generated
+  with fontTools from the approved fonts and render-checked for all
+  26 letters from the shipped app.js (letters, values, and holes
+  all correct) before pushing. Generator and source paths live in
+  workspace/duello-outlined-tiles/ (generate.py + outlined-tiles.json);
+  only the resulting path tables are embedded in app.js. No game
+  logic, drag, or validation change: tileSVG still takes a letter
+  from game state and returns the same 100x100 tile SVG.
+
 ## Scoreboard v25: equal padding around the last-play line (Nov 3, 2026, cache v25)
 
 - v24 left the line with 4px above it (scoreboard margin

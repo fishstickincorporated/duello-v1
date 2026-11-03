@@ -380,3 +380,13 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   2px/2px, and the reserved height drops from 27px (2 lines)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
+
+## Scoreboard v25: equal padding around the last-play line (Nov 3, 2026, cache v25)
+
+- v24 left the line with 4px above it (scoreboard margin
+  2px + last-play margin-top 2px) but only 2px below it.
+  Scoreboard bottom margin goes to 0, so the gap is now
+  exactly 2px above and 2px below the line. The line-height
+  is also set to 14px to match the 14px min-height, so the
+  extra height no longer sits only below the text. No other
+  change: same single line, same side justification.

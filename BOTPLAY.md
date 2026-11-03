@@ -180,3 +180,16 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   games played (other per-game stats still include them). Average
   game score counts only games where the player's own clock fully
   expired (saved clocks.human <= 0); games ended early are excluded.
+
+## Boot diagnostics (Nov 2, 2026, cache v10)
+
+- A #bootError overlay lives in index.html (gold box, tap to
+  dismiss): an inline script installed before app.js reports any
+  uncaught script error (message + file:line:col) and any unhandled
+  promise rejection into it, and the app.js script tag reports a
+  load failure there too. It exists so a black screen on a phone
+  names its own failure without a desktop console.
+- Boot no longer waits forever on /api/me: if the login check takes
+  over 10s, Home shows anyway (the transient-error path). A late
+  rejection from the raced request is swallowed so it cannot trip
+  the overlay.

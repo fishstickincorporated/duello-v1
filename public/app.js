@@ -1225,7 +1225,15 @@ function enablePlacedDrag(el, pend) {
 // ---------- Startup: sign-in is required before entering the app ----------
 (async () => {
   if (!token) { setAuthMode('signin'); show('authScreen'); return; }
-  try { const d = await api('/api/me'); me = d.user; }
+  // A login check that never answers must not leave the page black: if
+  // /api/me takes over 10s, show Home anyway (the transient-error path).
+  // The dummy catch keeps a late rejection from surfacing as unhandled.
+  const meReq = api('/api/me');
+  meReq.catch(() => {});
+  try {
+    const d = await Promise.race([meReq, new Promise(res => setTimeout(() => res(null), 10000))]);
+    if (d) me = d.user;
+  }
   catch (err) {
     // Only a rejected session bounces to auth; a transient network
     // failure still shows Home and lets the next call surface the error.

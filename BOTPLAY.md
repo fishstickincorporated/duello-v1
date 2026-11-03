@@ -286,3 +286,22 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   (fitLastplay) is removed entirely; the words line is standard
   size again, points stay blue directly below the words, and
   the bingo tag stays nowrap from v18.
+
+## Scoreboard alignment + stacked words (Nov 2, 2026, cache v20)
+
+- The top row now fills the panel (panel-top flex:1), so the
+  pfp/name/elo block and the score sit vertically centered in
+  it, while the clock stays top-aligned as before; both panels
+  stretch to the same height, so both last-play rows sit at the
+  same height at the panel bottoms, words next to each other at
+  the center edges (player right-aligned, bot left-aligned).
+- Edge spacing, both sides, 2px each: identity content now sits
+  6px off the outside edge (was 4px) and 2px off the score side
+  (was 4px), which also pulls the scores 2px closer to the
+  outside edges; clocks and last-play words sit 6px off the
+  center edge (was 4px). Scores stay left-justified (player)
+  and right-justified (opponent) from v16. Border-box is on, so
+  no column widths moved.
+- Last-play words are now stacked vertically, one word per
+  line, instead of comma-joined on one line; points stay blue
+  below the list.

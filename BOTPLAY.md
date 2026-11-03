@@ -358,3 +358,25 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   so the board sits a fixed distance below the scoreboard and
   never jumps when the first play lands. Panels are now just
   the top row (pfp / name / Elo | clock / score).
+
+## Scoreboard v24: last play single line, side-justified (Nov 3, 2026, cache v24)
+
+- Last play collapses from two lines to one: words, points,
+  and bingo/Duello bonus all on the same line, e.g.
+  "QUICKLY, JAZZED, FOXGLOVE +118 bingo! +30" (words grey,
+  points Duello blue, bingo gold; a pass reads
+  "passed -30s" on one line). Still one shared block showing
+  the most recent play, picked by turn as in v23.
+- Justification follows who played it: the human's last play
+  is left-justified (starts at the left edge), the bot's is
+  right-justified (ends at the right edge). The block is
+  full width with nowrap, so a long string runs past the
+  center line in its own direction instead of being clipped
+  to its own half. Measured with real fonts: a 3-word bingo
+  line is ~256px in the 358px content width, so it crosses
+  the middle and still fits.
+- Padding tightens above and below the line: scoreboard
+  bottom margin 8px -> 2px, last-play margins 0/8px ->
+  2px/2px, and the reserved height drops from 27px (2 lines)
+  to 14px (1 line), so the board sits closer and still never
+  jumps when the first play lands.

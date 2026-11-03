@@ -251,11 +251,14 @@ function renderGame() {
   $('scoreHuman').textContent = String(game.scores.human); $('scoreBot').textContent = String(game.scores.bot);
   const lastHtml = (l) => {
     if (!l) return '';
-    if (l.passed) return '<span class="lp-words">passed</span><span class="pts">-30s</span>';
+    if (l.passed) return '<span class="lp-words">passed</span> <span class="pts">-30s</span>';
     const words = (l.words && l.words.length) ? l.words : [l.word];
-    return `<span class="lp-words">${words.join(', ')}</span><span class="pts">+${l.points}${l.bingo ? ' <span class="bingo">bingo! +30</span>' : ''}${l.isDuello ? ' Duello +30' : ''}</span>`;
+    return `<span class="lp-words">${words.join(', ')}</span> <span class="pts">+${l.points}${l.bingo ? ' <span class="bingo">bingo! +30</span>' : ''}${l.isDuello ? ' Duello +30' : ''}</span>`;
   };
-  $('lastPlay').innerHTML = lastHtml(game.clocks.turn === 'human' ? (game.lastBot || game.lastHuman) : (game.lastHuman || game.lastBot));
+  const shownLast = game.clocks.turn === 'human' ? (game.lastBot || game.lastHuman) : (game.lastHuman || game.lastBot);
+  $('lastPlay').innerHTML = lastHtml(shownLast);
+  $('lastPlay').classList.toggle('from-human', !!shownLast && shownLast === game.lastHuman);
+  $('lastPlay').classList.toggle('from-bot', !!shownLast && shownLast === game.lastBot);
   // Inner 6x6 glow lives in a persistent overlay (see index.html), not on
   // the board cells: renderGame rebuilds every cell, and each rebuild
   // restarted the 3.2s pulse, so the glow visibly jumped at the end of

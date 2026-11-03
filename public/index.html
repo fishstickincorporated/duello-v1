@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=26"></head>
+<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=27"></head>
 <body><div id="bootError" style="display:none;position:fixed;top:12px;left:12px;right:12px;z-index:9999;background:#ffd166;color:#1a1d24;padding:12px;border-radius:10px;font-size:14px;line-height:1.4" onclick="this.style.display='none'"></div><div id="app">
   <noscript><p style="color:#e8ecf1;text-align:center;padding:40px 20px">Duello needs JavaScript enabled to run. Turn JavaScript on in your browser settings and reload.</p></noscript>
 
@@ -70,7 +70,7 @@
       </div>
       <div id="statsList" class="stats-list"></div>
     </div>
-    <button class="link" id="profileSignOutBtn">Sign out</button>
+    <p class="small privacy-link"><a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a></p>
   </section>
 
   <section id="profileEditScreen" class="screen hidden">
@@ -103,6 +103,18 @@
         <p id="editPasswordDone" class="small"></p>
       </div>
       <button class="btn blue-border" id="editPasswordBtn" type="button">Change password</button>
+    </div>
+    <button class="link" id="profileSignOutBtn">Sign out</button>
+    <div class="edit-delete">
+      <button class="btn danger" id="editDeleteBtn" type="button">Delete account</button>
+      <div id="editDeleteConfirm" class="hidden">
+        <p class="small">This permanently deletes your account, games, Elo, and stats. This cannot be undone.</p>
+        <p id="editDeleteError" class="error"></p>
+        <div class="edit-actions">
+          <button class="btn cancel" type="button" id="editDeleteCancelBtn">Keep my account</button>
+          <button class="btn danger" type="button" id="editDeleteConfirmBtn">Yes, delete my account</button>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -160,6 +172,7 @@
       </div>
     </div>
     <button class="link" id="authToggleBtn">Need an account? Sign up</button>
+    <p class="small privacy-link"><a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a></p>
   </section>
 
   <section id="gameScreen" class="screen hidden">
@@ -226,4 +239,4 @@
   });
 })();
 </script>
-<script src="/app.js?v=26" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>
+<script src="/app.js?v=27" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>

@@ -1110,7 +1110,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const pathname = url.pathname;
     // Static files
-    if (req.method === 'GET' && (pathname === '/' || pathname.startsWith('/app.js') || pathname.startsWith('/style.css') || pathname.startsWith('/favicon') || pathname.startsWith('/assets/'))) {
+    if (req.method === 'GET' && (pathname === '/' || pathname === '/privacy.html' || pathname.startsWith('/app.js') || pathname.startsWith('/style.css') || pathname.startsWith('/favicon') || pathname.startsWith('/assets/'))) {
       const file = pathname === '/' ? 'index.html' : pathname.slice(1);
       const safe = path.join(ROOT, 'public', file);
       if (!safe.startsWith(path.join(ROOT, 'public'))) { res.writeHead(403); return res.end(); }
@@ -1373,6 +1373,29 @@ const server = http.createServer(async (req, res) => {
       const m = h.match(/^Bearer\s+(.+)$/);
       if (m) await q('DELETE FROM sessions WHERE user_id=$1 AND token<>$2', [user.id, m[1]]);
       else await q('DELETE FROM sessions WHERE user_id=$1', [user.id]);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/me/delete' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      // Delete everything belonging to this account, in one transaction,
+      // child rows first (no ON DELETE CASCADE on these foreign keys).
+      // The session that called this is deleted too, so the token stops
+      // working the moment the account is gone.
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('DELETE FROM sessions WHERE user_id=$1', [user.id]);
+        await client.query('DELETE FROM games WHERE user_id=$1', [user.id]);
+        await client.query('DELETE FROM elo_history WHERE user_id=$1', [user.id]);
+        await client.query('DELETE FROM verification_codes WHERE email=$1', [user.email]);
+        await client.query('DELETE FROM password_reset_codes WHERE email=$1', [user.email]);
+        await client.query('DELETE FROM users WHERE id=$1', [user.id]);
+        await client.query('COMMIT');
+      } catch (e) {
+        try { await client.query('ROLLBACK'); } catch {}
+        return sendJson(res, 500, { error: 'Could not delete account.' });
+      } finally { client.release(); }
       return sendJson(res, 200, { ok: true });
     }
     if (pathname === '/api/leaderboard' && req.method === 'GET') {

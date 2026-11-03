@@ -381,6 +381,38 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## App Store blockers v27: delete account + privacy policy + sign-out move (Nov 3, 2026, cache v27)
+
+- Delete account (Apple requirement): POST /api/me/delete, signed-in
+  only, deletes the account in one transaction, child rows first:
+  sessions, games, Elo history, verification codes, password-reset
+  codes, then the user row. The calling session is deleted too, so
+  the token stops working at once. Client: Profile edit screen
+  (gear) gains a Delete account button with a two-tap confirmation
+  ("This permanently deletes your account, games, Elo, and stats.
+  This cannot be undone." + "Yes, delete my account" / "Keep my
+  account"); on success the token is cleared and the app returns to
+  the sign-in screen.
+- Privacy policy: public/privacy.html, served by adding it to the
+  server's static whitelist, linked from the sign-in screen and the
+  profile screen. It covers account info, game data, uploaded photos,
+  session/verification codes, Render hosting and Resend email as the
+  only services, no sale or advertising sharing, no ad trackers, and
+  deletion via the in-app button. Contact listed is the Duello Gmail
+  (fishstickincorporated@gmail.com); the live policy URL is
+  https://duellogame.com/privacy.html.
+- Sign out moved (Jeff, Nov 3, 2026): the Sign out button moves from
+  the main profile screen to the gear/edit screen, directly above
+  Delete account (order: Change password, Sign out, Delete account).
+  Same button and handler, only relocated; the Privacy Policy link
+  stays on the profile screen.
+- Tested end to end locally before pushing, against a throwaway
+  local Postgres database only (production untouched): unauthenticated
+  delete returns 401, /privacy.html serves 200, an authenticated
+  delete returns ok:true and leaves zero rows for that user in users,
+  sessions, games, Elo history, and both code tables, while a second
+  control account still signs in normally afterwards.
+
 ## Tiles v26: outlined letter/value paths (Nov 3, 2026, cache v26)
 
 - tileSVG no longer renders letters or values as font text: both are

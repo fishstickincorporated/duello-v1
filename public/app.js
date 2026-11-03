@@ -1392,6 +1392,21 @@ $('profileSignOutBtn').onclick = async () => {
   token = ''; storeDel('duello_token'); me = null; profileData = null;
   setAuthMode('signin'); show('authScreen');
 };
+$('editDeleteBtn').onclick = () => {
+  $('editDeleteConfirm').classList.remove('hidden');
+  $('editDeleteError').textContent = '';
+};
+$('editDeleteCancelBtn').onclick = () => {
+  $('editDeleteConfirm').classList.add('hidden');
+};
+$('editDeleteConfirmBtn').onclick = async () => {
+  try {
+    await api('/api/me/delete', { method: 'POST' });
+  } catch (err) { $('editDeleteError').textContent = err.message || 'Could not delete account.'; return; }
+  token = ''; storeDel('duello_token'); me = null; profileData = null; game = null;
+  $('editDeleteConfirm').classList.add('hidden');
+  setAuthMode('signin'); show('authScreen');
+};
 let suEmail = '', suVerifiedToken = '';
 function setAuthMode(mode) {
   authMode = mode;

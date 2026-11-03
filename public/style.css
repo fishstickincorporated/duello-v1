@@ -180,6 +180,10 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .edit-field input{margin:0;min-width:0}
 .edit-password{margin-top:12px}
 .btn.cancel{background:transparent;color:#03eaff;border:2px solid #03eaff;padding:12px;font-size:17px}
+.btn.danger{background:#ff1303;color:#fff;padding:12px;width:100%;font-size:17px;margin-top:10px}
+.edit-delete{margin-top:12px}
+.privacy-link{text-align:center}
+.privacy-link a{color:#03eaff}
 .btn.blue-border{background:transparent;color:#03eaff;border:2px solid #03eaff;padding:12px;width:100%;font-size:17px;margin-top:10px}
 .mini-btn{background:#03eaff;color:#1a1d24;border:0;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px}
 .mini-btn.grey{background:#3a3f4b}

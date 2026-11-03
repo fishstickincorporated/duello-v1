@@ -130,6 +130,7 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .lb-row .lb-elo{margin-left:auto;color:#03eaff;font-weight:800;font-size:18px}
 .lb-row.you{outline:2px solid #03eaff}
 .you-badge{background:#03eaff;color:#1a1d24;font-size:11px;font-weight:800;border-radius:8px;padding:2px 6px}
+.lb-row .you-badge{align-self:flex-start;margin-top:2px}
 .pending-label{color:#ffd166;font-size:12px;font-weight:700}
 .leaderboard-head{display:flex;align-items:center;justify-content:space-between;margin:22px 0 0}
 .leaderboard-label{font-weight:900;letter-spacing:1px;font-size:18px}

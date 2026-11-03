@@ -216,3 +216,7 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   18px, matching the row name/Elo/rank size (they were default
   16px). Secondary sizes left alone: @username 14px, YOU badge
   11px, Pending 12px.
+
+- YOU badge (Nov 2, 2026, cache v13): the badge now aligns with
+  the name line (align-self flex-start + 2px top margin) instead
+  of sitting vertically centered in the taller row.

@@ -15,6 +15,11 @@ function storeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 function storeDel(k) { try { localStorage.removeItem(k); } catch {} }
 let token = storeGet('duello_token') || '';
 let me = null, game = null, gameFetchAt = 0;
+// Declared up here, not with the auth block below: the boot code calls
+// setAuthMode, which assigns authMode, so this declaration must already
+// have run or the page dies before any screen shows (ReferenceError:
+// Cannot access 'authMode' before initialization).
+let authMode = 'signin';
 let pending = []; // {row,col,letter,rackIndex}
 let selectedRack = null, armed = {}, currentBot = 'competitive';
 // Global drag state: only one drag can be live, and a stuck drag must be
@@ -1378,7 +1383,6 @@ $('profileSignOutBtn').onclick = async () => {
   token = ''; storeDel('duello_token'); me = null; profileData = null;
   setAuthMode('signin'); show('authScreen');
 };
-let authMode = 'signin';
 let suEmail = '', suVerifiedToken = '';
 function setAuthMode(mode) {
   authMode = mode;

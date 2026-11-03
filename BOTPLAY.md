@@ -193,3 +193,12 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   over 10s, Home shows anyway (the transient-error path). A late
   rejection from the raced request is swallowed so it cannot trip
   the overlay.
+
+## TDZ fix (Nov 2, 2026, cache v11)
+
+- The phone's error box caught a real startup bug: the boot code
+  calls setAuthMode, which assigns authMode, but `let authMode`
+  was declared after the boot code, so the assignment threw
+  "Cannot access 'authMode' before initialization" before any
+  screen could show. The declaration now lives with the other
+  top-of-file lets, ahead of the boot code.

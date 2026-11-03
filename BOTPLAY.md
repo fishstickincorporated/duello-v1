@@ -229,3 +229,25 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
 - Profile Elo row (Nov 2, 2026, cache v15): the All-time high
   label and value are right-justified within the row's right
   half; Elo stays left.
+
+## Scoreboard last-play fit + score justification + lifetime bingos (Nov 2, 2026, cache v16)
+
+- Last play can no longer wrap or clip: the words line is wrapped
+  in a nowrap span and a fitLastplay pass (end of renderGame)
+  shrinks the last-play block from 11px down to 6px until the
+  words line fits its column and the block fits the panel height
+  (58px budget: 88px panel - 22px clock - 8px padding). A single
+  6-letter word always shows on one line; the block can never
+  grow past the panel. Measured widths behind this: PLANET is
+  45.3px at 11px vs a 42px column at phone width, so it wrapped
+  before; the 3-digit score at 32px is 58.1px wide, already over
+  its 56px column, so the score column was left untouched.
+- Score justification: the player's score is left-justified
+  (toward their pfp) and the opponent's is right-justified
+  (toward theirs), instead of both centered.
+- Lifetime bingos: a new profile stat counting human moves that
+  used all 6 tiles. The move record now saves the bingo flag, and
+  profileStatsFor counts it across finished games (Fishstick
+  games included, like the other word stats). Past games cannot
+  contribute: their saved moves never stored the flag, so the
+  count starts from this change.

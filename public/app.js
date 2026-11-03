@@ -251,9 +251,9 @@ function renderGame() {
   $('scoreHuman').textContent = String(game.scores.human); $('scoreBot').textContent = String(game.scores.bot);
   const lastHtml = (l) => {
     if (!l) return '';
-    if (l.passed) return 'passed<br><span class="pts">-30s</span>';
+    if (l.passed) return '<span class="lp-words">passed</span><br><span class="pts">-30s</span>';
     const words = (l.words && l.words.length) ? l.words : [l.word];
-    return `${words.join(', ')}<br><span class="pts">+${l.points} pts${l.bingo ? ' · <span class="bingo">bingo! +30</span>' : ''}${l.isDuello ? ' · Duello +30' : ''}</span>`;
+    return `<span class="lp-words">${words.join(', ')}</span><br><span class="pts">+${l.points} pts${l.bingo ? ' · <span class="bingo">bingo! +30</span>' : ''}${l.isDuello ? ' · Duello +30' : ''}</span>`;
   };
   $('lastHuman').innerHTML = lastHtml(game.lastHuman);
   $('lastBot').innerHTML = lastHtml(game.lastBot);
@@ -331,6 +331,22 @@ function renderGame() {
   tickClocks();
   if (countdownActive) { $('clockHuman').textContent = '5:00'; $('clockBot').textContent = '5:00'; }
   updateStatus();
+  fitLastplay();
+}
+// The words line of a last play never wraps: it shrinks (11px down to
+// 6px) until it fits its column, and the whole block shrinks until it
+// fits the panel height (panel 88px - clock 22px - padding 8px = 58px).
+// A single 6-letter word therefore always shows on one line, and the
+// block can never grow past the panel and get cut off.
+function fitLastplay() {
+  document.querySelectorAll('.lastplay').forEach(el => {
+    const words = el.querySelector('.lp-words');
+    if (!words) return;
+    el.style.fontSize = '';
+    let size = 11;
+    const fits = () => words.scrollWidth <= words.clientWidth && el.scrollHeight <= 58;
+    while (size > 6 && !fits()) { size -= 0.5; el.style.fontSize = size + 'px'; }
+  });
 }
 let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0;
 let countdownInterval = null, countdownActive = false;
@@ -1285,6 +1301,7 @@ function renderStatsList() {
     ['Average game score', st.avgGameScore], ['Highest game score', st.highestGameScore],
     ['Average word score', st.avgWordScore], ['Highest word score', st.highestWordScore],
     ['50+ point words', st.wordsOver50], ['100+ point words', st.wordsOver100],
+    ['Lifetime bingos', st.bingos],
     ['Longest word', st.longestWord ? `${st.longestWord} (${st.longestWordLen} letters)` : '—'],
     ['Games played', st.gamesPlayed], ['Lifetime record', st.record || '0W-0L'],
     ['Optimal move %', st.optimalPct + '%'], ['Unique words played', st.uniqueWords],

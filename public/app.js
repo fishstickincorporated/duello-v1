@@ -1327,7 +1327,7 @@ $('gearBtn').onclick = async () => {
   $('editPhotoRemoveBtn').classList.toggle('hidden', !u.photoData);
   $('editCurrentPassword').value = ''; $('editNewPassword').value = ''; $('editNewPassword2').value = '';
   $('editPasswordError').textContent = ''; $('editPasswordDone').textContent = '';
-  passwordRevealed = false; $('editPasswordFields').classList.add('hidden');
+  $('editPasswordFields').classList.add('hidden');
   show('profileEditScreen');
 };
 let editPhotoData;
@@ -1367,16 +1367,13 @@ $('profileEditForm').onsubmit = async e => {
     show('profileScreen'); renderProfileUI();
   } catch (err) { $('editError').textContent = err.message || 'Could not save.'; }
 };
-let passwordRevealed = false;
-$('editPasswordBtn').onclick = async () => {
-  // First tap only reveals the fields, matching the prototype: the
-  // button sits alone until clicked, then Current/New/Confirm appear.
-  if (!passwordRevealed) {
-    passwordRevealed = true;
-    $('editPasswordFields').classList.remove('hidden');
-    $('editCurrentPassword').focus();
-    return;
-  }
+$('editPasswordBtn').onclick = () => {
+  // Reveal-only: the fields carry their own Save button, so there is
+  // always an obvious submit instead of a second tap on this link.
+  $('editPasswordFields').classList.remove('hidden');
+  $('editCurrentPassword').focus();
+};
+$('editPasswordSaveBtn').onclick = async () => {
   $('editPasswordError').textContent = ''; $('editPasswordDone').textContent = '';
   const currentPassword = $('editCurrentPassword').value, newPassword = $('editNewPassword').value, newPassword2 = $('editNewPassword2').value;
   try {
@@ -1387,6 +1384,16 @@ $('editPasswordBtn').onclick = async () => {
     $('editPasswordDone').textContent = 'Password changed.';
   } catch (err) { $('editPasswordError').textContent = err.message || 'Could not change password.'; }
 };
+// Eye toggles for every password field: tap to see what was typed.
+document.querySelectorAll('.pw-eye').forEach(btn => {
+  btn.onclick = () => {
+    const inp = $(btn.dataset.target); if (!inp) return;
+    const show = inp.type === 'password';
+    inp.type = show ? 'text' : 'password';
+    btn.textContent = show ? '🙈' : '👁';
+    btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+  };
+});
 $('profileSignOutBtn').onclick = async () => {
   try { await api('/api/signout', { method: 'POST' }); } catch {}
   token = ''; storeDel('duello_token'); me = null; profileData = null;
@@ -1415,17 +1422,18 @@ function setAuthMode(mode) {
   $('signupSteps').classList.toggle('hidden', mode !== 'signup');
   $('resetSteps').classList.toggle('hidden', mode !== 'reset');
   $('authToggleBtn').textContent = mode === 'signup' ? 'Already have an account? Sign in' : mode === 'reset' ? 'Back to sign in' : 'Need an account? Sign up';
-  $('authError').textContent = '';
+  $('authError').textContent = ''; $('authSuccess').textContent = '';
   if (mode === 'signup') showSignupStep('email');
   if (mode === 'reset') showResetStep('email');
 }
 function showSignupStep(step) {
   ['Email', 'Code', 'Profile'].forEach(s => $('signupStep' + s).classList.toggle('hidden', s.toLowerCase() !== step));
   ['suError', 'suError2', 'suError3'].forEach(id => { $(id).textContent = ''; });
+  if (step === 'email') $('suSentMsg').textContent = '';
 }
 $('authToggleBtn').onclick = () => setAuthMode(authMode === 'signin' ? 'signup' : 'signin');
 $('authForm').onsubmit = async e => {
-  e.preventDefault(); $('authError').textContent = '';
+  e.preventDefault(); $('authError').textContent = ''; $('authSuccess').textContent = '';
   const email = $('authEmail').value.trim(), password = $('authPassword').value;
   try {
     const d = await api('/api/signin', { method: 'POST', body: JSON.stringify({ email, password }) });
@@ -1439,13 +1447,14 @@ $('suSendBtn').onclick = async () => {
   try {
     await api('/api/auth/request-code', { method: 'POST', body: JSON.stringify({ email: suEmail }) });
     showSignupStep('code');
+    $('suSentMsg').textContent = 'A code was sent to your email.';
   } catch (err) { $('suError').textContent = err.message || 'Something went wrong.'; }
 };
 $('suResendBtn').onclick = async () => {
   $('suError2').textContent = '';
   try {
     await api('/api/auth/request-code', { method: 'POST', body: JSON.stringify({ email: suEmail }) });
-    $('suError2').textContent = 'New code sent.';
+    $('suSentMsg').textContent = 'A code was sent to your email.';
   } catch (err) { $('suError2').textContent = err.message || 'Something went wrong.'; }
 };
 $('suBackBtn').onclick = () => showSignupStep('email');
@@ -1474,6 +1483,7 @@ let rpEmail = '', rpVerifiedToken = '';
 function showResetStep(step) {
   ['Email', 'Code', 'Password'].forEach(s => $('resetStep' + s).classList.toggle('hidden', s.toLowerCase() !== step));
   ['rpError', 'rpError2', 'rpError3'].forEach(id => { $(id).textContent = ''; });
+  if (step === 'email') $('rpSentMsg').textContent = '';
 }
 $('forgotPasswordBtn').onclick = () => setAuthMode('reset');
 $('rpSendBtn').onclick = async () => {
@@ -1482,13 +1492,14 @@ $('rpSendBtn').onclick = async () => {
   try {
     await api('/api/auth/request-reset', { method: 'POST', body: JSON.stringify({ email: rpEmail }) });
     showResetStep('code');
+    $('rpSentMsg').textContent = 'A code was sent to your email.';
   } catch (err) { $('rpError').textContent = err.message || 'Something went wrong.'; }
 };
 $('rpResendBtn').onclick = async () => {
   $('rpError2').textContent = '';
   try {
     await api('/api/auth/request-reset', { method: 'POST', body: JSON.stringify({ email: rpEmail }) });
-    $('rpError2').textContent = 'If an account exists for that email, a code was sent.';
+    $('rpSentMsg').textContent = 'A code was sent to your email.';
   } catch (err) { $('rpError2').textContent = err.message || 'Something went wrong.'; }
 };
 $('rpBackBtn').onclick = () => showResetStep('email');
@@ -1509,7 +1520,8 @@ $('rpResetBtn').onclick = async () => {
     if (password !== password2) throw new Error('Passwords do not match.');
     await api('/api/auth/reset-password', { method: 'POST', body: JSON.stringify({ email: rpEmail, password, verifiedToken: rpVerifiedToken }) });
     rpVerifiedToken = '';
+    $('rpPassword').value = ''; $('rpPassword2').value = ''; $('rpCode').value = '';
     setAuthMode('signin');
-    $('authError').textContent = 'Password changed. Sign in with your new password.';
+    $('authSuccess').textContent = 'Password has been reset, please log in.';
   } catch (err) { $('rpError3').textContent = err.message || 'Something went wrong.'; }
 };

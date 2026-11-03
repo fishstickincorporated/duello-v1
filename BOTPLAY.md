@@ -381,6 +381,26 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Password reset/change UX v31 (Nov 3, 2026, cache v31)
+
+- Password change finally has a real submit: the gear screen's
+  Change password link is now reveal-only, and the revealed fields
+  carry a full-width "Save new password" button. The old second-tap-
+  on-the-link submit is gone, which is why it looked like there was
+  no submit button at all.
+- Password reset is less clunky: after sending (or resending) a
+  code, the code step says "A code was sent to your email." in
+  Duello blue, and after a successful reset the sign-in screen says
+  "Password has been reset, please log in." in Duello blue — both
+  via a new `.success` style, never the red error style. Signup's
+  code step got the same blue sent message for consistency.
+- No autofill anywhere in auth/edit: every email, password, and
+  code input on the sign-in, sign-up, reset, and profile-edit
+  screens now carries autocomplete="off", and both forms do too.
+- Every password field (sign-in, sign-up, reset new passwords,
+  change current/new passwords) now has an eye button (👁/🙈) that
+  toggles the typed password between hidden and visible.
+
 ## No-photo pfp border v30 (Nov 3, 2026, cache v30)
 
 - When a user has no profile photo, the silhouette icon now gets a

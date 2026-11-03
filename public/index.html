@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=30"></head>
+<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=31"></head>
 <body><div id="bootError" style="display:none;position:fixed;top:12px;left:12px;right:12px;z-index:9999;background:#ffd166;color:#1a1d24;padding:12px;border-radius:10px;font-size:14px;line-height:1.4" onclick="this.style.display='none'"></div><div id="app">
   <noscript><p style="color:#e8ecf1;text-align:center;padding:40px 20px">Duello needs JavaScript enabled to run. Turn JavaScript on in your browser settings and reload.</p></noscript>
 
@@ -75,7 +75,7 @@
 
   <section id="profileEditScreen" class="screen hidden">
     <h1 class="auth-heading">Edit profile</h1>
-    <form id="profileEditForm">
+    <form id="profileEditForm" autocomplete="off">
       <div class="edit-photo">
         <div class="edit-pfp-wrap" id="editPfpWrap" title="Change photo">
           <div class="pfp huge" id="editPfp"></div>
@@ -84,10 +84,10 @@
         <input id="editPhotoInput" type="file" accept="image/*" class="hidden">
         <button class="link hidden" id="editPhotoRemoveBtn" type="button">Remove photo</button>
       </div>
-      <div class="edit-field"><label for="editFirstName">First name</label><input id="editFirstName" placeholder="First name"></div>
-      <div class="edit-field"><label for="editLastName">Last name</label><input id="editLastName" placeholder="Last name"></div>
-      <div class="edit-field"><label for="editUsername">Username</label><input id="editUsername" placeholder="Username"></div>
-      <div class="edit-field"><label for="editEmail">Email</label><input id="editEmail" type="email" placeholder="Email" autocomplete="email"></div>
+      <div class="edit-field"><label for="editFirstName">First name</label><input id="editFirstName" placeholder="First name" autocomplete="off"></div>
+      <div class="edit-field"><label for="editLastName">Last name</label><input id="editLastName" placeholder="Last name" autocomplete="off"></div>
+      <div class="edit-field"><label for="editUsername">Username</label><input id="editUsername" placeholder="Username" autocomplete="off"></div>
+      <div class="edit-field"><label for="editEmail">Email</label><input id="editEmail" type="email" placeholder="Email" autocomplete="off"></div>
       <p id="editError" class="error"></p>
       <div class="edit-actions">
         <button class="btn cancel" type="button" id="editCancelBtn">Cancel</button>
@@ -96,11 +96,12 @@
     </form>
     <div class="edit-password">
       <div id="editPasswordFields" class="hidden">
-        <input id="editCurrentPassword" type="password" placeholder="Current password" autocomplete="current-password">
-        <input id="editNewPassword" type="password" placeholder="New password" autocomplete="new-password">
-        <input id="editNewPassword2" type="password" placeholder="New password again" autocomplete="new-password">
+        <div class="pw-wrap"><input id="editCurrentPassword" type="password" placeholder="Current password" autocomplete="off"><button class="pw-eye" type="button" data-target="editCurrentPassword" aria-label="Show password">👁</button></div>
+        <div class="pw-wrap"><input id="editNewPassword" type="password" placeholder="New password" autocomplete="off"><button class="pw-eye" type="button" data-target="editNewPassword" aria-label="Show password">👁</button></div>
+        <div class="pw-wrap"><input id="editNewPassword2" type="password" placeholder="New password again" autocomplete="off"><button class="pw-eye" type="button" data-target="editNewPassword2" aria-label="Show password">👁</button></div>
+        <button class="btn primary" id="editPasswordSaveBtn" type="button">Save new password</button>
         <p id="editPasswordError" class="error"></p>
-        <p id="editPasswordDone" class="small"></p>
+        <p id="editPasswordDone" class="success"></p>
       </div>
       <button class="link" id="editPasswordBtn" type="button">Change password</button>
     </div>
@@ -120,22 +121,24 @@
 
   <section id="authScreen" class="screen hidden">
     <h1 class="auth-heading" id="authHeading">Sign in</h1>
-    <form id="authForm">
-      <input id="authEmail" type="email" placeholder="Email" autocomplete="email">
-      <input id="authPassword" type="password" placeholder="Password" autocomplete="current-password">
+    <form id="authForm" autocomplete="off">
+      <input id="authEmail" type="email" placeholder="Email" autocomplete="off">
+      <div class="pw-wrap"><input id="authPassword" type="password" placeholder="Password" autocomplete="off"><button class="pw-eye" type="button" data-target="authPassword" aria-label="Show password">👁</button></div>
       <p id="authError" class="error"></p>
+      <p id="authSuccess" class="success"></p>
       <button class="btn primary" type="submit" id="authSubmitBtn">Sign in</button>
       <button class="link" id="forgotPasswordBtn" type="button">Forgot password?</button>
     </form>
     <div id="signupSteps" class="hidden">
       <div id="signupStepEmail">
-        <input id="suEmail" type="email" placeholder="Email" autocomplete="email">
+        <input id="suEmail" type="email" placeholder="Email" autocomplete="off">
         <p id="suError" class="error"></p>
         <button class="btn primary" id="suSendBtn" type="button">Send code</button>
         <p>We will email you a 6-digit code.</p>
       </div>
       <div id="signupStepCode" class="hidden">
-        <input id="suCode" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="one-time-code">
+        <p id="suSentMsg" class="success"></p>
+        <input id="suCode" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="off">
         <p id="suError2" class="error"></p>
         <button class="btn primary" id="suVerifyBtn" type="button">Verify</button>
         <button class="link" id="suResendBtn" type="button">Send a new code</button>
@@ -145,28 +148,29 @@
         <input id="suFirstName" placeholder="First name">
         <input id="suLastName" placeholder="Last name">
         <input id="suUsername" placeholder="Username">
-        <input id="suPassword" type="password" placeholder="Password" autocomplete="new-password">
+        <div class="pw-wrap"><input id="suPassword" type="password" placeholder="Password" autocomplete="off"><button class="pw-eye" type="button" data-target="suPassword" aria-label="Show password">👁</button></div>
         <p id="suError3" class="error"></p>
         <button class="btn primary" id="suCreateBtn" type="button">Create account</button>
       </div>
     </div>
     <div id="resetSteps" class="hidden">
       <div id="resetStepEmail">
-        <input id="rpEmail" type="email" placeholder="Email" autocomplete="email">
+        <input id="rpEmail" type="email" placeholder="Email" autocomplete="off">
         <p id="rpError" class="error"></p>
         <button class="btn primary" id="rpSendBtn" type="button">Send code</button>
         <p>We will email you a 6-digit code if an account exists for that email.</p>
       </div>
       <div id="resetStepCode" class="hidden">
-        <input id="rpCode" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="one-time-code">
+        <p id="rpSentMsg" class="success"></p>
+        <input id="rpCode" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="off">
         <p id="rpError2" class="error"></p>
         <button class="btn primary" id="rpVerifyBtn" type="button">Verify</button>
         <button class="link" id="rpResendBtn" type="button">Send a new code</button>
         <button class="link" id="rpBackBtn" type="button">Use a different email</button>
       </div>
       <div id="resetStepPassword" class="hidden">
-        <input id="rpPassword" type="password" placeholder="New password" autocomplete="new-password">
-        <input id="rpPassword2" type="password" placeholder="New password again" autocomplete="new-password">
+        <div class="pw-wrap"><input id="rpPassword" type="password" placeholder="New password" autocomplete="off"><button class="pw-eye" type="button" data-target="rpPassword" aria-label="Show password">👁</button></div>
+        <div class="pw-wrap"><input id="rpPassword2" type="password" placeholder="New password again" autocomplete="off"><button class="pw-eye" type="button" data-target="rpPassword2" aria-label="Show password">👁</button></div>
         <p id="rpError3" class="error"></p>
         <button class="btn primary" id="rpResetBtn" type="button">Set new password</button>
       </div>
@@ -239,4 +243,4 @@
   });
 })();
 </script>
-<script src="/app.js?v=30" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>
+<script src="/app.js?v=31" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>

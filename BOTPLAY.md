@@ -220,3 +220,8 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
 - YOU badge (Nov 2, 2026, cache v13): the badge now aligns with
   the name line (align-self flex-start + 2px top margin) instead
   of sitting vertically centered in the taller row.
+
+- Scoreboard clock (Nov 2, 2026, cache v14): the clock column's
+  top padding went 10px -> 4px, matching the panel's other edge
+  padding, so the clock sits higher and the last-play area gains
+  about a full extra line for multi-word plays.

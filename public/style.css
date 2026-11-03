@@ -45,7 +45,7 @@ name or a big score never reflows the board. Names never wrap. */
 .panel .col{display:flex;flex-direction:column;justify-content:center;min-width:0}
 .panel .identity-col{flex:0 0 76px;padding:4px 4px}
 .panel .score-col{flex:1 0 56px;min-width:36px;text-align:center;font-size:32px;font-weight:900;font-variant-numeric:tabular-nums}
-.panel .clock-col{flex:0 1 100px;min-width:50px;padding:10px 4px 4px;font-variant-numeric:tabular-nums;font-weight:700;justify-content:flex-start}
+.panel .clock-col{flex:0 1 100px;min-width:50px;padding:4px 4px 4px;font-variant-numeric:tabular-nums;font-weight:700;justify-content:flex-start}
 .player-panel .identity-col{text-align:left;align-items:flex-start;padding-left:4px}
 .player-panel .clock-col{text-align:right;align-items:flex-end;padding-right:4px}
 .player-panel .score-col{text-align:center}

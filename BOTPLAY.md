@@ -326,3 +326,20 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
 - The Elo infinity line-height is 15px (was 20px) so both
   identity blocks are exactly the same height and both
   last-play rows sit at the same height.
+
+## Scoreboard matches Jeff's mockup (Nov 3, 2026, cache v22)
+
+- Score moves back out of the identity column into the clock
+  column, under the clock, and turns Duello blue: player panel
+  is pfp / name / Elo on the left, clock / score on the right;
+  bot panel mirrors. Clock stays 20px, score stays 32px Arial
+  Bold, only moved and recolored.
+- Last play is now a fixed 3-line full-width block, centered,
+  bottom-justified (flex-end, 40px min-height): the bottom
+  line is always the points line, the 2 lines above are the
+  words. Words are comma-joined flowing text again (not one
+  per line), wrapping between words; with one word line it
+  sits directly above the points, leaving the top line blank.
+  Points line drops "pts" and the dot separator to match the
+  mockup: "+38 bingo! +30" (points blue, bingo gold; Duello
+  +30 stays blue when it applies).

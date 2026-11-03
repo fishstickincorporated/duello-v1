@@ -50,16 +50,14 @@ name or a big score never reflows the board. Names never wrap. */
 .player-panel .clock-col{text-align:right;align-items:flex-end;padding-right:6px}
 .bot-panel .identity-col{text-align:right;align-items:flex-end;padding-right:6px;padding-left:2px}
 .bot-panel .clock-col{text-align:left;align-items:flex-start;padding-left:6px}
-.panel .game-score{font-size:32px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1}
+.panel .game-score{font-size:32px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1;color:#03eaff}
 .panel .pfp{width:32px;height:32px;flex:0 0 32px;border-radius:50%;overflow:hidden;background:#3a3f4b;display:flex;align-items:center;justify-content:center;font-size:20px;line-height:1}.panel .pfp img{width:32px;height:32px;border-radius:50%;object-fit:cover;display:block;margin:0}.panel .pfp svg{width:32px;height:32px;display:block}
 .bot-panel .pfp img{margin-left:auto}
 .panel .name{font-weight:700;font-size:11px;line-height:1.25;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .panel .elo{color:#03eaff;font-size:12px;line-height:1.25;white-space:nowrap}
 .panel .elo.inf{font-size:20px;line-height:15px}
 .panel .clock{font-size:20px;line-height:1.1}
-.lastplay{color:#b3b2b1;font-size:11px;font-weight:400;line-height:1.2;white-space:normal;overflow:hidden;padding:0 4px 6px;min-height:27px}
-.player-panel .lastplay{text-align:right;padding:0 6px 6px 4px}
-.bot-panel .lastplay{text-align:left;padding:0 4px 6px 6px}
+.lastplay{display:flex;flex-direction:column;justify-content:flex-end;color:#b3b2b1;font-size:11px;font-weight:400;line-height:1.2;white-space:normal;overflow:hidden;padding:0 6px 6px;min-height:40px;text-align:center}
 .lastplay .pts{color:#03eaff;font-weight:700}
 .lastplay .bingo{color:#ffd166;font-weight:800;white-space:nowrap}
 .board{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;width:100%;aspect-ratio:1;background:#11131a;padding:3px;border-radius:10px}

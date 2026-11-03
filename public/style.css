@@ -121,6 +121,9 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .search-results{text-align:left}
 .search-result,.lb-row,.request-row{display:flex;align-items:center;gap:10px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}
 .lb-row .rank{color:#ffd166;font-weight:900;min-width:22px;font-size:18px}
+.lb-pfp{width:36px;height:36px;flex:0 0 36px;border-radius:50%;overflow:hidden;background:#3a3f4b;display:flex;align-items:center;justify-content:center}
+.lb-pfp img{width:36px;height:36px;border-radius:50%;object-fit:cover;display:block}
+.lb-pfp svg{width:36px;height:36px;display:block}
 .lb-pfp{flex:0 0 36px}.lb-pfp svg{display:block}
 .lb-row .lb-name{color:#03eaff;font-weight:800;font-size:18px}
 .lb-row .lb-user{color:#b3b2b1;font-size:14px}
@@ -129,10 +132,10 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .you-badge{background:#03eaff;color:#1a1d24;font-size:11px;font-weight:800;border-radius:8px;padding:2px 6px}
 .pending-label{color:#ffd166;font-size:12px;font-weight:700}
 .leaderboard-head{display:flex;align-items:center;justify-content:space-between;margin:22px 0 0}
-.leaderboard-label{font-weight:900;letter-spacing:1px}
+.leaderboard-label{font-weight:900;letter-spacing:1px;font-size:18px}
 .pencil{background:none;border:0;font-size:20px;cursor:pointer}
 .leaderboard-tabs{display:flex;gap:8px;margin:10px 0}
-.lb-tab{flex:1;padding:10px;border:0;border-radius:10px;background:#262a33;color:#e8ecf1;cursor:pointer;font-weight:800}
+.lb-tab{flex:1;padding:10px;border:0;border-radius:10px;background:#262a33;color:#e8ecf1;cursor:pointer;font-weight:800;font-size:18px}
 .lb-tab.active{background:#03eaff;color:#1a1d24}
 .no-friends-card{background:#262a33;border-radius:12px;padding:16px;margin-top:12px;color:#b3b2b1}
 /* Profile tab: no logo, extra padding above pfp */

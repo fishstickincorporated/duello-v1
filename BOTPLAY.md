@@ -202,3 +202,17 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   "Cannot access 'authMode' before initialization" before any
   screen could show. The declaration now lives with the other
   top-of-file lets, ahead of the boot code.
+
+## Leaderboard pfp + text sizes (Nov 2, 2026, cache v12)
+
+- Leaderboard/search rows had no size rule for photos, so an
+  uploaded photo rendered at full natural size while silhouettes
+  rendered at 36px. All row pfps (leaderboard + search results)
+  are now a 36px circle with object-fit cover, matching the other
+  row pfps. The stylesheet link now carries the same ?v= cache
+  buster as the script tag, so CSS-only changes actually reach
+  players instead of sitting behind a cached stylesheet.
+- Friends/Global toggle text and the LEADERBOARD heading are now
+  18px, matching the row name/Elo/rank size (they were default
+  16px). Secondary sizes left alone: @username 14px, YOU badge
+  11px, Pending 12px.

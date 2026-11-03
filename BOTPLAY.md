@@ -264,3 +264,7 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   response), falling back to the cached copy only if absent.
   The database update itself was always correct; only the
   display was stale.
+
+- Last-play bingo tag (Nov 2, 2026, cache v18): "bingo! +30"
+  never splits across lines (nowrap on the bingo span); the whole
+  tag moves to the next line as a unit when the column is tight.

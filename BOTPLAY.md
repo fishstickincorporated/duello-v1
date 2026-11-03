@@ -381,6 +381,15 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Change-password restyle v29 (Nov 3, 2026, cache v29)
+
+- Change password on the gear/edit screen is now plain text (the
+  standard `.link` style, Duello blue) like Sign out, instead of a
+  blue-bordered button. Its behavior is unchanged: first tap reveals
+  the password fields, second tap submits. The gear screen now reads
+  as three text actions: Change password, Sign out, Delete account
+  (red).
+
 ## Delete-account restyle v28 (Nov 3, 2026, cache v28)
 
 - The Delete account trigger on the gear/edit screen is now plain

@@ -305,3 +305,24 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
 - Last-play words are now stacked vertically, one word per
   line, instead of comma-joined on one line; points stay blue
   below the list.
+
+## Scoreboard restructure (Nov 2, 2026, cache v21)
+
+- The middle score column is gone: the score now sits in the
+  identity column, between the name and the Elo (name / score /
+  Elo), left-flush on the player panel and right-flush on the
+  opponent panel, i.e. at the outside edges. This was forced by
+  geometry: a small score in the middle column always read as
+  centered, because the column itself sits in the panel's
+  middle. The score stays Arial (game-score added to the Arial
+  list); the name/score/Elo order also puts the score at the
+  panel's vertical center.
+- The clock column now takes all leftover width (106px at phone
+  width instead of 50px), because the old column clipped: it
+  gave the clock a 40px content box while Arial Bold "4:59" is
+  exactly 40.0px, and columns clip overflow, so the trailing
+  digits garbled on the phone. The clock now fits with room to
+  spare and stays 6px off the center edge.
+- The Elo infinity line-height is 15px (was 20px) so both
+  identity blocks are exactly the same height and both
+  last-play rows sit at the same height.

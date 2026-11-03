@@ -150,6 +150,7 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .elo-box{background:#262a33;border-radius:16px;padding:16px;margin:8px 0 16px;text-align:left}
 .elo-row{display:flex;gap:12px}
 .elo-row>div{flex:1}
+.elo-row>div:last-child{text-align:right}
 .elo-label{color:#b3b2b1;font-size:13px}
 .elo-big{font-size:24px;font-weight:900;font-family:Arial, Helvetica, sans-serif}
 .chart-toggles{display:flex;gap:6px;margin:10px 0}

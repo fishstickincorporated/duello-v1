@@ -225,3 +225,7 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   top padding went 10px -> 4px, matching the panel's other edge
   padding, so the clock sits higher and the last-play area gains
   about a full extra line for multi-word plays.
+
+- Profile Elo row (Nov 2, 2026, cache v15): the All-time high
+  label and value are right-justified within the row's right
+  half; Elo stays left.

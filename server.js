@@ -359,7 +359,7 @@ function validatePlay(board, rack, placements, premiums, isFirst) {
   const crossDir = dir === 'H' ? 'V' : 'H';
   for (const p of placements) {
     const cross = wordAt(trial, p.row, p.col, crossDir);
-    if (cross.word.length >= 2 && !words.some(w => w.word === cross.word && w.cells[0][0] === cross.cells[0][0] && w.cells[0][1] === cross.cells[0][1])) {
+    if (cross.word.length >= 2 && !words.some(w => w.word === cross.word && JSON.stringify(w.cells) === JSON.stringify(cross.cells))) {
       words.push({ word: cross.word, cells: cross.cells });
     }
   }
@@ -504,7 +504,7 @@ function findMoves(board, rack, isFirst, wantAll) {
               const cross = wordAt(trial, p.row, p.col, crossDir);
               if (cross.word.length >= 2) {
                 if (!WORDS.has(cross.word)) { valid = false; break; }
-                if (!words.some(w => w.word === cross.word && w.cells[0][0] === cross.cells[0][0] && w.cells[0][1] === cross.cells[0][1])) {
+                if (!words.some(w => w.word === cross.word && JSON.stringify(w.cells) === JSON.stringify(cross.cells))) {
                   words.push({ word: cross.word, cells: cross.cells, score: 0 });
                 }
               }

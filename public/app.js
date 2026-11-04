@@ -585,7 +585,7 @@ function localValidate(board, placements, isFirst, wordsSet, premiums) {
   const crossDir = dir === 'H' ? 'V' : 'H';
   for (const pl of placements) {
     const cross = localWordAt(trial, pl.row, pl.col, crossDir);
-    if (cross.word.length >= 2 && !words.some(w => w.word === cross.word && w.cells[0][0] === cross.cells[0][0] && w.cells[0][1] === cross.cells[0][1])) words.push({ word: cross.word, cells: cross.cells });
+    if (cross.word.length >= 2 && !words.some(w => w.word === cross.word && JSON.stringify(w.cells) === JSON.stringify(cross.cells))) words.push({ word: cross.word, cells: cross.cells });
   }
   const invalidWords = [];
   for (const w of words) if (!wordsSet.has(w.word)) invalidWords.push(w.word);

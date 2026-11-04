@@ -381,6 +381,21 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Cross-word dedup fix v38 (Nov 3, 2026, cache v38)
+
+- Bug (Jeff, Nov 3, 2026): QI played horizontally with Q on TL and an
+  existing I below the Q scored only 31 instead of 62. The cross-word
+  dedup compared only word text + starting cell, so a cross word with
+  the same text and same starting cell as the main word was dropped
+  even though it ran perpendicular (horizontal QI vs vertical QI).
+- Fix, in server validatePlay, server findMoves, and client
+  localValidate: dedup now compares the full cell list, so a word is
+  only dropped when it is the same cells, not merely the same text
+  starting at the same cell. A newly placed premium tile now counts
+  in every word it forms in that move, as in Scrabble: QI on TL now
+  scores 31 + 31 = 62. No rule change — the Rulebook already intended
+  every formed word to score; this restores that.
+
 ## 4-minute clocks v37 (Nov 3, 2026, cache v37)
 
 - Chess clocks are now 4:00 per player instead of 5:00, at Jeff's

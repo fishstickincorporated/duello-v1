@@ -55,10 +55,10 @@ function optRefillRack(rack, usedIndices) {
   return next;
 }
 let optimisticPlay = false;
-// Display rounding is CEIL, not floor: with floor, 5:00 dropped to 4:59
+// Display rounding is CEIL, not floor: with floor, 4:00 dropped to 3:59
 // within ~100ms of starting (299500ms remaining floors to 4:59), so
-// the timer never sat on 5:00 for a full second. With ceil, 5:00 shows
-// for the whole first second (300000 down to 299001ms), then 4:59 for
+// the timer never sat on 4:00 for a full second. With ceil, 4:00 shows
+// for the whole first second (240000 down to 239001ms), then 3:59 for
 // the next full second, and so on. The old ceil problem (runoff parsed
 // back from displayed text jumping up a second) no longer applies:
 // runoff now starts from game state, not from displayed text.
@@ -173,9 +173,9 @@ async function startGame(bot) {
     if (e && e.message === 'Not signed in.') { token = ''; storeDel('duello_token'); me = null; setAuthMode('signin'); show('authScreen'); return; }
     return;
   }
-  // Display 5:00 during the countdown, not the server's create-round-trip
-  // value (4:59): the clocks only start when the countdown ends (see /start).
-  game.clocks.human = 300000; game.clocks.bot = 300000;
+  // Display 4:00 during the countdown, not the server's create-round-trip
+  // value (3:59): the clocks only start when the countdown ends (see /start).
+  game.clocks.human = 240000; game.clocks.bot = 240000;
   gameFetchAt = Date.now(); pending = []; selectedRack = null; armed = {};
   clearStatDelay(); statShownGameId = null;
   // Set the countdown flag BEFORE the first render, so that render draws
@@ -340,7 +340,7 @@ function renderGame() {
   // immediately; Main Menu / Play Again cancel the pending show.
   if (finished && game.stats) showStatWindowDelayed(game.stats);
   tickClocks();
-  if (countdownActive) { $('clockHuman').textContent = '5:00'; $('clockBot').textContent = '5:00'; }
+  if (countdownActive) { $('clockHuman').textContent = '4:00'; $('clockBot').textContent = '4:00'; }
   updateStatus();
 }
 let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0;
@@ -358,18 +358,18 @@ async function handleHumanTimeout() {
 }
 function tickClocks() {
   if (!game) return;
-  // Game-start hold: both timers sit on 5:00 for a full second before
-  // ticking to 4:59. With floor display, 5:00 would otherwise drop to
-  // 4:59 within ~100ms of starting. This is display-only: the underlying
+  // Game-start hold: both timers sit on 4:00 for a full second before
+  // ticking to 3:59. With floor display, 4:00 would otherwise drop to
+  // 3:59 within ~100ms of starting. This is display-only: the underlying
   // elapsed time keeps running from the start, so at hold end the clock
-  // reads exactly 4:59, then 4:58 a second later, with no jump.
-  if (Date.now() < clockHoldUntil) { $('clockHuman').textContent = '5:00'; $('clockBot').textContent = '5:00'; return; }
-  // During the countdown both clocks are pinned to 5:00, every tick.
+  // reads exactly 3:59, then 3:58 a second later, with no jump.
+  if (Date.now() < clockHoldUntil) { $('clockHuman').textContent = '4:00'; $('clockBot').textContent = '4:00'; return; }
+  // During the countdown both clocks are pinned to 4:00, every tick.
   // Any render that recomputed from the server create time (4:59) or
   // from elapsed time during the countdown was the first-seconds glitch
   // in the screenshots: this overwrites it within 100ms, and renderGame
   // below does the same immediately.
-  if (countdownActive) { $('clockHuman').textContent = '5:00'; $('clockBot').textContent = '5:00'; return; }
+  if (countdownActive) { $('clockHuman').textContent = '4:00'; $('clockBot').textContent = '4:00'; return; }
   const elapsed = Date.now() - gameFetchAt;
   let h = game.clocks.human, b = game.clocks.bot;
   if (game.status === 'active') {

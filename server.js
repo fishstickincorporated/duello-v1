@@ -583,7 +583,7 @@ function newGame(user, botType) {
     board, premiums,
     humanRack: drawRack(), botRack: drawRack(),
     scores: { human: 0, bot: 0 },
-    clocks: { human: 300000, bot: 300000 },
+    clocks: { human: 240000, bot: 240000 },
     turn: Math.random() < 0.5 ? 'human' : 'bot',
     turnStartedAt: Date.now(),
     // Bot think: bot does NOT move instantly. Client shows a 5s wind-down,
@@ -608,10 +608,10 @@ function isFreshGame(game) {
 function serializeGame(game, user) {
   const now = Date.now();
   let clockHuman = game.clocks.human, clockBot = game.clocks.bot;
-  // Fresh games show 5:00/5:00 until /start, no matter how long the
+  // Fresh games show 4:00/4:00 until /start, no matter how long the
   // create round-trip or the countdown took. This is the server half of
   // the 4:59 glitch: serialize used to subtract create-to-now elapsed.
-  if (isFreshGame(game)) { clockHuman = 300000; clockBot = 300000; }
+  if (isFreshGame(game)) { clockHuman = 240000; clockBot = 240000; }
   else if (game.status === 'active') {
     const elapsed = now - game.turnStartedAt;
     if (game.turn === 'human') clockHuman = Math.max(0, clockHuman - elapsed);
@@ -1506,7 +1506,7 @@ const server = http.createServer(async (req, res) => {
           const hm = (game.moves && game.moves.human) || [];
           const bm = (game.moves && game.moves.bot) || [];
           if (!hm.length && !bm.length && !game.lastHuman && !game.lastBot) {
-            game.clocks = { human: 300000, bot: 300000 };
+            game.clocks = { human: 240000, bot: 240000 };
             game.turnStartedAt = Date.now();
             game.botThinkUntil = game.turn === 'bot' ? Date.now() + botThinkMsFor(game) : null;
             if (game.turn === 'bot') game.botThinkMs = botThinkMsFor(game);

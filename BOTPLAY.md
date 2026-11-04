@@ -381,6 +381,18 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## 4-minute clocks v37 (Nov 3, 2026, cache v37)
+
+- Chess clocks are now 4:00 per player instead of 5:00, at Jeff's
+  direction (Nov 3, 2026). Everything else is unchanged: 10x10 board,
+  6-tile racks, 3 of each premium, pass still -30s, bot 5s think and
+  20s clock step, no win on time (out-of-time player skips turns).
+- Changed in server.js (new games start at 240000ms, fresh-game
+  serialize and /start reset both 240000ms) and in public/app.js
+  (countdown clock set, countdown/hold pinned display) and
+  public/index.html (initial clock spans). Games already in progress
+  keep their existing clocks; only new games start at 4:00.
+
 ## Privacy contact is privacy@duellogame.com v36 (Nov 3, 2026, cache v36)
 
 - The privacy policy contact is now privacy@duellogame.com (both

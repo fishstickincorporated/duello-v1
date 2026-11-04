@@ -119,6 +119,24 @@ async function initDb() {
   // define it, so add it idempotently for later slices. It is not used by
   // bot play itself.
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_data TEXT');
+  await seedPersonas();
+}
+async function seedPersonas() {
+  // The 100 Global personas (50 men, 50 women, Elo 800-1200) live in
+  // data/personas.json and are seeded once, on the first boot where
+  // the table is empty. Later boots and Elo movement never re-seed:
+  // persona Elos move with results and must survive restarts.
+  const count = await q('SELECT COUNT(*)::int AS n FROM personas');
+  if (count.rows[0].n > 0) return;
+  const list = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'personas.json'), 'utf8'));
+  if (!list.length) return;
+  const values = [], params = [];
+  list.forEach(p => {
+    values.push(`($${params.length + 1},$${params.length + 2},$${params.length + 3},$${params.length + 4},$${params.length + 5},$${params.length + 6})`);
+    params.push(p.username, p.firstName, p.lastName, p.gender, p.elo, p.photoUrl);
+  });
+  await q(`INSERT INTO personas (username, first_name, last_name, gender, elo, photo_url) VALUES ${values.join(',')} ON CONFLICT (username) DO NOTHING`, params);
+  console.log(`Seeded ${list.length} personas`);
 }
 async function q(text, params) { return pool.query(text, params); }
 function hashPassword(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }
@@ -174,7 +192,12 @@ function sendResendEmail(to, subject, text) {
 async function profileStatsFor(userId) {
   const rows = (await q("SELECT state, bot_type FROM games WHERE user_id=$1 AND state->>'status'='finished'", [userId])).rows;
   function empty() { return { gamesPlayed: 0, wins: 0, losses: 0, draws: 0, avgGameScore: 0, highestGameScore: 0, avgWordScore: 0, highestWordScore: 0, highestWord: '', longestWord: '', longestWordLen: 0, optimalMoves: 0, totalMoves: 0, optimalPct: 0, uniqueWords: 0, wordsOver50: 0, wordsOver100: 0, bingos: 0 }; }
-  function scope(humans) {
+  // Personas count as humans everywhere stats split by opponent:
+  // vsHumans is persona games only, vsBots excludes personas, and
+  // aggregate counts persona games like any other non-Fishstick game.
+  function scope(mode) {
+    const isPersonaGame = (g) => g.botType === 'persona';
+    const skip = (g) => (mode === 'vsHumans' && !isPersonaGame(g)) || (mode === 'vsBots' && isPersonaGame(g));
     const st = empty(); let wordScoreSum = 0, wordCount = 0; const uniq = new Set();
     const gs = [];
     for (const r of rows) {
@@ -184,7 +207,7 @@ async function profileStatsFor(userId) {
       gs.push(g);
     }
     for (const g of gs) {
-      if (humans) continue;
+      if (skip(g)) continue;
       // Fishstick matches never count toward the record or games played.
       const isFish = g.botType === 'fishstick';
       if (!isFish) {
@@ -211,7 +234,7 @@ async function profileStatsFor(userId) {
     let totalScore = 0, played = 0;
     // Average game score counts only games where the player's own clock
     // fully expired — games ended early (forfeit, stalls) are excluded.
-    for (const g of gs) { if (humans) continue; if (!(g.clocks && g.clocks.human <= 0)) continue; totalScore += (g.scores && g.scores.human) || 0; played++; }
+    for (const g of gs) { if (skip(g)) continue; if (!(g.clocks && g.clocks.human <= 0)) continue; totalScore += (g.scores && g.scores.human) || 0; played++; }
     st.avgGameScore = played ? Math.round(totalScore / played) : 0;
     st.avgWordScore = wordCount ? Math.round(wordScoreSum / wordCount) : 0;
     st.optimalPct = st.totalMoves ? Math.round(st.optimalMoves / st.totalMoves * 100) : 0;
@@ -219,7 +242,7 @@ async function profileStatsFor(userId) {
     st.record = `${st.wins}W-${st.losses}L` + (st.draws ? `-${st.draws}D` : '');
     return st;
   }
-  return { aggregate: scope(false), vsBots: scope(false), vsHumans: scope(true) };
+  return { aggregate: scope('aggregate'), vsBots: scope('vsBots'), vsHumans: scope('vsHumans') };
 }
 
 // ---------- Board / premiums ----------
@@ -551,6 +574,72 @@ function botSkillRates(elo) {
   }
   return { bad: 0, avg: 10, good: 90 };
 }
+// Everyday words personas strongly prefer: a persona move whose
+// main word is in this set is picked over any obscure word, so
+// persona games read like games against ordinary players.
+const COMMON_WORDS = new Set([
+  'ABOUT', 'ADD', 'AFTER', 'AGAIN', 'AIR', 'ALL', 'ALONG', 'ALSO', 'ALWAYS', 'AN', 'AND', 'ANIMAL',
+  'ANOTHER', 'ANSWER', 'ANY', 'APPLE', 'ARE', 'ARM', 'AROUND', 'ART', 'AS', 'ASK', 'AT', 'AWAY',
+  'BABY', 'BACK', 'BAD', 'BALL', 'BANANA', 'BE', 'BECAUSE', 'BED', 'BEEN', 'BEFORE', 'BEGIN', 'BELOW',
+  'BETWEEN', 'BIG', 'BIRD', 'BITTER', 'BLOOD', 'BLUE', 'BONE', 'BOOK', 'BOTH', 'BOTTOM', 'BOY', 'BRAIN',
+  'BRAVE', 'BREAD', 'BRIGHT', 'BUS', 'BUSY', 'BUT', 'BUTTER', 'BY', 'CAKE', 'CALL', 'CAME', 'CAN',
+  'CANDY', 'CAR', 'CAT', 'CHAIR', 'CHANGE', 'CHEESE', 'CHILD', 'CITY', 'CLEAN', 'CLOSE', 'COLD', 'COME',
+  'COMPUTER', 'COOK', 'COOKIE', 'COOL', 'COULD', 'COUNTRY', 'CRY', 'DANCE', 'DARK', 'DAY', 'DEEP', 'DID',
+  'DIFFERENT', 'DIRTY', 'DO', 'DOES', 'DOG', 'DOOR', 'DOWN', 'DRINK', 'EACH', 'EAR', 'EARTH', 'EASY',
+  'EAT', 'EGG', 'EMPTY', 'END', 'EVEN', 'EVERY', 'EXAMPLE', 'EYE', 'FACE', 'FAIR', 'FALSE', 'FAMILY',
+  'FAST', 'FATHER', 'FEW', 'FIND', 'FINGER', 'FIRE', 'FIRST', 'FISH', 'FLOOR', 'FOLLOW', 'FOOD', 'FOOT',
+  'FOR', 'FORM', 'FOUND', 'FREE', 'FRESH', 'FRIEND', 'FROM', 'FRONT', 'FRUIT', 'FULL', 'FUN', 'GAME',
+  'GET', 'GIRL', 'GIVE', 'GLAD', 'GO', 'GOLD', 'GOOD', 'GOT', 'GRAPE', 'GREAT', 'GREEN', 'GROUP',
+  'HAD', 'HAIR', 'HAND', 'HAPPY', 'HARD', 'HAS', 'HAVE', 'HE', 'HEAD', 'HEART', 'HEAVY', 'HELP',
+  'HER', 'HERE', 'HIGH', 'HIM', 'HIS', 'HOME', 'HORSE', 'HOT', 'HOUSE', 'HOW', 'IN', 'INTO',
+  'IS', 'IT', 'ITS', 'JUMP', 'JUST', 'KEEP', 'KIND', 'KING', 'KNEE', 'KNOW', 'LAMP', 'LAND',
+  'LARGE', 'LAST', 'LAUGH', 'LEARN', 'LEFT', 'LEG', 'LEMON', 'LETTER', 'LIFE', 'LIGHT', 'LIKE', 'LINE',
+  'LITTLE', 'LIVE', 'LONG', 'LOOK', 'LOUD', 'LOVE', 'LOW', 'MADE', 'MAKE', 'MAN', 'MANY', 'MAY',
+  'ME', 'MEAN', 'MEAT', 'MEN', 'MIGHT', 'MILK', 'MOON', 'MORE', 'MOST', 'MOTHER', 'MOUTH', 'MOVE',
+  'MUCH', 'MUSIC', 'MUST', 'MY', 'NAME', 'NEAR', 'NECK', 'NEED', 'NEVER', 'NEW', 'NEXT', 'NICE',
+  'NO', 'NOSE', 'NOT', 'NOW', 'NUMBER', 'OF', 'OFF', 'OFTEN', 'OIL', 'OLD', 'ON', 'ONE',
+  'ONLY', 'OPEN', 'OR', 'ORANGE', 'OTHER', 'OUR', 'OUT', 'OVER', 'OWN', 'PAGE', 'PAPER', 'PART',
+  'PASTA', 'PEACH', 'PEAR', 'PEOPLE', 'PHONE', 'PICTURE', 'PIZZA', 'PLACE', 'PLANT', 'PLAY', 'POINT', 'POOR',
+  'PRINCE', 'PROUD', 'PULL', 'PUSH', 'PUT', 'QUEEN', 'QUIET', 'RAIN', 'READ', 'READY', 'RED', 'RICE',
+  'RICH', 'RIGHT', 'ROOF', 'RUN', 'SAFE', 'SAID', 'SALT', 'SAME', 'SAW', 'SAY', 'SCHOOL', 'SEE',
+  'SEEM', 'SENTENCE', 'SET', 'SHE', 'SHORT', 'SHOULD', 'SHOW', 'SHY', 'SIDE', 'SILVER', 'SING', 'SKIN',
+  'SLEEP', 'SLOW', 'SMALL', 'SMILE', 'SNOW', 'SO', 'SOFT', 'SOME', 'SOMETHING', 'SONG', 'SORRY', 'SOUND',
+  'SOUR', 'SPELL', 'STAR', 'START', 'STILL', 'STONE', 'STOP', 'STORY', 'STRONG', 'STUDY', 'SUCH', 'SUN',
+  'SURE', 'SWEET', 'TABLE', 'TAKE', 'TALK', 'TEAR', 'TELL', 'THAN', 'THAT', 'THE', 'THEIR', 'THEM',
+  'THEN', 'THERE', 'THESE', 'THEY', 'THING', 'THINK', 'THIS', 'THOSE', 'THOUGHT', 'THREE', 'THROUGH', 'TIME',
+  'TO', 'TOE', 'TOGETHER', 'TONGUE', 'TOO', 'TOOTH', 'TOP', 'TRAIN', 'TREE', 'TRUE', 'TRY', 'TURN',
+  'TWO', 'UNDER', 'UP', 'US', 'USE', 'VERY', 'WAKE', 'WALK', 'WALL', 'WANT', 'WARM', 'WAS',
+  'WATER', 'WAY', 'WE', 'WEAK', 'WELL', 'WENT', 'WERE', 'WHAT', 'WHEN', 'WHERE', 'WHICH', 'WHILE',
+  'WHO', 'WHY', 'WIDE', 'WILL', 'WIND', 'WINDOW', 'WITH', 'WOOD', 'WORD', 'WORK', 'WORLD', 'WOULD',
+  'WRITE', 'YEAR', 'YES', 'YOU', 'YOUNG', 'YOUR',
+]);
+
+function pickPersonaMove(moves, elo) {
+  // Extreme common-word bias: if any move's main word is an everyday
+  // word, the persona plays one of those, never an obscure word, no
+  // matter how much more it scores. Among common words, lower Elo
+  // plays sloppier: the pick is random among the top 5 by score at
+  // 900 or below, top 3 up to 1050, and the best common word above
+  // that, so the 800-1200 spread still shows in results. With no
+  // common move available, the pool is all moves and the same
+  // Elo-tier pick applies (a 1200 persona still plays its best).
+  if (!moves.length) return null;
+  const common = moves.filter(m => m.mainWord && COMMON_WORDS.has(m.mainWord));
+  const pool = (common.length ? common : moves).slice().sort((a, b) => b.score - a.score);
+  const k = elo <= 900 ? 5 : elo <= 1050 ? 3 : 1;
+  return pool[Math.floor(Math.random() * Math.min(k, pool.length))];
+}
+function personaThinkMs(game) {
+  // Slow-human timing: a uniform 7-33 seconds per move, averaging
+  // 20 seconds. The one exception is the final move: once the
+  // persona clock is under 20 seconds, they always get exactly one
+  // more move, played with 1-8 seconds left on their clock. After
+  // that move the pending flag is spent (see runBotTurn), so later
+  // turns use the normal 7-33s think and the clock runs out
+  // mid-think, which the out-of-time skip handles.
+  if (game.personaFinalMovePending) return Math.max(500, game.clocks.bot - (1000 + Math.floor(Math.random() * 7000)));
+  return 7000 + Math.floor(Math.random() * 26000);
+}
 function pickCompetitiveMove(moves, elo) {
   if (!moves.length) return null;
   const scores = moves.map(m => m.score);
@@ -573,13 +662,15 @@ function pickCompetitiveMove(moves, elo) {
 }
 
 // ---------- Game state ----------
-function newGame(user, botType) {
-  const botElo = botType === 'fishstick' ? 3000 : user.elo;
+function newGame(user, botType, persona) {
+  const botElo = botType === 'fishstick' ? 3000 : botType === 'persona' ? persona.elo : user.elo;
   const premiums = makePremiums();
   const board = emptyBoard();
   board.__premiums = premiums; // solver reads premiums from here; stripped on save/serialize
   const game = {
     userId: user.id, botType, botElo,
+    persona: persona ? { id: persona.id, firstName: persona.first_name, lastName: persona.last_name, photoData: persona.photo_url } : null,
+    personaFinalMoveDone: false, personaFinalMovePending: false,
     board, premiums,
     humanRack: drawRack(), botRack: drawRack(),
     scores: { human: 0, bot: 0 },
@@ -618,7 +709,7 @@ function serializeGame(game, user) {
     else clockBot = Math.max(0, clockBot - elapsed);
   }
   return {
-    id: game.id, botType: game.botType, botElo: game.botElo,
+    id: game.id, botType: game.botType, botElo: game.botElo, persona: game.persona || null,
     board: stripBoard(game.board), premiums: game.premiums,
     humanRack: game.humanRack, botRackCount: game.botRack.length,
     scores: game.scores, clocks: { human: clockHuman, bot: clockBot, turn: game.turn, turnStartedAt: game.turnStartedAt },
@@ -712,6 +803,12 @@ async function endGame(game, user, reason, winnerSide) {
   game.botElo = game.eloAfterBot;
   user.elo = game.eloAfterHuman;
   await q('UPDATE users SET elo=$1, elo_high=GREATEST(elo_high,$2) WHERE id=$3', [game.eloAfterHuman, game.eloAfterHuman, user.id]);
+  // A persona's Elo moves exactly like a human opponent's: the stored
+  // rating is updated in place, so the leaderboard and the next game
+  // against them reflect every result.
+  if (game.botType === 'persona' && game.persona && game.persona.id) {
+    await q('UPDATE personas SET elo=$1 WHERE id=$2', [game.eloAfterBot, game.persona.id]);
+  }
   await saveGameRow(game);
   await q('INSERT INTO elo_history (user_id, game_id, elo_after, delta) VALUES ($1,$2,$3,$4)', [user.id, game.id, game.eloAfterHuman, delta]);
   return game;
@@ -767,6 +864,7 @@ function runBotTurn(game) {
     const { move, bestScore } = game.pendingBotMove;
     game.pendingBotMove = null;
     applyMove(game, 'bot', move, bestScore);
+    markPersonaMovePlayed(game);
     game.turn = 'human'; game.turnStartedAt = Date.now();
     return true;
   }
@@ -788,10 +886,17 @@ function runBotTurn(game) {
     return false;
   }
   const bestScore = moves[0].score;
-  const move = game.botType === 'fishstick' ? moves[0] : pickCompetitiveMove(moves, game.botElo);
+  const move = game.botType === 'fishstick' ? moves[0] : game.botType === 'persona' ? pickPersonaMove(moves, game.botElo) : pickCompetitiveMove(moves, game.botElo);
   applyMove(game, 'bot', move, bestScore);
+  markPersonaMovePlayed(game);
   game.turn = 'human'; game.turnStartedAt = Date.now();
   return true;
+}
+function markPersonaMovePlayed(game) {
+  // Spends the persona final-move flag once the final move is played,
+  // so the next turn under 20s uses the normal think and the clock
+  // runs out mid-think instead of granting another final move.
+  if (game.botType === 'persona' && game.personaFinalMovePending) { game.personaFinalMoveDone = true; game.personaFinalMovePending = false; }
 }
 
 function applyHumanNoMovePass(game) {
@@ -834,10 +939,16 @@ async function advanceBotTurnIfReady(game, user) {
   // (network time later), so a poll at tap+think would otherwise miss and
   // need a second poll. Within tolerance the move runs.
   const thinkSpan = until - game.turnStartedAt;
-  if (Date.now() < until - Math.max(500, thinkSpan / 2)) return false;
+  // Tolerance is capped: half of a 33s persona think would let an
+  // early poll play the move at ~17s. 2500ms matches the old
+  // tolerance exactly for 5s thinks and 1000ms for 2s thinks.
+  const tol = Math.max(500, Math.min(thinkSpan / 2, 2500));
+  if (Date.now() < until - tol) return false;
   settleClock(game);
   const moved = runBotTurn(game);
-  if (moved) stepBotClockTo20sMark(game);
+  // Personas consume only their think time: the 20s step would
+  // double-charge them and break the 1-8s final move.
+  if (moved && game.botType !== 'persona') stepBotClockTo20sMark(game);
   game.botThinkUntil = null;
   if (await finishIfNeeded(game, user)) { /* finished */ }
   // The bot just moved: if the human now has no move, auto-pass the
@@ -873,7 +984,7 @@ function scheduleBotMove(game) {
       const moves = findMoves(g.board, g.botRack, isFirst, true);
       if (!moves.length) return;
       const bestScore = moves[0].score;
-      const move = g.botType === 'fishstick' ? moves[0] : pickCompetitiveMove(moves, g.botElo);
+      const move = g.botType === 'fishstick' ? moves[0] : g.botType === 'persona' ? pickPersonaMove(moves, g.botElo) : pickCompetitiveMove(moves, g.botElo);
       const g2 = await loadGameForUser({ id: userId }, gameId);
       if (!g2 || g2.status !== 'active' || g2.turn !== 'bot' || g2.pendingBotMove) return;
       if ((g2.lastBot ? JSON.stringify(g2.lastBot) : '') !== beforeLastBot) return;
@@ -884,9 +995,18 @@ function scheduleBotMove(game) {
 }
 // Bot think is 5s normally, but only 2s once the human clock is at 0:
 // with no human moves to wait for, the bot-only stretch should move fast.
-function botThinkMsFor(game) { return game.clocks.human <= 0 ? 2000 : 5000; }
+// Personas ignore that shortcut: they always take their slow-human
+// 7-33s think (see personaThinkMs), even in a bot-only stretch.
+function botThinkMsFor(game) {
+  if (game.botType === 'persona') return personaThinkMs(game);
+  return game.clocks.human <= 0 ? 2000 : 5000;
+}
 function startBotTurn(game) {
   game.turn = 'bot'; game.turnStartedAt = Date.now();
+  // Arm the persona final move before the think is chosen: this turn
+  // is the one that plays with 1-8 seconds left, if the clock is
+  // under 20s and the final move has not been spent yet.
+  if (game.botType === 'persona' && game.clocks.bot < 20000 && !game.personaFinalMoveDone) game.personaFinalMovePending = true;
   game.botThinkMs = botThinkMsFor(game);
   game.botThinkUntil = Date.now() + game.botThinkMs;
   scheduleBotMove(game);
@@ -1310,6 +1430,11 @@ const server = http.createServer(async (req, res) => {
       if (byEmail) return sendJson(res, 400, { error: 'That email is already registered.' });
       const byUsername = await getUserByUsername(username);
       if (byUsername) return sendJson(res, 400, { error: 'That username is taken.' });
+      // Personas hold usernames too: a new account must not collide
+      // with a Global name, or the leaderboard could show two people
+      // under one name.
+      const personaTaken = await q('SELECT 1 FROM personas WHERE username=$1', [username]);
+      if (personaTaken.rows.length) return sendJson(res, 400, { error: 'That username is taken.' });
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = hashPassword(password, salt);
       // Signup always creates a brand-new account at 1000. Guest tokens
@@ -1356,6 +1481,8 @@ const server = http.createServer(async (req, res) => {
       if (!/^[a-z0-9_]{3,}$/.test(username)) return sendJson(res, 400, { error: 'Username: lowercase letters, numbers, and underscores only, at least 3 characters.' });
       const byUsername = await getUserByUsername(username);
       if (byUsername && byUsername.id !== user.id) return sendJson(res, 400, { error: 'That username is taken.' });
+      const personaTaken = await q('SELECT 1 FROM personas WHERE username=$1', [username]);
+      if (personaTaken.rows.length) return sendJson(res, 400, { error: 'That username is taken.' });
       // email is optional: absent (or blank) means unchanged. A new
       // address must be well-formed and not taken by another account.
       const hasEmail = Object.prototype.hasOwnProperty.call(b, 'email') && String(b.email || '').trim() !== '';
@@ -1436,11 +1563,20 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/leaderboard' && req.method === 'GET') {
       const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      // Real registered users, top by Elo. Guest rows are not accounts
-      // and never appear; photos ride along so the leaderboard can
-      // render pfps without a second lookup.
-      const r = await q(`SELECT username, first_name, last_name, elo, photo_data FROM users WHERE email NOT LIKE '%@guest.local' ORDER BY elo DESC, created_at ASC LIMIT 20`);
-      return sendJson(res, 200, { users: r.rows.map(u => ({ username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, photoData: u.photo_data || null })) });
+      // Global is real registered users PLUS the 100 personas, ranked
+      // together by Elo. Guest rows are not accounts and never appear;
+      // photos ride along so the leaderboard can render pfps without
+      // a second lookup. The signed-in user is included even outside
+      // the top 20, with their true rank, so they always see themself.
+      const r = await q(`WITH allrows AS (
+        SELECT id, username, first_name, last_name, elo, photo_data, created_at, 0 AS is_persona FROM users WHERE email NOT LIKE '%@guest.local'
+        UNION ALL
+        SELECT id, username, first_name, last_name, elo, photo_url AS photo_data, created_at, 1 AS is_persona FROM personas
+      ), ranked AS (
+        SELECT *, ROW_NUMBER() OVER (ORDER BY elo DESC, created_at ASC) AS rank FROM allrows
+      )
+      SELECT * FROM ranked WHERE rank <= 20 OR (is_persona = 0 AND username = $1) ORDER BY elo DESC, created_at ASC`, [user.username]);
+      return sendJson(res, 200, { users: r.rows.map(u => ({ id: u.id, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, photoData: u.photo_data || null, isPersona: u.is_persona === 1, rank: Number(u.rank) })) });
     }
     if (pathname === '/api/define' && req.method === 'GET') {
       return sendJson(res, 200, await getDefinition(url.searchParams.get('word') || ''));
@@ -1449,8 +1585,23 @@ const server = http.createServer(async (req, res) => {
       const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
       const b = await readBody(req);
-      const botType = b.bot === 'fishstick' ? 'fishstick' : 'competitive';
-      const game = newGame(user, botType);
+      const botType = b.bot === 'fishstick' ? 'fishstick' : b.bot === 'persona' ? 'persona' : 'competitive';
+      let persona = null;
+      if (botType === 'persona') {
+        if (b.personaId) {
+          const pr = await q('SELECT * FROM personas WHERE id=$1', [b.personaId]);
+          persona = pr.rows[0] || null;
+          if (!persona) return sendJson(res, 400, { error: 'That player is not available.' });
+        } else {
+          // Play Online: a random persona near the player's Elo, so
+          // the matchup feels like online matchmaking, not a fixed bot.
+          const near = await q('SELECT * FROM personas WHERE elo BETWEEN $1 AND $2 ORDER BY RANDOM() LIMIT 1', [user.elo - 200, user.elo + 200]);
+          const any = near.rows[0] ? near : await q('SELECT * FROM personas ORDER BY RANDOM() LIMIT 1');
+          persona = any.rows[0] || null;
+          if (!persona) return sendJson(res, 503, { error: 'No online players are available yet.' });
+        }
+      }
+      const game = newGame(user, botType, persona);
       // Do NOT run the bot here: the client shows the 5s think, then polls
       // GET, which advances the bot turn (see advanceBotTurnIfReady).
       await saveGameRow(game);

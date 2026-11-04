@@ -381,6 +381,49 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Global personas v40 (Nov 4, 2026, cache v40)
+
+- Global is live with 100 personas posing as human players: 50 men
+  and 50 women with ordinary American names, headshots from
+  randomuser.me portraits (gender-matched), and Elo spread 800-1200
+  (data/personas.json, seeded once by initDb when the personas
+  table is empty; later boots never re-seed, so Elo movement
+  survives restarts). They are rows in a personas table, not user
+  accounts, so they can never sign in; new signups and username
+  changes are rejected if the name collides with a persona.
+- Playing them: any persona row on Global has a Play button that
+  starts a game against that person, and Play Online (previously
+  greyed out) now matches you with a random persona within 200 Elo
+  of you, falling back to any persona. Play Again rematches the
+  same persona. Scoreboard, stat window, and the waiting status
+  show the persona's first name and photo instead of "Bot".
+- How they play: an extreme bias to everyday words (a 402-word
+  common list, all verified in the dictionary) — a persona plays
+  a common word whenever one exists, picking randomly among the
+  top 5 common moves at 900 Elo or below, top 3 up to 1050, and
+  the best common word above that. Think time is a uniform 7-33
+  seconds per move, averaging 20, and personas do NOT get the
+  20s clock step: their clock consumes only their think time.
+  Once their clock is under 20 seconds they always get exactly
+  one more move, played with 1-8 seconds left (armed in
+  startBotTurn, spent in runBotTurn); after that the normal think
+  runs the clock out mid-think and the out-of-time skip takes
+  over. The bot-turn poll tolerance is capped at 2500ms so an
+  early poll cannot play a 33s think at ~17s (unchanged for 5s
+  and 2s thinks).
+- Elo and stats: a persona's Elo moves exactly like a human
+  opponent's (standard K=32, zero-sum, stored on the personas
+  row at game end), so the leaderboard and future games against
+  them reflect results. Profile stats count persona games as
+  human games: Vs Humans is persona games only, Vs Bots excludes
+  personas, aggregate counts them like any non-Fishstick game.
+  Leaderboard is users + personas ranked together, top 20, with
+  the signed-in user appended at their true rank if outside it.
+- Caveat: the portrait license chain is weak (randomuser.me
+  photos come from UI Faces' authorized section, variously
+  described as CC BY-NC-SA) — fine for seeding, but swap to a
+  cleanly licensed set before real launch or monetization.
+
 ## Friends search focus ring removed v39 (Nov 3, 2026, cache v39)
 
 - Jeff, Nov 3, 2026: tapping the friends search bar showed a blue

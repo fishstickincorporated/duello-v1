@@ -117,6 +117,7 @@ async function renderFriendsUI() {
   if (lbScope === 'global') {
     const users = await ensureGlobalRows();
     rows = users.map(u => ({
+      id: u.id, isPersona: !!u.isPersona, rank: u.rank,
       name: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username,
       username: u.username, elo: u.elo, photoData: u.photoData || null,
       isYou: !!(me && u.username === me.username),
@@ -125,8 +126,11 @@ async function renderFriendsUI() {
   const list = $('leaderboardList'); list.innerHTML = '';
   rows.forEach((r, i) => {
     const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
-    row.innerHTML = `<span class="rank">${i + 1}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span><div class="lb-name">${r.name}</div><div class="lb-user">@${r.username}</div></span>${r.isYou ? '<span class="you-badge">YOU</span>' : ''}<span class="lb-elo">${r.elo}</span>`;
+    row.innerHTML = `<span class="rank">${r.rank ?? (i + 1)}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span><div class="lb-name">${r.name}</div><div class="lb-user">@${r.username}</div></span>${r.isYou ? '<span class="you-badge">YOU</span>' : ''}<span class="lb-elo">${r.elo}</span>${r.isPersona ? '<button class="lb-play">Play</button>' : ''}`;
     list.appendChild(row);
+    // A persona row's Play button starts a game against that person;
+    // real users have no button until challenges exist.
+    if (r.isPersona) row.querySelector('.lb-play').onclick = () => startGame('persona', r.id);
   });
   $('noFriendsCard').classList.toggle('hidden', !(lbScope === 'friends' && rows.length === 0));
   $('friendRequests').innerHTML = '';
@@ -159,13 +163,18 @@ async function loadMe() {
   catch { return !!token; }
 }
 $('playBotsBtn').onclick = () => show('botScreen');
+$('playOnlineBtn').onclick = () => startGame('persona');
 $('botBackBtn').onclick = () => show('homeScreen');
 $('competitiveBtn').onclick = () => startGame('competitive');
 $('fishstickBtn').onclick = () => startGame('fishstick');
-async function startGame(bot) {
-  currentBot = bot; botTurnTapTime = Date.now();
+let currentPersonaId = null;
+async function startGame(bot, personaId) {
+  currentBot = bot; currentPersonaId = personaId || null; botTurnTapTime = Date.now();
   try {
-    game = await api('/api/games', { method: 'POST', body: JSON.stringify({ bot }) });
+    game = await api('/api/games', { method: 'POST', body: JSON.stringify(personaId ? { bot, personaId } : { bot }) });
+    // A random Play Online match learns its persona here, so Play
+    // Again rematches the same person instead of drawing a new one.
+    if (game.persona) currentPersonaId = game.persona.id;
   } catch (e) {
     // No guest fallback anymore: sign-in is required. A rejected session
     // sends the user to the auth screen; anything else is a transient
@@ -248,10 +257,13 @@ function renderGame() {
   try { const pp = document.querySelector('.player-panel .pfp'); pp.innerHTML = pfpHTML(me); pp.classList.toggle('no-photo', !(me && me.photoData)); const sp = document.querySelector('.stat-pfp .pfp'); sp.innerHTML = pfpHTML(me); sp.classList.toggle('no-photo', !(me && me.photoData)); } catch {}
   $('playerElo').textContent = (game.player && game.player.elo != null) ? game.player.elo : (me ? me.elo : '');
   const isFish = game.botType === 'fishstick';
-  $('botName').textContent = isFish ? 'Fishstick' : 'Bot';
+  const isPersonaGame = game.botType === 'persona';
+  $('botName').textContent = isFish ? 'Fishstick' : isPersonaGame ? (game.persona?.firstName || 'Player') : 'Bot';
   $('botElo').textContent = isFish ? '∞' : game.botElo;
   $('botElo').classList.toggle('inf', isFish);
-  if (isFish) $('botPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">'; else $('botPfp').textContent = '🤖';
+  if (isFish) $('botPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">';
+  else if (isPersonaGame && game.persona?.photoData) $('botPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
+  else $('botPfp').textContent = '🤖';
   document.querySelector('.player-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'human');
   document.querySelector('.bot-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'bot');
   $('scoreHuman').textContent = String(game.scores.human); $('scoreBot').textContent = String(game.scores.bot);
@@ -466,7 +478,7 @@ function botWatchdog() {
 }
 function beginBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
-  $('status').textContent = game.clocks.human <= 0 ? 'Out of time, opponent plays on.' : 'Waiting for your opponent.';
+  $('status').textContent = game.clocks.human <= 0 ? 'Out of time, opponent plays on.' : (game.botType === 'persona' && game.persona ? `Waiting for ${game.persona.firstName}.` : 'Waiting for your opponent.');
   if (botTimer) clearTimeout(botTimer);
   // Perceived think is measured from the tap, not from the server reply.
   // Think is 5s normally, 2s once the human clock is at 0 (the server
@@ -897,7 +909,8 @@ function showStatWindow(stats) {
   clearStatDelay(); if (game) statShownGameId = game.id;
   const w = $('statWindow'); w.classList.remove('hidden');
   $('gameDim').classList.add('dimmed');
-  const botLabel = (game && game.botType === 'fishstick') ? 'Fishstick' : 'Bot';
+  const isPersonaGame = game && game.botType === 'persona';
+  const botLabel = (game && game.botType === 'fishstick') ? 'Fishstick' : isPersonaGame ? (game.persona?.firstName || 'Player') : 'Bot';
   // Winner is the game's recorded result, not the score comparison:
   // a forfeit is a loss even when the forfeiter is ahead on points.
   // stats.winner comes from the server; the reason check covers any
@@ -918,15 +931,17 @@ function showStatWindow(stats) {
   const opt = (x) => `${x.optimal}/${x.total}`;
   const box = (name, pfp, st, noPhoto) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}">${pfp}</span><span>${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span> <span class="num">${opt(st)}</span></div></div>`;
   const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
-  const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.jpeg" alt="Fishstick">' : '🤖';
+  const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.jpeg" alt="Fishstick">' : isPersonaGame && game.persona?.photoData ? `<img src="${game.persona.photoData}" alt="">` : '🤖';
   $('statGrid').innerHTML = box('You', humanPfp, stats.human, !(me && me.photoData)) + box(botLabel, botPfpBox, stats.bot, false);
-  if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">'; else $('statBotPfp').textContent = '🤖';
+  if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">';
+  else if (isPersonaGame && game.persona?.photoData) $('statBotPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
+  else $('statBotPfp').textContent = '🤖';
 }
 $('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) { clearStatDelay(); $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); } });
 function goHome() { clearStatDelay(); $('statWindow').classList.add('hidden'); show('homeScreen'); }
 $('mainMenuBtn').onclick = goHome; $('statMainMenu').onclick = goHome;
-$('playAgainBtn').onclick = () => { $('statWindow').classList.add('hidden'); startGame(currentBot); };
-$('statPlayAgain').onclick = () => { $('statWindow').classList.add('hidden'); startGame(currentBot); };
+$('playAgainBtn').onclick = () => { $('statWindow').classList.add('hidden'); startGame(currentBot, currentPersonaId); };
+$('statPlayAgain').onclick = () => { $('statWindow').classList.add('hidden'); startGame(currentBot, currentPersonaId); };
 $('gameStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
 const defCache = new Map();
 function hideDefinition() { const pop = $('defPopover'); if (pop) pop.classList.add('hidden'); }

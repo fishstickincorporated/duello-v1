@@ -35,3 +35,10 @@ CREATE TABLE IF NOT EXISTS password_reset_codes (
   expires_at TIMESTAMPTZ, requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   verified_token TEXT, verified_expires_at TIMESTAMPTZ
 );
+
+CREATE TABLE IF NOT EXISTS personas (
+  id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL,
+  first_name TEXT NOT NULL, last_name TEXT NOT NULL, gender TEXT NOT NULL,
+  elo INTEGER NOT NULL, photo_url TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

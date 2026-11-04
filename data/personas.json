@@ -1,0 +1,802 @@
+[
+ {
+  "username": "james_smith",
+  "firstName": "James",
+  "lastName": "Smith",
+  "gender": "male",
+  "elo": 1097,
+  "photoUrl": "https://randomuser.me/api/portraits/men/0.jpg"
+ },
+ {
+  "username": "john_johnson",
+  "firstName": "John",
+  "lastName": "Johnson",
+  "gender": "male",
+  "elo": 883,
+  "photoUrl": "https://randomuser.me/api/portraits/men/1.jpg"
+ },
+ {
+  "username": "robert_williams",
+  "firstName": "Robert",
+  "lastName": "Williams",
+  "gender": "male",
+  "elo": 948,
+  "photoUrl": "https://randomuser.me/api/portraits/men/2.jpg"
+ },
+ {
+  "username": "michael_brown",
+  "firstName": "Michael",
+  "lastName": "Brown",
+  "gender": "male",
+  "elo": 1037,
+  "photoUrl": "https://randomuser.me/api/portraits/men/3.jpg"
+ },
+ {
+  "username": "william_jones",
+  "firstName": "William",
+  "lastName": "Jones",
+  "gender": "male",
+  "elo": 891,
+  "photoUrl": "https://randomuser.me/api/portraits/men/4.jpg"
+ },
+ {
+  "username": "david_garcia",
+  "firstName": "David",
+  "lastName": "Garcia",
+  "gender": "male",
+  "elo": 802,
+  "photoUrl": "https://randomuser.me/api/portraits/men/5.jpg"
+ },
+ {
+  "username": "richard_miller",
+  "firstName": "Richard",
+  "lastName": "Miller",
+  "gender": "male",
+  "elo": 1145,
+  "photoUrl": "https://randomuser.me/api/portraits/men/6.jpg"
+ },
+ {
+  "username": "joseph_davis",
+  "firstName": "Joseph",
+  "lastName": "Davis",
+  "gender": "male",
+  "elo": 1035,
+  "photoUrl": "https://randomuser.me/api/portraits/men/7.jpg"
+ },
+ {
+  "username": "thomas_rodriguez",
+  "firstName": "Thomas",
+  "lastName": "Rodriguez",
+  "gender": "male",
+  "elo": 1175,
+  "photoUrl": "https://randomuser.me/api/portraits/men/8.jpg"
+ },
+ {
+  "username": "charles_martinez",
+  "firstName": "Charles",
+  "lastName": "Martinez",
+  "gender": "male",
+  "elo": 1077,
+  "photoUrl": "https://randomuser.me/api/portraits/men/9.jpg"
+ },
+ {
+  "username": "christopher_hernandez",
+  "firstName": "Christopher",
+  "lastName": "Hernandez",
+  "gender": "male",
+  "elo": 829,
+  "photoUrl": "https://randomuser.me/api/portraits/men/10.jpg"
+ },
+ {
+  "username": "daniel_lopez",
+  "firstName": "Daniel",
+  "lastName": "Lopez",
+  "gender": "male",
+  "elo": 950,
+  "photoUrl": "https://randomuser.me/api/portraits/men/11.jpg"
+ },
+ {
+  "username": "matthew_gonzalez",
+  "firstName": "Matthew",
+  "lastName": "Gonzalez",
+  "gender": "male",
+  "elo": 811,
+  "photoUrl": "https://randomuser.me/api/portraits/men/12.jpg"
+ },
+ {
+  "username": "anthony_wilson",
+  "firstName": "Anthony",
+  "lastName": "Wilson",
+  "gender": "male",
+  "elo": 1193,
+  "photoUrl": "https://randomuser.me/api/portraits/men/13.jpg"
+ },
+ {
+  "username": "mark_anderson",
+  "firstName": "Mark",
+  "lastName": "Anderson",
+  "gender": "male",
+  "elo": 1200,
+  "photoUrl": "https://randomuser.me/api/portraits/men/14.jpg"
+ },
+ {
+  "username": "donald_thomas",
+  "firstName": "Donald",
+  "lastName": "Thomas",
+  "gender": "male",
+  "elo": 864,
+  "photoUrl": "https://randomuser.me/api/portraits/men/15.jpg"
+ },
+ {
+  "username": "steven_taylor",
+  "firstName": "Steven",
+  "lastName": "Taylor",
+  "gender": "male",
+  "elo": 1019,
+  "photoUrl": "https://randomuser.me/api/portraits/men/16.jpg"
+ },
+ {
+  "username": "paul_moore",
+  "firstName": "Paul",
+  "lastName": "Moore",
+  "gender": "male",
+  "elo": 1083,
+  "photoUrl": "https://randomuser.me/api/portraits/men/17.jpg"
+ },
+ {
+  "username": "andrew_jackson",
+  "firstName": "Andrew",
+  "lastName": "Jackson",
+  "gender": "male",
+  "elo": 1135,
+  "photoUrl": "https://randomuser.me/api/portraits/men/18.jpg"
+ },
+ {
+  "username": "joshua_martin",
+  "firstName": "Joshua",
+  "lastName": "Martin",
+  "gender": "male",
+  "elo": 1126,
+  "photoUrl": "https://randomuser.me/api/portraits/men/19.jpg"
+ },
+ {
+  "username": "kenneth_lee",
+  "firstName": "Kenneth",
+  "lastName": "Lee",
+  "gender": "male",
+  "elo": 846,
+  "photoUrl": "https://randomuser.me/api/portraits/men/20.jpg"
+ },
+ {
+  "username": "kevin_perez",
+  "firstName": "Kevin",
+  "lastName": "Perez",
+  "gender": "male",
+  "elo": 914,
+  "photoUrl": "https://randomuser.me/api/portraits/men/21.jpg"
+ },
+ {
+  "username": "brian_thompson",
+  "firstName": "Brian",
+  "lastName": "Thompson",
+  "gender": "male",
+  "elo": 916,
+  "photoUrl": "https://randomuser.me/api/portraits/men/22.jpg"
+ },
+ {
+  "username": "george_white",
+  "firstName": "George",
+  "lastName": "White",
+  "gender": "male",
+  "elo": 844,
+  "photoUrl": "https://randomuser.me/api/portraits/men/23.jpg"
+ },
+ {
+  "username": "timothy_harris",
+  "firstName": "Timothy",
+  "lastName": "Harris",
+  "gender": "male",
+  "elo": 1108,
+  "photoUrl": "https://randomuser.me/api/portraits/men/24.jpg"
+ },
+ {
+  "username": "edward_sanchez",
+  "firstName": "Edward",
+  "lastName": "Sanchez",
+  "gender": "male",
+  "elo": 928,
+  "photoUrl": "https://randomuser.me/api/portraits/men/25.jpg"
+ },
+ {
+  "username": "ronald_clark",
+  "firstName": "Ronald",
+  "lastName": "Clark",
+  "gender": "male",
+  "elo": 1002,
+  "photoUrl": "https://randomuser.me/api/portraits/men/26.jpg"
+ },
+ {
+  "username": "gary_ramirez",
+  "firstName": "Gary",
+  "lastName": "Ramirez",
+  "gender": "male",
+  "elo": 999,
+  "photoUrl": "https://randomuser.me/api/portraits/men/27.jpg"
+ },
+ {
+  "username": "jeffrey_lewis",
+  "firstName": "Jeffrey",
+  "lastName": "Lewis",
+  "gender": "male",
+  "elo": 1010,
+  "photoUrl": "https://randomuser.me/api/portraits/men/28.jpg"
+ },
+ {
+  "username": "ryan_robinson",
+  "firstName": "Ryan",
+  "lastName": "Robinson",
+  "gender": "male",
+  "elo": 997,
+  "photoUrl": "https://randomuser.me/api/portraits/men/29.jpg"
+ },
+ {
+  "username": "jacob_walker",
+  "firstName": "Jacob",
+  "lastName": "Walker",
+  "gender": "male",
+  "elo": 1013,
+  "photoUrl": "https://randomuser.me/api/portraits/men/30.jpg"
+ },
+ {
+  "username": "nicholas_young",
+  "firstName": "Nicholas",
+  "lastName": "Young",
+  "gender": "male",
+  "elo": 1192,
+  "photoUrl": "https://randomuser.me/api/portraits/men/31.jpg"
+ },
+ {
+  "username": "eric_allen",
+  "firstName": "Eric",
+  "lastName": "Allen",
+  "gender": "male",
+  "elo": 872,
+  "photoUrl": "https://randomuser.me/api/portraits/men/32.jpg"
+ },
+ {
+  "username": "jonathan_king",
+  "firstName": "Jonathan",
+  "lastName": "King",
+  "gender": "male",
+  "elo": 966,
+  "photoUrl": "https://randomuser.me/api/portraits/men/33.jpg"
+ },
+ {
+  "username": "stephen_wright",
+  "firstName": "Stephen",
+  "lastName": "Wright",
+  "gender": "male",
+  "elo": 884,
+  "photoUrl": "https://randomuser.me/api/portraits/men/34.jpg"
+ },
+ {
+  "username": "larry_scott",
+  "firstName": "Larry",
+  "lastName": "Scott",
+  "gender": "male",
+  "elo": 861,
+  "photoUrl": "https://randomuser.me/api/portraits/men/35.jpg"
+ },
+ {
+  "username": "justin_torres",
+  "firstName": "Justin",
+  "lastName": "Torres",
+  "gender": "male",
+  "elo": 888,
+  "photoUrl": "https://randomuser.me/api/portraits/men/36.jpg"
+ },
+ {
+  "username": "scott_nguyen",
+  "firstName": "Scott",
+  "lastName": "Nguyen",
+  "gender": "male",
+  "elo": 814,
+  "photoUrl": "https://randomuser.me/api/portraits/men/37.jpg"
+ },
+ {
+  "username": "brandon_hill",
+  "firstName": "Brandon",
+  "lastName": "Hill",
+  "gender": "male",
+  "elo": 1182,
+  "photoUrl": "https://randomuser.me/api/portraits/men/38.jpg"
+ },
+ {
+  "username": "benjamin_flores",
+  "firstName": "Benjamin",
+  "lastName": "Flores",
+  "gender": "male",
+  "elo": 1013,
+  "photoUrl": "https://randomuser.me/api/portraits/men/39.jpg"
+ },
+ {
+  "username": "samuel_green",
+  "firstName": "Samuel",
+  "lastName": "Green",
+  "gender": "male",
+  "elo": 1089,
+  "photoUrl": "https://randomuser.me/api/portraits/men/40.jpg"
+ },
+ {
+  "username": "gregory_adams",
+  "firstName": "Gregory",
+  "lastName": "Adams",
+  "gender": "male",
+  "elo": 1007,
+  "photoUrl": "https://randomuser.me/api/portraits/men/41.jpg"
+ },
+ {
+  "username": "alexander_nelson",
+  "firstName": "Alexander",
+  "lastName": "Nelson",
+  "gender": "male",
+  "elo": 1126,
+  "photoUrl": "https://randomuser.me/api/portraits/men/42.jpg"
+ },
+ {
+  "username": "patrick_baker",
+  "firstName": "Patrick",
+  "lastName": "Baker",
+  "gender": "male",
+  "elo": 940,
+  "photoUrl": "https://randomuser.me/api/portraits/men/43.jpg"
+ },
+ {
+  "username": "frank_hall",
+  "firstName": "Frank",
+  "lastName": "Hall",
+  "gender": "male",
+  "elo": 952,
+  "photoUrl": "https://randomuser.me/api/portraits/men/44.jpg"
+ },
+ {
+  "username": "raymond_rivera",
+  "firstName": "Raymond",
+  "lastName": "Rivera",
+  "gender": "male",
+  "elo": 877,
+  "photoUrl": "https://randomuser.me/api/portraits/men/45.jpg"
+ },
+ {
+  "username": "jack_campbell",
+  "firstName": "Jack",
+  "lastName": "Campbell",
+  "gender": "male",
+  "elo": 1131,
+  "photoUrl": "https://randomuser.me/api/portraits/men/46.jpg"
+ },
+ {
+  "username": "dennis_mitchell",
+  "firstName": "Dennis",
+  "lastName": "Mitchell",
+  "gender": "male",
+  "elo": 1140,
+  "photoUrl": "https://randomuser.me/api/portraits/men/47.jpg"
+ },
+ {
+  "username": "jerry_carter",
+  "firstName": "Jerry",
+  "lastName": "Carter",
+  "gender": "male",
+  "elo": 1195,
+  "photoUrl": "https://randomuser.me/api/portraits/men/48.jpg"
+ },
+ {
+  "username": "tyler_roberts",
+  "firstName": "Tyler",
+  "lastName": "Roberts",
+  "gender": "male",
+  "elo": 1116,
+  "photoUrl": "https://randomuser.me/api/portraits/men/49.jpg"
+ },
+ {
+  "username": "mary_gomez",
+  "firstName": "Mary",
+  "lastName": "Gomez",
+  "gender": "female",
+  "elo": 804,
+  "photoUrl": "https://randomuser.me/api/portraits/women/0.jpg"
+ },
+ {
+  "username": "patricia_phillips",
+  "firstName": "Patricia",
+  "lastName": "Phillips",
+  "gender": "female",
+  "elo": 1100,
+  "photoUrl": "https://randomuser.me/api/portraits/women/1.jpg"
+ },
+ {
+  "username": "jennifer_evans",
+  "firstName": "Jennifer",
+  "lastName": "Evans",
+  "gender": "female",
+  "elo": 1014,
+  "photoUrl": "https://randomuser.me/api/portraits/women/2.jpg"
+ },
+ {
+  "username": "linda_turner",
+  "firstName": "Linda",
+  "lastName": "Turner",
+  "gender": "female",
+  "elo": 1021,
+  "photoUrl": "https://randomuser.me/api/portraits/women/3.jpg"
+ },
+ {
+  "username": "elizabeth_diaz",
+  "firstName": "Elizabeth",
+  "lastName": "Diaz",
+  "gender": "female",
+  "elo": 1106,
+  "photoUrl": "https://randomuser.me/api/portraits/women/4.jpg"
+ },
+ {
+  "username": "barbara_parker",
+  "firstName": "Barbara",
+  "lastName": "Parker",
+  "gender": "female",
+  "elo": 1172,
+  "photoUrl": "https://randomuser.me/api/portraits/women/5.jpg"
+ },
+ {
+  "username": "susan_cruz",
+  "firstName": "Susan",
+  "lastName": "Cruz",
+  "gender": "female",
+  "elo": 975,
+  "photoUrl": "https://randomuser.me/api/portraits/women/6.jpg"
+ },
+ {
+  "username": "jessica_edwards",
+  "firstName": "Jessica",
+  "lastName": "Edwards",
+  "gender": "female",
+  "elo": 816,
+  "photoUrl": "https://randomuser.me/api/portraits/women/7.jpg"
+ },
+ {
+  "username": "sarah_collins",
+  "firstName": "Sarah",
+  "lastName": "Collins",
+  "gender": "female",
+  "elo": 1003,
+  "photoUrl": "https://randomuser.me/api/portraits/women/8.jpg"
+ },
+ {
+  "username": "karen_reyes",
+  "firstName": "Karen",
+  "lastName": "Reyes",
+  "gender": "female",
+  "elo": 937,
+  "photoUrl": "https://randomuser.me/api/portraits/women/9.jpg"
+ },
+ {
+  "username": "nancy_stewart",
+  "firstName": "Nancy",
+  "lastName": "Stewart",
+  "gender": "female",
+  "elo": 974,
+  "photoUrl": "https://randomuser.me/api/portraits/women/10.jpg"
+ },
+ {
+  "username": "lisa_morris",
+  "firstName": "Lisa",
+  "lastName": "Morris",
+  "gender": "female",
+  "elo": 1097,
+  "photoUrl": "https://randomuser.me/api/portraits/women/11.jpg"
+ },
+ {
+  "username": "betty_morales",
+  "firstName": "Betty",
+  "lastName": "Morales",
+  "gender": "female",
+  "elo": 1088,
+  "photoUrl": "https://randomuser.me/api/portraits/women/12.jpg"
+ },
+ {
+  "username": "margaret_murphy",
+  "firstName": "Margaret",
+  "lastName": "Murphy",
+  "gender": "female",
+  "elo": 1015,
+  "photoUrl": "https://randomuser.me/api/portraits/women/13.jpg"
+ },
+ {
+  "username": "sandra_cook",
+  "firstName": "Sandra",
+  "lastName": "Cook",
+  "gender": "female",
+  "elo": 801,
+  "photoUrl": "https://randomuser.me/api/portraits/women/14.jpg"
+ },
+ {
+  "username": "ashley_rogers",
+  "firstName": "Ashley",
+  "lastName": "Rogers",
+  "gender": "female",
+  "elo": 1196,
+  "photoUrl": "https://randomuser.me/api/portraits/women/15.jpg"
+ },
+ {
+  "username": "kimberly_gutierrez",
+  "firstName": "Kimberly",
+  "lastName": "Gutierrez",
+  "gender": "female",
+  "elo": 903,
+  "photoUrl": "https://randomuser.me/api/portraits/women/16.jpg"
+ },
+ {
+  "username": "emily_ortiz",
+  "firstName": "Emily",
+  "lastName": "Ortiz",
+  "gender": "female",
+  "elo": 1167,
+  "photoUrl": "https://randomuser.me/api/portraits/women/17.jpg"
+ },
+ {
+  "username": "michelle_morgan",
+  "firstName": "Michelle",
+  "lastName": "Morgan",
+  "gender": "female",
+  "elo": 825,
+  "photoUrl": "https://randomuser.me/api/portraits/women/18.jpg"
+ },
+ {
+  "username": "amanda_cooper",
+  "firstName": "Amanda",
+  "lastName": "Cooper",
+  "gender": "female",
+  "elo": 831,
+  "photoUrl": "https://randomuser.me/api/portraits/women/19.jpg"
+ },
+ {
+  "username": "melissa_peterson",
+  "firstName": "Melissa",
+  "lastName": "Peterson",
+  "gender": "female",
+  "elo": 1081,
+  "photoUrl": "https://randomuser.me/api/portraits/women/20.jpg"
+ },
+ {
+  "username": "deborah_bailey",
+  "firstName": "Deborah",
+  "lastName": "Bailey",
+  "gender": "female",
+  "elo": 947,
+  "photoUrl": "https://randomuser.me/api/portraits/women/21.jpg"
+ },
+ {
+  "username": "stephanie_reed",
+  "firstName": "Stephanie",
+  "lastName": "Reed",
+  "gender": "female",
+  "elo": 924,
+  "photoUrl": "https://randomuser.me/api/portraits/women/22.jpg"
+ },
+ {
+  "username": "rebecca_howard",
+  "firstName": "Rebecca",
+  "lastName": "Howard",
+  "gender": "female",
+  "elo": 1197,
+  "photoUrl": "https://randomuser.me/api/portraits/women/23.jpg"
+ },
+ {
+  "username": "laura_ramos",
+  "firstName": "Laura",
+  "lastName": "Ramos",
+  "gender": "female",
+  "elo": 896,
+  "photoUrl": "https://randomuser.me/api/portraits/women/24.jpg"
+ },
+ {
+  "username": "sharon_kim",
+  "firstName": "Sharon",
+  "lastName": "Kim",
+  "gender": "female",
+  "elo": 978,
+  "photoUrl": "https://randomuser.me/api/portraits/women/25.jpg"
+ },
+ {
+  "username": "cynthia_cox",
+  "firstName": "Cynthia",
+  "lastName": "Cox",
+  "gender": "female",
+  "elo": 866,
+  "photoUrl": "https://randomuser.me/api/portraits/women/26.jpg"
+ },
+ {
+  "username": "kathleen_ward",
+  "firstName": "Kathleen",
+  "lastName": "Ward",
+  "gender": "female",
+  "elo": 917,
+  "photoUrl": "https://randomuser.me/api/portraits/women/27.jpg"
+ },
+ {
+  "username": "amy_richardson",
+  "firstName": "Amy",
+  "lastName": "Richardson",
+  "gender": "female",
+  "elo": 1074,
+  "photoUrl": "https://randomuser.me/api/portraits/women/28.jpg"
+ },
+ {
+  "username": "angela_watson",
+  "firstName": "Angela",
+  "lastName": "Watson",
+  "gender": "female",
+  "elo": 1105,
+  "photoUrl": "https://randomuser.me/api/portraits/women/29.jpg"
+ },
+ {
+  "username": "shirley_brooks",
+  "firstName": "Shirley",
+  "lastName": "Brooks",
+  "gender": "female",
+  "elo": 1053,
+  "photoUrl": "https://randomuser.me/api/portraits/women/30.jpg"
+ },
+ {
+  "username": "anna_chavez",
+  "firstName": "Anna",
+  "lastName": "Chavez",
+  "gender": "female",
+  "elo": 836,
+  "photoUrl": "https://randomuser.me/api/portraits/women/31.jpg"
+ },
+ {
+  "username": "brenda_wood",
+  "firstName": "Brenda",
+  "lastName": "Wood",
+  "gender": "female",
+  "elo": 1038,
+  "photoUrl": "https://randomuser.me/api/portraits/women/32.jpg"
+ },
+ {
+  "username": "pamela_bennett",
+  "firstName": "Pamela",
+  "lastName": "Bennett",
+  "gender": "female",
+  "elo": 1012,
+  "photoUrl": "https://randomuser.me/api/portraits/women/33.jpg"
+ },
+ {
+  "username": "emma_gray",
+  "firstName": "Emma",
+  "lastName": "Gray",
+  "gender": "female",
+  "elo": 1089,
+  "photoUrl": "https://randomuser.me/api/portraits/women/34.jpg"
+ },
+ {
+  "username": "nicole_mendoza",
+  "firstName": "Nicole",
+  "lastName": "Mendoza",
+  "gender": "female",
+  "elo": 1016,
+  "photoUrl": "https://randomuser.me/api/portraits/women/35.jpg"
+ },
+ {
+  "username": "helen_ruiz",
+  "firstName": "Helen",
+  "lastName": "Ruiz",
+  "gender": "female",
+  "elo": 1122,
+  "photoUrl": "https://randomuser.me/api/portraits/women/36.jpg"
+ },
+ {
+  "username": "samantha_hughes",
+  "firstName": "Samantha",
+  "lastName": "Hughes",
+  "gender": "female",
+  "elo": 1025,
+  "photoUrl": "https://randomuser.me/api/portraits/women/37.jpg"
+ },
+ {
+  "username": "katherine_price",
+  "firstName": "Katherine",
+  "lastName": "Price",
+  "gender": "female",
+  "elo": 1023,
+  "photoUrl": "https://randomuser.me/api/portraits/women/38.jpg"
+ },
+ {
+  "username": "christine_alvarez",
+  "firstName": "Christine",
+  "lastName": "Alvarez",
+  "gender": "female",
+  "elo": 1031,
+  "photoUrl": "https://randomuser.me/api/portraits/women/39.jpg"
+ },
+ {
+  "username": "debra_castillo",
+  "firstName": "Debra",
+  "lastName": "Castillo",
+  "gender": "female",
+  "elo": 1107,
+  "photoUrl": "https://randomuser.me/api/portraits/women/40.jpg"
+ },
+ {
+  "username": "rachel_sanders",
+  "firstName": "Rachel",
+  "lastName": "Sanders",
+  "gender": "female",
+  "elo": 1112,
+  "photoUrl": "https://randomuser.me/api/portraits/women/41.jpg"
+ },
+ {
+  "username": "carolyn_patel",
+  "firstName": "Carolyn",
+  "lastName": "Patel",
+  "gender": "female",
+  "elo": 1094,
+  "photoUrl": "https://randomuser.me/api/portraits/women/42.jpg"
+ },
+ {
+  "username": "janet_myers",
+  "firstName": "Janet",
+  "lastName": "Myers",
+  "gender": "female",
+  "elo": 1039,
+  "photoUrl": "https://randomuser.me/api/portraits/women/43.jpg"
+ },
+ {
+  "username": "maria_long",
+  "firstName": "Maria",
+  "lastName": "Long",
+  "gender": "female",
+  "elo": 1043,
+  "photoUrl": "https://randomuser.me/api/portraits/women/44.jpg"
+ },
+ {
+  "username": "olivia_ross",
+  "firstName": "Olivia",
+  "lastName": "Ross",
+  "gender": "female",
+  "elo": 1060,
+  "photoUrl": "https://randomuser.me/api/portraits/women/45.jpg"
+ },
+ {
+  "username": "heather_foster",
+  "firstName": "Heather",
+  "lastName": "Foster",
+  "gender": "female",
+  "elo": 921,
+  "photoUrl": "https://randomuser.me/api/portraits/women/46.jpg"
+ },
+ {
+  "username": "diane_jimenez",
+  "firstName": "Diane",
+  "lastName": "Jimenez",
+  "gender": "female",
+  "elo": 1017,
+  "photoUrl": "https://randomuser.me/api/portraits/women/47.jpg"
+ },
+ {
+  "username": "julie_powell",
+  "firstName": "Julie",
+  "lastName": "Powell",
+  "gender": "female",
+  "elo": 1099,
+  "photoUrl": "https://randomuser.me/api/portraits/women/48.jpg"
+ },
+ {
+  "username": "joyce_jenkins",
+  "firstName": "Joyce",
+  "lastName": "Jenkins",
+  "gender": "female",
+  "elo": 1090,
+  "photoUrl": "https://randomuser.me/api/portraits/women/49.jpg"
+ }
+]

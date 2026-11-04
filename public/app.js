@@ -257,7 +257,10 @@ function renderGame() {
   $('scoreHuman').textContent = String(game.scores.human); $('scoreBot').textContent = String(game.scores.bot);
   const lastHtml = (l) => {
     if (!l) return '';
-    if (l.passed) return '<span class="lp-words">passed</span> <span class="pts">-30s</span>';
+    if (l.passed) {
+      if (l.noMoves) return '<span class="lp-words">No moves available, passed</span> <span class="pts">-30s</span>';
+      return '<span class="lp-words">passed</span> <span class="pts">-30s</span>';
+    }
     const words = (l.words && l.words.length) ? l.words : [l.word];
     return `<span class="lp-words">${words.join(', ')}</span> <span class="pts">+${l.points}${l.bingo ? ' <span class="bingo">bingo! +30</span>' : ''}${l.isDuello ? ' Duello +30' : ''}</span>`;
   };

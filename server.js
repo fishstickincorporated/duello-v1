@@ -697,17 +697,16 @@ async function endGame(game, user, reason, winnerSide) {
   game.reason = reason;
   game.winner = winnerSide;
   const actual = winnerSide === 'human' ? 1 : winnerSide === 'bot' ? 0 : 0.5;
-  // A draw moves nobody's Elo, whatever the Elo gap (a draw against
-  // Fishstick at 3000 used to gain ~16 Elo from the 0.5 expectation).
-  const delta = winnerSide === 'draw' ? 0 : eloDelta(user.elo, game.botElo, actual);
+  // Standard Elo, K=32 on a 400-point scale, zero-sum: the opponent
+  // always moves the opposite way, and a draw uses actual 0.5, so a
+  // draw against a stronger opponent gains (a draw against Fishstick
+  // at 3000 gains ~16) while a draw against an equal opponent moves
+  // nobody. Competitive Bot is no exception: its next game re-syncs
+  // to the player's current Elo at creation, so storing the opposite
+  // move here does not break its always-equal matching.
+  const delta = eloDelta(user.elo, game.botElo, actual);
   game.eloDeltaHuman = delta;
-  // Competitive Bot mirrors the player: its Elo for the next game IS the
-  // player's new Elo, so it moves the SAME direction as the human.
-  // A fixed opponent (Fishstick, 3000) moves the opposite way, as usual.
-  // The old code always used -delta for the bot AND never mutated the
-  // in-memory user, so serializeGame() sent the stale pre-game human Elo
-  // back to the client — the scoreboard looked like the human never moved.
-  game.eloDeltaBot = game.botType === 'competitive' ? delta : -delta;
+  game.eloDeltaBot = -delta;
   game.eloAfterHuman = user.elo + delta;
   game.eloAfterBot = game.botElo + game.eloDeltaBot;
   game.botElo = game.eloAfterBot;
@@ -776,9 +775,13 @@ function runBotTurn(game) {
   if (!moves.length) {
     game.consecutivePasses++;
     game.consecutiveNoMoves++;
-    game.lastBot = { word: null, points: 0, passed: true, auto: true };
+    game.clocks.bot = Math.max(0, game.clocks.bot - 30000);
+    game.lastBot = { word: null, points: 0, passed: true, auto: true, noMoves: true };
     game.turn = 'human'; game.turnStartedAt = Date.now();
-    if (game.consecutiveNoMoves >= 2) {
+    // Neither side has a move: end at once instead of handing the
+    // game to a human turn that can never play.
+    const humanMoves = findMoves(game.board, game.humanRack, isFirst, false);
+    if (!humanMoves.length || game.consecutiveNoMoves >= 2) {
       // Game ends by score; caller will finish it (needs user for Elo).
       game._pendingNoMovesEnd = true;
     }
@@ -789,6 +792,30 @@ function runBotTurn(game) {
   applyMove(game, 'bot', move, bestScore);
   game.turn = 'human'; game.turnStartedAt = Date.now();
   return true;
+}
+
+function applyHumanNoMovePass(game) {
+  // No-move auto-pass for the human side: if it is the human's turn
+  // and the human has no playable move, the human automatically
+  // passes (-30s, like a manual pass), the last line says so, and
+  // the turn goes to the bot. If the bot also has no move (or its
+  // clock is already 0, so it can never move), the game ends by
+  // score instead of passing into a turn that can never play.
+  // Returns true only when it flagged the game to end (the caller
+  // runs finishIfNeeded); a pass itself needs no further action.
+  if (game.status !== 'active' || game.turn !== 'human') return false;
+  const isFirst = boardIsEmpty(game.board);
+  if (findMoves(game.board, game.humanRack, isFirst, false).length) return false;
+  if (!findMoves(game.board, game.botRack, isFirst, false).length || game.clocks.bot <= 0) {
+    game._pendingNoMovesEnd = true;
+    return true;
+  }
+  game.clocks.human = Math.max(0, game.clocks.human - 30000);
+  game.consecutivePasses++;
+  game.consecutiveNoMoves++;
+  game.lastHuman = { word: null, points: 0, passed: true, auto: true, noMoves: true };
+  startBotTurn(game);
+  return false;
 }
 
 function stepBotClockTo20sMark(game) {
@@ -813,6 +840,12 @@ async function advanceBotTurnIfReady(game, user) {
   if (moved) stepBotClockTo20sMark(game);
   game.botThinkUntil = null;
   if (await finishIfNeeded(game, user)) { /* finished */ }
+  // The bot just moved: if the human now has no move, auto-pass the
+  // human at once instead of leaving the game on a dead human turn.
+  if (game.status === 'active' && game.turn === 'human') {
+    applyHumanNoMovePass(game);
+    if (await finishIfNeeded(game, user)) { /* finished */ }
+  }
   // Timeout loop: if the bot just played and the human's clock is already
   // at 0, do not hand the turn back to a player who cannot move — start
   // the next bot think immediately, so the bot keeps playing (2s think
@@ -1452,6 +1485,10 @@ const server = http.createServer(async (req, res) => {
               if (await finishIfNeeded(game, user)) break;
             }
           }
+          if (game.status === 'active' && game.turn === 'human') {
+            applyHumanNoMovePass(game);
+            await finishIfNeeded(game, user);
+          }
           await saveGameRow(game);
         }
         const out = serializeGame(game, user);
@@ -1477,6 +1514,11 @@ const server = http.createServer(async (req, res) => {
             await saveGameRow(game);
             if (game.turn === 'bot') scheduleBotMove(game);
           }
+        }
+        if (game.status === 'active' && game.turn === 'human') {
+          applyHumanNoMovePass(game);
+          if (await finishIfNeeded(game, user)) { /* finished */ }
+          await saveGameRow(game);
         }
         const out = serializeGame(game, user);
         if (game.status === 'finished') out.stats = gameStatsPayload(game);
@@ -1551,6 +1593,10 @@ const server = http.createServer(async (req, res) => {
           startBotTurn(game);
           game.botThinkUntil = playReqStart + (game.botThinkMs || 5000);
         }
+        if (game.status === 'active' && game.turn === 'human') {
+          applyHumanNoMovePass(game);
+          await finishIfNeeded(game, user);
+        }
         await saveGameRow(game);
         const out = serializeGame(game, user);
         if (game.status === 'finished') out.stats = gameStatsPayload(game);
@@ -1583,6 +1629,10 @@ const server = http.createServer(async (req, res) => {
           startBotTurn(game);
           game.botThinkUntil = passReqStart + (game.botThinkMs || 5000);
           // Bot turn is pending: client shows 5s think, then GET advances it.
+        }
+        if (game.status === 'active' && game.turn === 'human') {
+          applyHumanNoMovePass(game);
+          await finishIfNeeded(game, user);
         }
         await saveGameRow(game);
         const out = serializeGame(game, user);

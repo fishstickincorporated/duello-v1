@@ -381,6 +381,30 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## No-move auto-pass + standard Elo v35 (Nov 3, 2026, cache v35)
+
+- No available moves now auto-passes for real, on both sides, at
+  -30s like a manual pass, and the last line says so: "No moves
+  available, passed -30s" (manual passes still read "passed -30s").
+  The human side previously had no server auto-pass path at all,
+  and the bot side displayed -30s while deducting nothing; both
+  are fixed. If the other side also has no move (or its clock is
+  already 0, so it can never move), the game ends by score at
+  once instead of handing the turn to a side that cannot play.
+  Out-of-time skips are unchanged and are not passes: a clock
+  already at 0 is skipped with no deduction and no last-line
+  change. This supersedes the old zero-time auto-pass rule.
+- Elo is now standard, K=32 on a 400-point scale, zero-sum: the
+  opponent always moves the opposite way, and a draw uses actual
+  0.5, so a draw against a stronger opponent gains (a draw
+  against Fishstick at 3000 gains ~16) while a draw against an
+  equal opponent moves nobody. Two old deviations are gone: draws
+  no longer force delta 0 regardless of gap, and Competitive Bot
+  no longer mirrors the player — its next game still re-syncs to
+  the player's current Elo at creation, so its always-equal
+  matching is unaffected. K stays fixed at 32 (a parameter choice,
+  not a FIDE schedule); forfeits still count as losses.
+
 ## Highest word shows the word v34 (Nov 3, 2026, cache v34)
 
 - The profile stats "Highest word score" line now lists the word

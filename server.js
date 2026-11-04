@@ -122,21 +122,37 @@ async function initDb() {
   await seedPersonas();
 }
 async function seedPersonas() {
-  // The 100 Global personas (50 men, 50 women, Elo 800-1200) live in
-  // data/personas.json and are seeded once, on the first boot where
-  // the table is empty. Later boots and Elo movement never re-seed:
-  // persona Elos move with results and must survive restarts.
-  const count = await q('SELECT COUNT(*)::int AS n FROM personas');
-  if (count.rows[0].n > 0) return;
+  // Persona data is versioned, not just seeded-once: v1 (Nov 4) was
+  // uniform Elo 800-1200 with first_last usernames, and v2 (Nov 4)
+  // replaces it with bell-curve Elo around 1000 and mixed usernames.
+  // A refresh is a full delete + re-insert, which is safe because
+  // personas are fake players: finished games keep their stats in
+  // state, and an in-progress persona game's end-of-game persona
+  // update simply no-ops if its id is gone. After v2 is applied,
+  // later boots never touch the table, so Elo movement survives.
+  await q('CREATE TABLE IF NOT EXISTS persona_seed (version INT PRIMARY KEY)');
+  const v = await q('SELECT MAX(version) AS v FROM persona_seed');
+  if ((v.rows[0].v || 0) >= 2) return;
   const list = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'personas.json'), 'utf8'));
   if (!list.length) return;
+  // A real user's username always wins: a colliding persona handle
+  // gets a numeric suffix instead of dropping the row.
+  const taken = new Set((await q('SELECT username FROM users')).rows.map(r => r.username));
+  const rows = list.map(p => {
+    let u = p.username, n = 1;
+    while (taken.has(u)) { u = `${p.username}_${n++}`; }
+    taken.add(u);
+    return { ...p, username: u };
+  });
+  await q('DELETE FROM personas');
   const values = [], params = [];
-  list.forEach(p => {
+  rows.forEach(p => {
     values.push(`($${params.length + 1},$${params.length + 2},$${params.length + 3},$${params.length + 4},$${params.length + 5},$${params.length + 6})`);
     params.push(p.username, p.firstName, p.lastName, p.gender, p.elo, p.photoUrl);
   });
-  await q(`INSERT INTO personas (username, first_name, last_name, gender, elo, photo_url) VALUES ${values.join(',')} ON CONFLICT (username) DO NOTHING`, params);
-  console.log(`Seeded ${list.length} personas`);
+  await q(`INSERT INTO personas (username, first_name, last_name, gender, elo, photo_url) VALUES ${values.join(',')}`, params);
+  await q('INSERT INTO persona_seed (version) VALUES (2)');
+  console.log(`Personas refreshed to seed v2 (${rows.length})`);
 }
 async function q(text, params) { return pool.query(text, params); }
 function hashPassword(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }
@@ -1567,7 +1583,7 @@ const server = http.createServer(async (req, res) => {
       // together by Elo. Guest rows are not accounts and never appear;
       // photos ride along so the leaderboard can render pfps without
       // a second lookup. The signed-in user is included even outside
-      // the top 20, with their true rank, so they always see themself.
+      // the top 25, with their true rank, so they always see themself.
       const r = await q(`WITH allrows AS (
         SELECT id, username, first_name, last_name, elo, photo_data, created_at, 0 AS is_persona FROM users WHERE email NOT LIKE '%@guest.local'
         UNION ALL
@@ -1575,7 +1591,7 @@ const server = http.createServer(async (req, res) => {
       ), ranked AS (
         SELECT *, ROW_NUMBER() OVER (ORDER BY elo DESC, created_at ASC) AS rank FROM allrows
       )
-      SELECT * FROM ranked WHERE rank <= 20 OR (is_persona = 0 AND username = $1) ORDER BY elo DESC, created_at ASC`, [user.username]);
+      SELECT * FROM ranked WHERE rank <= 25 OR (is_persona = 0 AND username = $1) ORDER BY elo DESC, created_at ASC`, [user.username]);
       return sendJson(res, 200, { users: r.rows.map(u => ({ id: u.id, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, photoData: u.photo_data || null, isPersona: u.is_persona === 1, rank: Number(u.rank) })) });
     }
     if (pathname === '/api/define' && req.method === 'GET') {
@@ -1593,10 +1609,12 @@ const server = http.createServer(async (req, res) => {
           persona = pr.rows[0] || null;
           if (!persona) return sendJson(res, 400, { error: 'That player is not available.' });
         } else {
-          // Play Online: a random persona near the player's Elo, so
-          // the matchup feels like online matchmaking, not a fixed bot.
-          const near = await q('SELECT * FROM personas WHERE elo BETWEEN $1 AND $2 ORDER BY RANDOM() LIMIT 1', [user.elo - 200, user.elo + 200]);
-          const any = near.rows[0] ? near : await q('SELECT * FROM personas ORDER BY RANDOM() LIMIT 1');
+          // Play Online: a random persona within 40 Elo of the player,
+          // so every matchup is close. If nobody is in range (a high
+          // or low Elo with no nearby personas), fall back to the
+          // nearest persona rather than failing to make a match.
+          const near = await q('SELECT * FROM personas WHERE elo BETWEEN $1 AND $2 ORDER BY RANDOM() LIMIT 1', [user.elo - 40, user.elo + 40]);
+          const any = near.rows[0] ? near : await q('SELECT * FROM personas ORDER BY ABS(elo - $1) LIMIT 1', [user.elo]);
           persona = any.rows[0] || null;
           if (!persona) return sendJson(res, 503, { error: 'No online players are available yet.' });
         }
@@ -1764,6 +1782,12 @@ const server = http.createServer(async (req, res) => {
         const bPass = await readBody(req).catch(() => ({}));
         settleClock(game, bPass.clientElapsedMs);
         if (game.turn !== 'human') return sendJson(res, 400, { error: 'Not your turn.' });
+        // No passing in a one-sided stretch: when either clock is at
+        // 0, the player who is out of time cannot pass (they have no
+        // turn to give up), and the player still moving cannot pass
+        // either — they play on alone until the game ends.
+        if (game.clocks.human <= 0) return sendJson(res, 400, { error: 'You are out of time.' });
+        if (game.clocks.bot <= 0) return sendJson(res, 400, { error: 'Your opponent is out of time, so you can\'t pass.' });
         game.clocks.human = Math.max(0, game.clocks.human - 30000);
         game.consecutivePasses++;
         game.consecutiveNoMoves = 0;
@@ -1772,10 +1796,6 @@ const server = http.createServer(async (req, res) => {
           game.botThinkUntil = null;
           const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';
           await endGame(game, user, 'Final score', winner);
-        } else if (game.clocks.bot <= 0) {
-          // Opponent out of time: no bot turn — the human keeps the turn
-          // and their clock keeps running, same as after a play.
-          game.turn = 'human'; game.turnStartedAt = Date.now(); game.botThinkUntil = null;
         } else {
           startBotTurn(game);
           game.botThinkUntil = passReqStart + (game.botThinkMs || 5000);

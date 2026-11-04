@@ -75,7 +75,13 @@ async function api(path, opts = {}) {
   return j;
 }
 function show(id) {
-  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'authScreen', 'gameScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
+  // Leaving a matchmaking screen abandons it: a searching or
+  // rematch timer must never start a game after the user walked
+  // away (tab tap, back navigation) — the timers check their flags,
+  // and show() clears them on any navigation away.
+  if (id !== 'searchingScreen') cancelSearch();
+  if (id !== 'rematchScreen') cancelRematch();
+  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
   const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen'].includes(id);
   const tb = $('tabBar'); if (tb) tb.classList.toggle('hidden', !isMenu);
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -100,6 +106,19 @@ $('tabHome').onclick = () => show('homeScreen');
 // the next app load; the row markup matches the main build's friends tab.
 let lbScope = 'friends', deleteMode = false;
 let globalRows = null;
+// Friend-request buttons are UI-only until the friends backend
+// lands: requested usernames persist in localStorage so a row
+// stays Requested across loads, but nothing is sent anywhere.
+function getFriendRequests() {
+  try { const v = JSON.parse(localStorage.getItem('duello_friend_requests') || '[]'); return Array.isArray(v) ? v : []; }
+  catch { return []; }
+}
+function markFriendRequested(username) {
+  try {
+    const v = getFriendRequests();
+    if (!v.includes(username)) { v.push(username); localStorage.setItem('duello_friend_requests', JSON.stringify(v)); }
+  } catch {}
+}
 async function ensureGlobalRows() {
   if (!globalRows) {
     try { const d = await api('/api/leaderboard'); globalRows = d.users || []; }
@@ -126,11 +145,18 @@ async function renderFriendsUI() {
   const list = $('leaderboardList'); list.innerHTML = '';
   rows.forEach((r, i) => {
     const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
-    row.innerHTML = `<span class="rank">${r.rank ?? (i + 1)}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span><div class="lb-name">${r.name}</div><div class="lb-user">@${r.username}</div></span>${r.isYou ? '<span class="you-badge">YOU</span>' : ''}<span class="lb-elo">${r.elo}</span>${r.isPersona ? '<button class="lb-play">Play</button>' : ''}`;
+    const requested = getFriendRequests().includes(r.username);
+    row.innerHTML = `<span class="rank">${r.rank ?? (i + 1)}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span><div class="lb-name">${r.name}</div><div class="lb-user">@${r.username}</div></span>${r.isYou ? '<span class="you-badge">YOU</span>' : ''}<span class="lb-elo">${r.elo}</span>${r.isYou ? '' : `<button class="lb-friend"${requested ? ' disabled' : ''}>${requested ? 'Requested' : 'Add Friend'}</button>`}`;
     list.appendChild(row);
-    // A persona row's Play button starts a game against that person;
-    // real users have no button until challenges exist.
-    if (r.isPersona) row.querySelector('.lb-play').onclick = () => startGame('persona', r.id);
+    // Global rows carry a friend-request button instead of Play:
+    // matches come from Play Online. The request itself is local
+    // pending state until the friends backend lands — tapping marks
+    // the row Requested and remembers it for the session's loads.
+    if (!r.isYou) row.querySelector('.lb-friend').onclick = (e) => {
+      const btn = e.currentTarget;
+      markFriendRequested(r.username);
+      btn.textContent = 'Requested'; btn.disabled = true;
+    };
   });
   $('noFriendsCard').classList.toggle('hidden', !(lbScope === 'friends' && rows.length === 0));
   $('friendRequests').innerHTML = '';
@@ -163,7 +189,50 @@ async function loadMe() {
   catch { return !!token; }
 }
 $('playBotsBtn').onclick = () => show('botScreen');
-$('playOnlineBtn').onclick = () => startGame('persona');
+// Matchmaking, not an instant game: Play Online (the globe) shows a
+// searching screen that ticks for a random 3-5 seconds, then makes
+// the match. Cancel, or any navigation away, abandons the search.
+let searchTimer = null, searchingActive = false;
+function cancelSearch() { searchingActive = false; if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; } }
+function startSearching() {
+  cancelSearch();
+  searchingActive = true;
+  show('searchingScreen');
+  searchTimer = setTimeout(() => {
+    if (!searchingActive) return;
+    searchingActive = false; searchTimer = null;
+    startGame('persona');
+  }, 3000 + Math.floor(Math.random() * 2000));
+}
+$('searchCancelBtn').onclick = () => { cancelSearch(); show('homeScreen'); };
+$('playOnlineBtn').onclick = () => startSearching();
+// Rematch requests, persona games only: Play Again sends the
+// opponent a request instead of starting at once. The request
+// screen waits a random 5-7 seconds, then the persona accepts
+// (50%) and the rematch starts, or declines and the screen offers
+// a way home or a new search. Bots keep instant Play Again.
+let rematchTimer = null, rematchActive = false;
+function cancelRematch() { rematchActive = false; if (rematchTimer) { clearTimeout(rematchTimer); rematchTimer = null; } }
+function requestRematch() {
+  const name = (game && game.persona && game.persona.firstName) || 'your opponent';
+  cancelRematch();
+  rematchActive = true;
+  $('rematchText').textContent = `Request sent — waiting for ${name} to accept…`;
+  $('rematchActions').classList.add('hidden');
+  show('rematchScreen');
+  rematchTimer = setTimeout(() => {
+    if (!rematchActive) return;
+    rematchActive = false; rematchTimer = null;
+    if (Math.random() < 0.5) {
+      startGame('persona', currentPersonaId);
+    } else {
+      $('rematchText').textContent = `${name} declined the rematch.`;
+      $('rematchActions').classList.remove('hidden');
+    }
+  }, 5000 + Math.floor(Math.random() * 2000));
+}
+$('rematchHomeBtn').onclick = () => { cancelRematch(); show('homeScreen'); };
+$('rematchNewBtn').onclick = () => { cancelRematch(); startSearching(); };
 $('botBackBtn').onclick = () => show('homeScreen');
 $('competitiveBtn').onclick = () => startGame('competitive');
 $('fishstickBtn').onclick = () => startGame('fishstick');
@@ -276,7 +345,17 @@ function renderGame() {
     const words = (l.words && l.words.length) ? l.words : [l.word];
     return `<span class="lp-words">${words.join(', ')}</span> <span class="pts">+${l.points}${l.bingo ? ' <span class="bingo">bingo! +30</span>' : ''}${l.isDuello ? ' Duello +30' : ''}</span>`;
   };
-  const shownLast = game.clocks.turn === 'human' ? (game.lastBot || game.lastHuman) : (game.lastHuman || game.lastBot);
+  // The last move always shows, even in a one-sided stretch: when a
+  // clock is at 0, that side can never have moved last, so the other
+  // side's last move is the most recent one whatever the turn says.
+  // (In a normal alternating game this is identical to the old
+  // turn-based pick; it only changes the out-of-time stretches,
+  // where the turn-based pick showed a stale move from the side
+  // that can no longer move.)
+  let shownLast;
+  if (game.clocks.human <= 0) shownLast = game.lastBot || game.lastHuman;
+  else if (game.clocks.bot <= 0) shownLast = game.lastHuman || game.lastBot;
+  else shownLast = game.clocks.turn === 'human' ? (game.lastBot || game.lastHuman) : (game.lastHuman || game.lastBot);
   $('lastPlay').innerHTML = lastHtml(shownLast);
   $('lastPlay').classList.toggle('from-human', !!shownLast && shownLast === game.lastHuman);
   $('lastPlay').classList.toggle('from-bot', !!shownLast && shownLast === game.lastBot);
@@ -340,7 +419,11 @@ function renderGame() {
   const humanRemaining = game.status === 'active' ? Math.max(0, game.clocks.turn === 'human' ? game.clocks.human - (Date.now() - gameFetchAt) : game.clocks.human) : Infinity;
   const outOfTime = game.status === 'active' && humanRemaining <= 0;
   $('recallBtn').disabled = countdownActive || !(yourTurn && pending.length > 0);
-  $('passBtn').disabled = countdownActive || !yourTurn;
+  // No passing in a one-sided stretch: when the opponent's clock is
+  // at 0, the human plays on alone and cannot pass. Disabled also
+  // drops the blue highlight (see .controls button:disabled), so the
+  // button reads as truly unavailable, not just unresponsive.
+  $('passBtn').disabled = countdownActive || !yourTurn || game.clocks.bot <= 0 || outOfTime;
   $('shuffleBtn').disabled = countdownActive || playInFlight || optimisticPlay || outOfTime;
   $('forfeitBtn').disabled = countdownActive;
   document.querySelector('.controls').classList.toggle('hidden', finished);
@@ -911,20 +994,29 @@ function showStatWindow(stats) {
   $('gameDim').classList.add('dimmed');
   const isPersonaGame = game && game.botType === 'persona';
   const botLabel = (game && game.botType === 'fishstick') ? 'Fishstick' : isPersonaGame ? (game.persona?.firstName || 'Player') : 'Bot';
+  const humanLabel = (me && me.firstName) ? me.firstName : 'You';
   // Winner is the game's recorded result, not the score comparison:
   // a forfeit is a loss even when the forfeiter is ahead on points.
   // stats.winner comes from the server; the reason check covers any
   // older payload without it.
   const winnerSide = stats.winner || (stats.reason === 'By forfeit' ? 'bot' : null);
-  $('statWinner').textContent = winnerSide === 'human' ? 'You win' : winnerSide === 'bot' ? botLabel + ' wins' : winnerSide === 'draw' ? 'Draw' : (stats.scores.human > stats.scores.bot ? 'You win' : stats.scores.bot > stats.scores.human ? botLabel + ' wins' : 'Draw');
+  $('statWinner').textContent = winnerSide === 'human' ? humanLabel + ' wins' : winnerSide === 'bot' ? botLabel + ' wins' : winnerSide === 'draw' ? 'Draw' : (stats.scores.human > stats.scores.bot ? humanLabel + ' wins' : stats.scores.bot > stats.scores.human ? botLabel + ' wins' : 'Draw');
   $('statScore').textContent = `${stats.scores.human}–${stats.scores.bot}`;
   $('statReason').textContent = sentence(stats.reason || '');
   const fmtMove = (d, v) => v >= 0 ? '+' + v : '' + v;
   $('eloMoveHuman').textContent = fmtMove(null, stats.eloDeltaHuman ?? 0);
   $('eloMoveHuman').className = 'elo-move ' + ((stats.eloDeltaHuman ?? 0) < 0 ? 'neg' : 'pos');
-  // No Elo move shown for the bot: its Elo is not a moving stat here.
-  $('eloMoveBot').textContent = '';
-  $('eloMoveBot').className = 'elo-move';
+  // Both Elo moves show for a human-vs-human match, and personas
+  // count as humans: their rating moves opposite yours, so it is
+  // shown like yours. For Competitive Bot and Fishstick the bot
+  // move stays blank, as before.
+  if (isPersonaGame) {
+    $('eloMoveBot').textContent = fmtMove(null, stats.eloDeltaBot ?? 0);
+    $('eloMoveBot').className = 'elo-move ' + ((stats.eloDeltaBot ?? 0) < 0 ? 'neg' : 'pos');
+  } else {
+    $('eloMoveBot').textContent = '';
+    $('eloMoveBot').className = 'elo-move';
+  }
   const row = (label, h, b) => `<div class="stat-row"><span class="stat-label">${label}</span><span>${h}</span><span>${b}</span></div>`;
   const best = (x) => x.best ? `${x.best.word} (<span class="num">${x.best.score} pts</span>)` : '—';
   const longest = (x) => x.longest ? `${x.longest.word} (<span class="num">${x.longest.word.length} letters</span>)` : '—';
@@ -932,7 +1024,7 @@ function showStatWindow(stats) {
   const box = (name, pfp, st, noPhoto) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}">${pfp}</span><span>${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span> <span class="num">${opt(st)}</span></div></div>`;
   const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
   const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.jpeg" alt="Fishstick">' : isPersonaGame && game.persona?.photoData ? `<img src="${game.persona.photoData}" alt="">` : '🤖';
-  $('statGrid').innerHTML = box('You', humanPfp, stats.human, !(me && me.photoData)) + box(botLabel, botPfpBox, stats.bot, false);
+  $('statGrid').innerHTML = box(humanLabel, humanPfp, stats.human, !(me && me.photoData)) + box(botLabel, botPfpBox, stats.bot, false);
   if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">';
   else if (isPersonaGame && game.persona?.photoData) $('statBotPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
   else $('statBotPfp').textContent = '🤖';
@@ -940,8 +1032,8 @@ function showStatWindow(stats) {
 $('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) { clearStatDelay(); $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); } });
 function goHome() { clearStatDelay(); $('statWindow').classList.add('hidden'); show('homeScreen'); }
 $('mainMenuBtn').onclick = goHome; $('statMainMenu').onclick = goHome;
-$('playAgainBtn').onclick = () => { $('statWindow').classList.add('hidden'); startGame(currentBot, currentPersonaId); };
-$('statPlayAgain').onclick = () => { $('statWindow').classList.add('hidden'); startGame(currentBot, currentPersonaId); };
+$('playAgainBtn').onclick = () => { $('statWindow').classList.add('hidden'); if (currentBot === 'persona') requestRematch(); else startGame(currentBot, currentPersonaId); };
+$('statPlayAgain').onclick = () => { $('statWindow').classList.add('hidden'); if (currentBot === 'persona') requestRematch(); else startGame(currentBot, currentPersonaId); };
 $('gameStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
 const defCache = new Map();
 function hideDefinition() { const pop = $('defPopover'); if (pop) pop.classList.add('hidden'); }

@@ -381,6 +381,56 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Global matchmaking + stat/last-play fixes v41 (Nov 4, 2026, cache v41)
+
+- Stat screen: for a human-vs-human match (personas count as
+  humans), both Elo moves now show — the opponent's move is no
+  longer blanked. Competitive Bot and Fishstick still show no bot
+  move. The stat window also uses the player's first name
+  everywhere "You" appeared (both stat boxes and the winner line).
+- Last play: the last move always shows below the scoreboard,
+  even in a one-sided stretch. The old turn-based pick showed a
+  stale move from the side that can no longer move while the
+  other side played alone; now, when a clock is at 0, the other
+  side's last move is shown whatever the turn says. Last-play
+  padding is now explicitly equal above and below the text
+  (2px padding both sides, no margins), same total spacing as
+  before.
+- Passing in a one-sided stretch is gone, client and server:
+  the Pass button is disabled (which also drops its blue
+  highlight, via .controls button:disabled) when either clock is
+  at 0, and the server rejects a pass with "You are out of time."
+  or "Your opponent is out of time, so you can't pass." The old
+  server branch that let a pass through with the opponent at 0
+  was removed; auto no-move passes are unaffected.
+- Matchmaking is now within 40 Elo (was 200): Play Online picks
+  a random persona in range, falling back to the nearest persona
+  if nobody is in range rather than failing to make a match.
+- Personas re-rated on a bell curve around 1000 (mean 1003 in
+  the shipped set, 67/100 within 900-1100, clipped to 800-1200)
+  with mixed usernames (roughly 70% name-based, 30% unrelated
+  handles like ironcoyote, gentlehawk33). Applied by a versioned
+  seed refresh (persona_seed version 2: full delete + re-insert
+  on the first boot, then never again), so Elo movement still
+  survives later restarts; a real user's username wins over a
+  colliding persona handle via a numeric suffix.
+- Play Online now shows a searching screen (pulsing dots,
+  "Searching for opponent…", Cancel) that ticks a random 3-5
+  seconds before making the match. Cancel, or any navigation
+  away, abandons the search and no game starts.
+- Play Again against a Global player now sends a rematch
+  request instead of starting at once: the request screen waits
+  a random 5-7 seconds, then the persona accepts (50%) and the
+  rematch starts against the same player, or declines and the
+  screen offers Back Home or Find a new opponent. Play Again
+  against a bot still starts immediately.
+- Global shows the top 25 (was 20) plus you at your true rank,
+  and Global rows carry an Add Friend button instead of Play
+  (matches come from Play Online). Friend requests are UI-only
+  pending state until the friends backend lands: tapping marks
+  the row Requested and remembers the username in localStorage,
+  but nothing is sent anywhere.
+
 ## Global personas v40 (Nov 4, 2026, cache v40)
 
 - Global is live with 100 personas posing as human players: 50 men

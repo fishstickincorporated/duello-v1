@@ -60,7 +60,7 @@ name or a big score never reflows the board. Names never wrap. */
 .panel .elo{color:#03eaff;font-size:12px;line-height:1.25;white-space:nowrap}
 .panel .elo.inf{font-size:20px;line-height:15px}
 .panel .clock{font-size:32px;line-height:1.1}
-.lastplay{display:block;color:#b3b2b1;font-size:11px;font-weight:400;line-height:14px;white-space:nowrap;overflow:hidden;padding:0 6px;min-height:14px;margin:2px 0;text-align:left}
+.lastplay{display:block;color:#b3b2b1;font-size:11px;font-weight:400;line-height:14px;white-space:nowrap;overflow:hidden;padding:2px 6px;min-height:14px;margin:0;text-align:left}
 .lastplay.from-human{text-align:left}
 .lastplay.from-bot{text-align:right}
 .lastplay .pts{color:#03eaff;font-weight:700}
@@ -132,7 +132,17 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .lb-row .lb-name{color:#03eaff;font-weight:800;font-size:18px}
 .lb-row .lb-user{color:#b3b2b1;font-size:14px}
 .lb-row .lb-elo{margin-left:auto;color:#03eaff;font-weight:800;font-size:18px}
-.lb-play{background:none;border:0;color:#03eaff;font-weight:800;font-size:14px;cursor:pointer;padding:6px 2px}
+.lb-friend{background:none;border:0;color:#03eaff;font-weight:800;font-size:14px;cursor:pointer;padding:6px 2px;white-space:nowrap}
+.lb-friend:disabled{color:#b3b2b1;cursor:default}
+.searching-box,.rematch-box{display:flex;flex-direction:column;align-items:center;gap:16px;margin-top:60px;text-align:center}
+.searching-dots{display:flex;gap:8px}
+.searching-dots span{width:12px;height:12px;border-radius:50%;background:#03eaff;animation:searchPulse 1s ease-in-out infinite}
+.searching-dots span:nth-child(2){animation-delay:.2s}
+.searching-dots span:nth-child(3){animation-delay:.4s}
+@keyframes searchPulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+.searching-text,.rematch-text{font-size:18px;font-weight:800}
+.searching-sub{color:#b3b2b1;font-size:14px}
+.rematch-box .controls{width:100%}
 .lb-row.you{outline:2px solid #03eaff}
 .you-badge{background:#03eaff;color:#1a1d24;font-size:11px;font-weight:800;border-radius:8px;padding:2px 6px}
 .lb-row .you-badge{align-self:flex-start;margin-top:2px}

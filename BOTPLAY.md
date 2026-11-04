@@ -381,6 +381,13 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Privacy contact is privacy@duellogame.com v36 (Nov 3, 2026, cache v36)
+
+- The privacy policy contact is now privacy@duellogame.com (both
+  the intro line and the Contact section), forwarded to the Duello
+  Gmail. It replaces the Duello Gmail address the policy carried
+  since v27. The policy's effective date is unchanged.
+
 ## No-move auto-pass + standard Elo v35 (Nov 3, 2026, cache v35)
 
 - No available moves now auto-passes for real, on both sides, at

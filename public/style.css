@@ -119,6 +119,7 @@ present again; a flex-shared cell previously squeezed them to half width. */
 /* Friends tab: no logo, search with padding above */
 .search-wrap{display:flex;align-items:center;gap:8px;background:#262a33;border:1px solid #333;border-radius:12px;padding:4px 10px;margin-top:18px}
 .search-wrap input{border:0;background:transparent;margin:0;padding:10px 4px}
+.search-wrap input:focus{outline:none;box-shadow:none}
 .search-icon{font-size:18px}
 .search-results{text-align:left}
 .search-result,.lb-row,.request-row{display:flex;align-items:center;gap:10px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}

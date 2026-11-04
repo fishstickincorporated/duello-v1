@@ -381,6 +381,17 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Friends search focus ring removed v39 (Nov 3, 2026, cache v39)
+
+- Jeff, Nov 3, 2026: tapping the friends search bar showed a blue
+  rounded rectangle. Cause: no focus style was set for that input, so
+  the browser drew its default focus outline around it (rounded by
+  the input's inherited 10px radius).
+- Fix, scoped to that input only: `.search-wrap input:focus` now
+  sets `outline:none;box-shadow:none`. Other inputs keep their
+  default focus behavior. The search bar itself (grey rounded wrap,
+  magnifier, placeholder) is unchanged.
+
 ## Cross-word dedup fix v38 (Nov 3, 2026, cache v38)
 
 - Bug (Jeff, Nov 3, 2026): QI played horizontally with Q on TL and an

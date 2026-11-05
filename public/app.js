@@ -158,32 +158,15 @@ async function ensureGlobalRows() {
 }
 // One row shape for every leaderboard-style list (Global, Friends,
 // search results): rank | pfp | name over username | Elo | action.
-// The action depends on the list: Global and search show the
-// friend button (or the YOU badge on your own row), Friends shows
-// a play icon that challenges that friend.
+// The action depends on the list: Global and search show nothing
+// there except the YOU badge on your own row — friends are added
+// only from the profile window now. Friends shows a play icon that
+// challenges that friend.
 function lbRowHTML(r, actionHTML) {
-  return `<span class="rank">${r.rank ?? ''}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${r.name}</div><div class="lb-user">@${r.username}</div></span><span class="lb-elo">${r.elo}</span>${actionHTML}`;
+  return `<span class="rank">${r.rank ?? ''}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${r.displayName || r.name}</div><div class="lb-user">@${r.username}</div></span><span class="lb-elo">${r.elo}</span>${actionHTML}`;
 }
-function friendActionHTML(r) {
-  if (r.isYou) return '<span class="lb-action"><span class="you-badge">YOU</span></span>';
-  const requested = getFriendRequests().includes(r.username);
-  return `<button class="lb-friend${requested ? ' sent' : ''}" aria-label="${requested ? `Cancel friend request to ${r.name}` : `Add ${r.name} as a friend`}">${requested ? friendSentHTML() : friendAddSVG()}</button>`;
-}
-function wireFriendButton(btn, r) {
-  btn.onclick = (e) => {
-    const b = e.currentTarget;
-    if (getFriendRequests().includes(r.username)) {
-      unrequestFriend(r.username);
-      b.innerHTML = friendAddSVG();
-      b.classList.remove('sent');
-      b.setAttribute('aria-label', `Add ${r.name} as a friend`);
-    } else {
-      markFriendRequested(r.username);
-      b.innerHTML = friendSentHTML();
-      b.classList.add('sent');
-      b.setAttribute('aria-label', `Cancel friend request to ${r.name}`);
-    }
-  };
+function youBadgeHTML(r) {
+  return r.isYou ? '<span class="lb-action"><span class="you-badge">YOU</span></span>' : '';
 }
 function playActionHTML(r) {
   return `<button class="lb-play" aria-label="Challenge ${r.name} to a game">${playSVG()}</button>`;
@@ -233,6 +216,7 @@ function toLbRow(u) {
   return {
     id: u.id, isPersona: !!u.isPersona, rank: u.rank,
     name: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username,
+    firstName: u.firstName || '',
     username: u.username, elo: u.elo, photoData: u.photoData || null,
     isYou: !!(me && u.username === me.username),
   };
@@ -247,6 +231,10 @@ async function renderFriendsUI() {
   if (lbScope === 'global') {
     const users = await ensureGlobalRows();
     rows = users.map(toLbRow).sort((a, b) => b.elo - a.elo);
+    // Global shows first names only — no last names on the list.
+    // The full name still lives on the row object, so the profile
+    // window (opened by tapping the name) shows it.
+    rows.forEach(r => { r.displayName = r.firstName || r.name; });
   } else {
     // Friends are the people you added from Global: the request
     // list in localStorage, resolved against the leaderboard rows.
@@ -266,19 +254,15 @@ async function renderFriendsUI() {
     // row keeps the YOU badge in the action slot, so its Elo lines
     // up too and your full name never has to shrink for the badge.
     const isFriends = lbScope === 'friends';
-    row.innerHTML = lbRowHTML(r, isFriends ? playActionHTML(r) : friendActionHTML(r));
+    row.innerHTML = lbRowHTML(r, isFriends ? playActionHTML(r) : youBadgeHTML(r));
     list.appendChild(row);
-    // Global rows carry a friend-request button instead of Play:
-    // matches come from Play Online. The request itself is local
-    // pending state until the friends backend lands — tapping marks
-    // the row sent and remembers it for the session's loads, and
-    // tapping it again unrequests it. Friends rows carry a play
-    // icon instead: tapping challenges that friend.
+    // Friends rows carry a play icon instead: tapping challenges
+    // that friend. Global rows carry no friend button at all — the
+    // only way to add someone is tapping their name and adding
+    // them from the profile window.
     if (isFriends) {
       const btn = row.querySelector('.lb-play');
       if (btn) btn.onclick = () => startChallenge(r);
-    } else if (!r.isYou) {
-      wireFriendButton(row.querySelector('.lb-friend'), r);
     }
     // Tapping the name opens their profile window.
     const nameEl = row.querySelector('.lb-name');
@@ -303,12 +287,12 @@ async function runFriendSearch() {
   const users = await ensureGlobalRows();
   users.filter(u => (`${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q) || u.username.toLowerCase().includes(q))).forEach(u => {
     // Search rows are leaderboard rows, not a compact variant:
-    // rank | pfp | name over username | Elo | friend button.
+    // rank | pfp | name over username | Elo. No friend button here
+    // either — adding happens only from the profile window.
     const r = toLbRow(u);
     const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
-    row.innerHTML = lbRowHTML(r, friendActionHTML(r));
+    row.innerHTML = lbRowHTML(r, youBadgeHTML(r));
     el.appendChild(row);
-    if (!r.isYou) wireFriendButton(row.querySelector('.lb-friend'), r);
     const nameEl = row.querySelector('.lb-name');
     if (nameEl) nameEl.onclick = () => openPersonModal(r);
   });
@@ -1234,13 +1218,15 @@ function showStatWindow(stats) {
   const humanNameEl = boxes[0] && boxes[0].querySelector('.stat-box-name');
   if (humanNameEl && me) {
     humanNameEl.style.cursor = 'pointer';
-    humanNameEl.onclick = () => openPersonModal({ name: humanLabel, username: me.username, elo: game.player ? game.player.elo : me.elo, photoData: me.photoData || null, isYou: true, isPersona: false });
+    const humanFullName = [me.firstName, me.lastName].filter(Boolean).join(' ') || humanLabel;
+    humanNameEl.onclick = () => openPersonModal({ name: humanFullName, username: me.username, elo: game.player ? game.player.elo : me.elo, photoData: me.photoData || null, isYou: true, isPersona: false });
   }
   const botUsername = isPersonaGame ? game.persona?.username : null;
   const oppNameEl = boxes[1] && boxes[1].querySelector('.stat-box-name');
   if (oppNameEl && botUsername) {
     oppNameEl.style.cursor = 'pointer';
-    oppNameEl.onclick = () => openPersonModal({ name: botLabel, username: botUsername, elo: game.botElo, photoData: game.persona?.photoData || null, isYou: false, isPersona: true });
+    const botFullName = [game.persona.firstName, game.persona.lastName].filter(Boolean).join(' ') || botLabel;
+    oppNameEl.onclick = () => openPersonModal({ name: botFullName, username: botUsername, elo: game.botElo, photoData: game.persona?.photoData || null, isYou: false, isPersona: true });
   }
 }
 $('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) { clearStatDelay(); $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); } });

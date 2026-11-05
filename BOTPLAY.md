@@ -381,6 +381,25 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Bot labels, no row friend buttons, fixed-size add button, first names v47 (Nov 5, 2026, cache v47)
+
+- The bot selector reads "Competitive" with the small line
+  "plays at your elo" under it, and "Fishstick" with "the
+  official Duello engine" under it.
+- The add-friend icon is gone from Global rows and search
+  results: the only way to add someone is tapping their name and
+  adding them from the profile window. The action column is back
+  to 36px (YOU badge and the Friends play icon only), so names
+  get their width back.
+- The profile window's Add Friend / sent button is a fixed
+  180px wide in both states (measured: the Add Friend content
+  is 143px, the sent content 81px), so toggling it moves nothing
+  around it.
+- Global shows first names only. The full name still lives on
+  the row, so the profile window shows it. Friends and search
+  still show full names — say the word if those should be first
+  names too.
+
 ## Rack cap, definition cross-refs, instant timeout end, profile window v46 (Nov 5, 2026, cache v46)
 
 - A rack can never hold 3 of the same letter now: the initial

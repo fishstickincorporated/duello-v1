@@ -32,6 +32,9 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .bot-options{display:flex;flex-direction:column;gap:24px;margin-top:24px;align-items:center}
 .bot-opt{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#fff;padding:0 16px;height:64px;width:100%;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:14px;font-size:18px;border:2px solid #03eaff;border-radius:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 8px 0 #005a6e}
 .bot-opt .label{flex:1;text-align:left}
+.bot-opt .label-col{flex:1;text-align:left;display:flex;flex-direction:column;gap:2px;min-width:0}
+.bot-opt .label-col .label{flex:none}
+.bot-opt .sub{font-size:12px;color:#b3b2b1;font-weight:400}
 .bot-opt .sym{flex:0 0 auto}
 .bot-opt .chev{font-size:30px;line-height:1;color:#03eaff}
 .back-pill{display:block;background:#6b7280;color:#fff;padding:8px 18px;border-radius:20px;margin:22px auto 0;font-size:14px}
@@ -118,7 +121,8 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .person-user{color:#b3b2b1;font-size:14px;margin-top:2px}
 .person-elo{font-size:14px;margin:10px 0 14px}
 .person-elo span{font-family:Arial,Helvetica,sans-serif;font-weight:800;color:#03eaff}
-.person-add{background:#3a3f4b;color:#e8ecf1;border:2px solid #03eaff;border-radius:12px;padding:10px 16px;font-family:Comfortaa,sans-serif;font-size:14px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.person-add{background:#3a3f4b;color:#e8ecf1;border:2px solid #03eaff;border-radius:12px;padding:10px 16px;font-family:Comfortaa,sans-serif;font-size:14px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;width:180px}
+.sent-text{line-height:1}
 .person-add.sent{border-color:#3a3f4b;color:#b3b2b1}
 .person-add svg{display:block}
 .drag-ghost{position:fixed;width:92px;height:92px;border-radius:8px;overflow:hidden;background:linear-gradient(180deg,#7df3ff 0%,#03eaff 50%,#00b8d2 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.65),inset 0 -2px 0 rgba(0,90,110,.35);color:#1a1d24;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;z-index:30;pointer-events:none;transform:translate(-50%,-60%)}
@@ -144,7 +148,7 @@ let the Elo sit wherever the name and the button ended, so Elos
 wandered left and right down the list; now every Elo lands in the
 same 52px column, right-aligned, on every row including your own
 (the empty action slot keeps it there). */
-.lb-row{display:grid;grid-template-columns:28px 36px minmax(0,1fr) 44px 56px;align-items:center;gap:10px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}
+.lb-row{display:grid;grid-template-columns:28px 36px minmax(0,1fr) 44px 36px;align-items:center;gap:10px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}
 .lb-row .rank{color:#ffd166;font-weight:900;font-size:18px;text-align:right}
 .lb-identity{min-width:0;overflow:hidden}
 .lb-row .lb-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -157,12 +161,6 @@ same 52px column, right-aligned, on every row including your own
 .lb-row .lb-name{color:#03eaff;font-weight:800;font-size:18px}
 .lb-row .lb-user{color:#b3b2b1;font-size:14px}
 .lb-row .lb-elo{color:#03eaff;font-weight:800;font-size:18px;text-align:right;font-variant-numeric:tabular-nums}
-.lb-friend{background:none;border:0;color:#b3b2b1;cursor:pointer;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;justify-self:center}
-.lb-friend svg{display:block}
-/* The sent state keeps the same grey: the paper plane, not the
-   color, is what tells it apart from Add. */
-.lb-friend.sent{width:max-content;gap:4px;padding:0 2px;font-size:12px;font-weight:700}
-.sent-text{line-height:1}
 .lb-play{background:none;border:0;color:#03eaff;cursor:pointer;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;justify-self:center}
 .lb-play svg{display:block}
 .lb-action{width:36px;display:flex;align-items:center;justify-content:center;justify-self:center}

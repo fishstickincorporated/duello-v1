@@ -381,6 +381,37 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Rack cap, definition cross-refs, instant timeout end, profile window v46 (Nov 5, 2026, cache v46)
+
+- A rack can never hold 3 of the same letter now: the initial
+  deal re-rolls a rack with a triple, and every refill draw
+  (human and bot) re-rolls until the letter still has room, with
+  the 2-vowel / 2-consonant floor intact. Verified in Node over
+  10,000 deals and 10,000 refills: zero triples, zero floor
+  failures.
+- "See Note under Our." is gone for good: the definition
+  resolver now follows Webster "See X" pointers ("See Note under
+  Our.", "See Eke.", "See Have.") to the base word's own
+  definition, on top of the existing plural/past-tense/form-of
+  resolution. 174 bundled cross-references resolve this way;
+  OURS now shows OUR's real definition, EEK shows EKE's, and
+  real definitions that merely start with "see" ("see with
+  attention") are untouched. The dictionary popover text is
+  smaller too (13px).
+- Both clocks at 0 ends the game instantly now: the 100ms clock
+  tick fetches the game the moment both displayed clocks read
+  0:00, whichever turn it is, instead of waiting out the bot's
+  think (up to 33s for a persona). The fetch settles the clocks
+  server-side and finishes the game, so the stat window comes up
+  within ~1s.
+- The stat window's add-friend icon is gone. Tapping a name
+  opens a profile window instead — photo, name, @username, Elo,
+  and an Add Friend button — on Global rows, search results,
+  and the stat window (opponent and your own name; bots have no
+  profile, and pre-v44 games carry no persona username so that
+  name is not tappable). Closing the window re-renders the
+  lists behind it so a toggled request shows up everywhere.
+
 ## Sent text + plane, search rows, Play Friends live v45 (Nov 5, 2026, cache v45)
 
 - The sent state is now small grey "sent" text plus a small (16px)

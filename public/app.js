@@ -188,6 +188,47 @@ function wireFriendButton(btn, r) {
 function playActionHTML(r) {
   return `<button class="lb-play" aria-label="Challenge ${r.name} to a game">${playSVG()}</button>`;
 }
+// Person profile window: tapping a name (Global, search, stat
+// window) opens their profile — photo, name, username, Elo — with
+// an add-friend button that toggles the same localStorage request
+// as the row buttons. Your own profile has no button. Closing
+// re-renders the lists behind it so a toggled request shows up
+// everywhere at once.
+let modalPerson = null;
+function renderPersonAddBtn() {
+  const btn = $('personAddBtn');
+  if (!modalPerson) return;
+  const requested = getFriendRequests().includes(modalPerson.username);
+  btn.classList.toggle('sent', requested);
+  btn.innerHTML = requested ? friendSentHTML() : `${friendAddSVG()}<span>Add Friend</span>`;
+  btn.setAttribute('aria-label', requested ? `Cancel friend request to ${modalPerson.name}` : `Add ${modalPerson.name} as a friend`);
+}
+function openPersonModal(person) {
+  modalPerson = person;
+  const pfp = $('personPfp');
+  pfp.innerHTML = person.photoData ? `<img src="${person.photoData}" alt="">` : silhouetteSVG(64);
+  pfp.classList.toggle('no-photo', !person.photoData);
+  $('personName').textContent = person.name;
+  $('personUser').textContent = '@' + person.username;
+  $('personElo').textContent = person.elo;
+  $('personAddBtn').style.display = person.isYou ? 'none' : '';
+  renderPersonAddBtn();
+  $('personModal').classList.remove('hidden');
+}
+function closePersonModal() {
+  $('personModal').classList.add('hidden');
+  modalPerson = null;
+  renderFriendsUI();
+  if ($('friendSearch').value.trim()) runFriendSearch();
+}
+$('personCloseBtn').onclick = closePersonModal;
+$('personModal').addEventListener('click', e => { if (e.target === $('personModal')) closePersonModal(); });
+$('personAddBtn').onclick = () => {
+  if (!modalPerson) return;
+  if (getFriendRequests().includes(modalPerson.username)) unrequestFriend(modalPerson.username);
+  else markFriendRequested(modalPerson.username);
+  renderPersonAddBtn();
+};
 function toLbRow(u) {
   return {
     id: u.id, isPersona: !!u.isPersona, rank: u.rank,
@@ -239,6 +280,9 @@ async function renderFriendsUI() {
     } else if (!r.isYou) {
       wireFriendButton(row.querySelector('.lb-friend'), r);
     }
+    // Tapping the name opens their profile window.
+    const nameEl = row.querySelector('.lb-name');
+    if (nameEl) nameEl.onclick = () => openPersonModal(r);
   });
   $('noFriendsCard').classList.toggle('hidden', !(lbScope === 'friends' && rows.length === 0));
   $('friendRequests').innerHTML = '';
@@ -252,24 +296,27 @@ $('tabFriends').onclick = showFriendsTab;
 $('lbFriendsTab').onclick = () => { lbScope = 'friends'; $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active'); renderFriendsUI(); };
 $('lbGlobalTab').onclick = () => { lbScope = 'global'; $('lbGlobalTab').classList.add('active'); $('lbFriendsTab').classList.remove('active'); renderFriendsUI(); };
 $('friendsPencil').onclick = () => { if (lbScope !== 'friends') return; deleteMode = !deleteMode; renderFriendsUI(); };
+async function runFriendSearch() {
+  const q = $('friendSearch').value.trim().toLowerCase(); const el = $('friendSearchResults'); el.innerHTML = '';
+  if (!q) return;
+  await loadMe();
+  const users = await ensureGlobalRows();
+  users.filter(u => (`${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q) || u.username.toLowerCase().includes(q))).forEach(u => {
+    // Search rows are leaderboard rows, not a compact variant:
+    // rank | pfp | name over username | Elo | friend button.
+    const r = toLbRow(u);
+    const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
+    row.innerHTML = lbRowHTML(r, friendActionHTML(r));
+    el.appendChild(row);
+    if (!r.isYou) wireFriendButton(row.querySelector('.lb-friend'), r);
+    const nameEl = row.querySelector('.lb-name');
+    if (nameEl) nameEl.onclick = () => openPersonModal(r);
+  });
+}
 let friendSearchTimer = null;
 $('friendSearch').addEventListener('input', () => {
   clearTimeout(friendSearchTimer);
-  friendSearchTimer = setTimeout(async () => {
-    const q = $('friendSearch').value.trim().toLowerCase(); const el = $('friendSearchResults'); el.innerHTML = '';
-    if (!q) return;
-    await loadMe();
-    const users = await ensureGlobalRows();
-    users.filter(u => (`${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q) || u.username.toLowerCase().includes(q))).forEach(u => {
-      // Search rows are leaderboard rows, not a compact variant:
-      // rank | pfp | name over username | Elo | friend button.
-      const r = toLbRow(u);
-      const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
-      row.innerHTML = lbRowHTML(r, friendActionHTML(r));
-      el.appendChild(row);
-      if (!r.isYou) wireFriendButton(row.querySelector('.lb-friend'), r);
-    });
-  }, 250);
+  friendSearchTimer = setTimeout(runFriendSearch, 250);
 });
 
 async function loadMe() {
@@ -617,6 +664,14 @@ function tickClocks() {
   // Human clock hit 0: do not leave the game sitting on a dead turn.
   // Fetching flips the server to the bot turn, which then loops on its own.
   if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) { $('status').textContent = 'Out of time, opponent plays on.'; $('shuffleBtn').disabled = true; if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleHumanTimeout(); }
+  // Both clocks at 0: the game is over, end it at once. The old code
+  // only fetched on the human's turn, so when the second clock ran
+  // out during the bot's think (up to 33s for a persona) the board
+  // sat on 0:00 / 0:00 with nothing happening until the next poll.
+  // A fetch settles the clocks server-side and finishes the game,
+  // so the stat window comes up within ~1s of the second clock
+  // hitting 0, whichever turn it is.
+  if (game.status === 'active' && h <= 0 && b <= 0 && !timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleHumanTimeout();
   botWatchdog();
 }
 setInterval(tickClocks, 100);
@@ -1157,42 +1212,36 @@ function showStatWindow(stats) {
   const best = (x) => x.best ? `${x.best.word} (<span class="num">${x.best.score} pts</span>)` : '—';
   const longest = (x) => x.longest ? `${x.longest.word} (<span class="num">${x.longest.word.length} letters</span>)` : '—';
   const opt = (x) => `${x.optimal}/${x.total}`;
-  const box = (name, pfp, st, noPhoto, extra = '') => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}">${pfp}</span><span>${name}</span></div>${extra}<div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span> <span class="num">${opt(st)}</span></div></div>`;
+  const box = (name, pfp, st, noPhoto) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}">${pfp}</span><span class="stat-box-name">${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span> <span class="num">${opt(st)}</span></div></div>`;
   const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
   // A persona with no photo gets the silhouette in the stat box and
   // the top pfp too (same reasoning as the scoreboard: a person
   // without a photo, not Competitive Bot).
   const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.jpeg" alt="Fishstick">' : isPersonaGame && game.persona?.photoData ? `<img src="${game.persona.photoData}" alt="">` : isPersonaGame ? silhouetteSVG(36) : '🤖';
   const botNoPhoto = isPersonaGame && !game.persona?.photoData;
-  // Friend button below the opponent's name, persona games only:
-  // same add / sent-plane toggle as the Global rows, keyed on the
-  // persona's username (added to the game snapshot in v44; games
-  // started before that have no username and get no button). Bots
-  // get no button.
-  const botUsername = isPersonaGame ? game.persona?.username : null;
-  const botRequested = !!(botUsername && getFriendRequests().includes(botUsername));
-  const botFriendBtn = botUsername ? `<button class="lb-friend stat-friend${botRequested ? ' sent' : ''}" aria-label="${botRequested ? `Cancel friend request to ${botLabel}` : `Add ${botLabel} as a friend`}">${botRequested ? friendSentHTML() : friendAddSVG()}</button>` : '';
-  $('statGrid').innerHTML = box(humanLabel, humanPfp, stats.human, !(me && me.photoData)) + box(botLabel, botPfpBox, stats.bot, botNoPhoto, botFriendBtn);
+  $('statGrid').innerHTML = box(humanLabel, humanPfp, stats.human, !(me && me.photoData)) + box(botLabel, botPfpBox, stats.bot, botNoPhoto);
   if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">';
   else if (isPersonaGame && game.persona?.photoData) $('statBotPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
   else if (isPersonaGame) $('statBotPfp').innerHTML = silhouetteSVG(44);
   else $('statBotPfp').textContent = '🤖';
   $('statBotPfp').classList.toggle('no-photo', botNoPhoto);
-  const statFriendBtn = $('statGrid').querySelector('.stat-friend');
-  if (statFriendBtn && botUsername) statFriendBtn.onclick = (e) => {
-    const btn = e.currentTarget;
-    if (getFriendRequests().includes(botUsername)) {
-      unrequestFriend(botUsername);
-      btn.innerHTML = friendAddSVG();
-      btn.classList.remove('sent');
-      btn.setAttribute('aria-label', `Add ${botLabel} as a friend`);
-    } else {
-      markFriendRequested(botUsername);
-      btn.innerHTML = friendSentHTML();
-      btn.classList.add('sent');
-      btn.setAttribute('aria-label', `Cancel friend request to ${botLabel}`);
-    }
-  };
+  // No add-friend icon here any more (Nov 5, 2026): tapping a name
+  // opens that person's profile window instead. Persona games only
+  // for the opponent (bots have no profile); games started before
+  // v44 carry no persona username, so that name is not tappable.
+  // Your own name opens your profile too (no add button on it).
+  const boxes = $('statGrid').querySelectorAll('.stat-box');
+  const humanNameEl = boxes[0] && boxes[0].querySelector('.stat-box-name');
+  if (humanNameEl && me) {
+    humanNameEl.style.cursor = 'pointer';
+    humanNameEl.onclick = () => openPersonModal({ name: humanLabel, username: me.username, elo: game.player ? game.player.elo : me.elo, photoData: me.photoData || null, isYou: true, isPersona: false });
+  }
+  const botUsername = isPersonaGame ? game.persona?.username : null;
+  const oppNameEl = boxes[1] && boxes[1].querySelector('.stat-box-name');
+  if (oppNameEl && botUsername) {
+    oppNameEl.style.cursor = 'pointer';
+    oppNameEl.onclick = () => openPersonModal({ name: botLabel, username: botUsername, elo: game.botElo, photoData: game.persona?.photoData || null, isYou: false, isPersona: true });
+  }
 }
 $('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) { clearStatDelay(); $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); } });
 function goHome() { clearStatDelay(); $('statWindow').classList.add('hidden'); show('homeScreen'); }

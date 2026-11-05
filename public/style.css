@@ -103,9 +103,24 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .stat-score{font-size:28px;font-weight:900}.stat-reason{text-align:center;margin:12px 0;color:#cbd5e1}
 .stat-grid{background:#262a33;border:2px solid #e8ecf1;border-radius:16px;padding:14px;text-align:left;font-size:14px;line-height:1.7}
 #gameDim.dimmed{filter:brightness(.35)}
-.def-popover{position:fixed;left:50%;bottom:120px;transform:translateX(-50%);background:#262a33;border:1px solid #03eaff;border-radius:12px;padding:12px;max-width:360px;width:90%;z-index:20;text-align:left}
+.def-popover{position:fixed;left:50%;bottom:120px;transform:translateX(-50%);background:#262a33;border:1px solid #03eaff;border-radius:12px;padding:12px;max-width:360px;width:90%;z-index:20;text-align:left;font-size:13px;line-height:1.5}
 .def-popover .def-close{position:absolute;top:4px;right:8px;background:none;border:0;color:#e8ecf1;font-size:22px;line-height:1;cursor:pointer;padding:4px}
 .def-popover .def-body{padding-right:24px}
+/* Person profile window: tapping a name anywhere (Global, search,
+   stat window) opens this over the current screen. */
+.person-modal{position:fixed;inset:0;background:rgba(5,7,10,.78);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}
+.person-card{position:relative;background:#262a33;border:2px solid #e8ecf1;border-radius:16px;padding:24px 20px 20px;width:100%;max-width:320px;text-align:center}
+.person-close{position:absolute;top:6px;right:10px;background:none;border:0;color:#e8ecf1;font-size:24px;line-height:1;cursor:pointer;padding:4px}
+.person-pfp{display:inline-flex;width:64px;height:64px;border-radius:50%;overflow:hidden;background:#3a3f4b;align-items:center;justify-content:center}
+.person-pfp img{width:64px;height:64px;border-radius:50%;object-fit:cover}
+.person-pfp.no-photo{border:2px solid #03eaff}
+.person-name{font-size:18px;font-weight:800;margin-top:10px}
+.person-user{color:#b3b2b1;font-size:14px;margin-top:2px}
+.person-elo{font-size:14px;margin:10px 0 14px}
+.person-elo span{font-family:Arial,Helvetica,sans-serif;font-weight:800;color:#03eaff}
+.person-add{background:#3a3f4b;color:#e8ecf1;border:2px solid #03eaff;border-radius:12px;padding:10px 16px;font-family:Comfortaa,sans-serif;font-size:14px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.person-add.sent{border-color:#3a3f4b;color:#b3b2b1}
+.person-add svg{display:block}
 .drag-ghost{position:fixed;width:92px;height:92px;border-radius:8px;overflow:hidden;background:linear-gradient(180deg,#7df3ff 0%,#03eaff 50%,#00b8d2 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.65),inset 0 -2px 0 rgba(0,90,110,.35);color:#1a1d24;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;z-index:30;pointer-events:none;transform:translate(-50%,-60%)}
 
 /* Bottom tabs: main menu only, no text under icons */
@@ -151,7 +166,7 @@ same 52px column, right-aligned, on every row including your own
 .lb-play{background:none;border:0;color:#03eaff;cursor:pointer;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;justify-self:center}
 .lb-play svg{display:block}
 .lb-action{width:36px;display:flex;align-items:center;justify-content:center;justify-self:center}
-.stat-friend{margin:6px 0 8px}
+.lb-name{cursor:pointer}
 .searching-box,.rematch-box{display:flex;flex-direction:column;align-items:center;gap:16px;margin-top:60px;text-align:center}
 .searching-dots{display:flex;gap:8px}
 .searching-dots span{width:12px;height:12px;border-radius:50%;background:#03eaff;animation:searchPulse 1s ease-in-out infinite}

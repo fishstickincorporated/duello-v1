@@ -79,12 +79,28 @@ function drawRack() {
     const rack = Array.from({ length: 6 }, drawLetter);
     const v = rack.filter(c => VOWELS.has(c)).length;
     const c = 6 - v;
-    if (v >= 2 && c >= 2) return rack;
+    const counts = {};
+    let triple = false;
+    for (const l of rack) { counts[l] = (counts[l] || 0) + 1; if (counts[l] >= 3) triple = true; }
+    if (v >= 2 && c >= 2 && !triple) return rack;
   }
   return ['A','E','B','C','D','F'];
 }
 function drawVowel() { for (let i = 0; i < 100; i++) { const l = drawLetter(); if (VOWELS.has(l)) return l; } return 'E'; }
 function drawConsonant() { for (let i = 0; i < 100; i++) { const l = drawLetter(); if (!VOWELS.has(l)) return l; } return 'B'; }
+// Rack cap (Nov 5, 2026): no letter ever appears 3 times in a rack.
+// drawLetter is pure frequency, so a capped draw re-rolls until the
+// letter still has room (count < 2 in the settled rack); the scan
+// guarantees a letter even when the unplayed tiles already hold two
+// of every vowel (or consonant) the draw could pick. `want` is
+// 'vowel', 'consonant', or 'any'.
+function drawCapped(counts, want) {
+  const ok = (l) => (counts[l] || 0) < 2 && (want === 'any' || (want === 'vowel') === VOWELS.has(l));
+  for (let i = 0; i < 100; i++) { const l = drawLetter(); if (ok(l)) return l; }
+  for (const [l] of FREQ) if (ok(l)) return l;
+  for (const [l] of FREQ) if ((counts[l] || 0) < 2) return l;
+  return 'E';
+}
 function refillRack(rack, usedIndices) {
   // Refill in place (unplayed tiles never move) AND guarantee the settled
   // floor: every rack has at least 2 vowels and at least 2 consonants.
@@ -93,20 +109,26 @@ function refillRack(rack, usedIndices) {
   const next = rack.slice();
   const usedSet = new Set(usedIndices);
   const unplayed = next.filter((_, i) => !usedSet.has(i));
+  // Counts of the settled (unplayed) tiles: every refill draw must
+  // leave room, so no letter ever reaches 3 in the rack.
+  const counts = {};
+  for (const l of unplayed) counts[l] = (counts[l] || 0) + 1;
   let v = unplayed.filter(c => VOWELS.has(c)).length;
   let c = unplayed.filter(c => !VOWELS.has(c)).length;
   let needV = Math.max(0, 2 - v), needC = Math.max(0, 2 - c);
   for (const idx of usedIndices) {
-    if (needV > 0) { next[idx] = drawVowel(); needV--; }
-    else if (needC > 0) { next[idx] = drawConsonant(); needC--; }
-    else next[idx] = drawLetter();
+    let l;
+    if (needV > 0) { l = drawCapped(counts, 'vowel'); needV--; }
+    else if (needC > 0) { l = drawCapped(counts, 'consonant'); needC--; }
+    else l = drawCapped(counts, 'any');
+    next[idx] = l; counts[l] = (counts[l] || 0) + 1;
   }
   // Fallback for a rack that somehow already broke the floor before the
   // play (should not happen): change unplayed tiles only as a last resort.
   for (let i = 0; i < next.length && (needV > 0 || needC > 0); i++) {
     if (usedSet.has(i)) continue;
-    if (needV > 0 && !VOWELS.has(next[i])) { next[i] = drawVowel(); needV--; }
-    else if (needC > 0 && VOWELS.has(next[i])) { next[i] = drawConsonant(); needC--; }
+    if (needV > 0 && !VOWELS.has(next[i])) { const l = drawCapped(counts, 'vowel'); counts[next[i]]--; next[i] = l; counts[l] = (counts[l] || 0) + 1; needV--; }
+    else if (needC > 0 && VOWELS.has(next[i])) { const l = drawCapped(counts, 'consonant'); counts[next[i]]--; next[i] = l; counts[l] = (counts[l] || 0) + 1; needC--; }
   }
   return next;
 }
@@ -856,13 +878,15 @@ function applyMove(game, side, move, bestScoreBefore) {
       const idx = rack.indexOf(p.letter);
       if (idx >= 0) rack.splice(idx, 1);
     }
-    while (rack.length < 6) rack.push(drawLetter());
+    const counts = {};
+    for (const l of rack) counts[l] = (counts[l] || 0) + 1;
+    while (rack.length < 6) { const l = drawCapped(counts, 'any'); rack.push(l); counts[l] = (counts[l] || 0) + 1; }
     // Bot rack is hidden, but keep the same floor so the bot is never
     // stranded with no vowels or no consonants to play with.
     let bv = rack.filter(c => VOWELS.has(c)).length, bc = rack.length - bv;
     for (let i = 0; i < rack.length && (bv < 2 || bc < 2); i++) {
-      if (bv < 2 && !VOWELS.has(rack[i])) { rack[i] = drawVowel(); bv++; bc--; }
-      else if (bc < 2 && VOWELS.has(rack[i])) { rack[i] = drawConsonant(); bc++; bv--; }
+      if (bv < 2 && !VOWELS.has(rack[i])) { const l = drawCapped(counts, 'vowel'); counts[rack[i]]--; rack[i] = l; counts[l] = (counts[l] || 0) + 1; bv++; bc--; }
+      else if (bc < 2 && VOWELS.has(rack[i])) { const l = drawCapped(counts, 'consonant'); counts[rack[i]]--; rack[i] = l; counts[l] = (counts[l] || 0) + 1; bc++; bv--; }
     }
     game.botRack = rack;
   }
@@ -1105,9 +1129,11 @@ function stemCandidates(w) {
 // definitions.json (pos '' for all 118) still shows a part of speech
 // in the same "(pos) — definition" format as other words.
 const JEFF2_POS = {AA:"noun",AB:"noun",AD:"noun",AE:"noun",AG:"adjective",AH:"interjection",AI:"noun",AL:"noun",AM:"verb",AN:"article",AR:"noun",AS:"adverb",AT:"preposition",AW:"interjection",AX:"noun",AY:"noun",BA:"noun",BE:"verb",BI:"noun",BO:"noun",BY:"noun",DA:"noun",DE:"preposition",DO:"noun",ED:"adjective",EE:"interjection",EF:"noun",EH:"interjection",EL:"noun",EM:"noun",EN:"noun",EO:"noun",ER:"interjection",ES:"noun",ET:"verb",EW:"interjection",EX:"noun",FA:"noun",FE:"noun",FI:"noun",FU:"noun",GI:"noun",GO:"verb",HA:"interjection",HE:"pronoun",HI:"interjection",HM:"interjection",HO:"interjection",ID:"noun",IF:"conjunction",IN:"verb",IO:"noun",IS:"verb",IT:"pronoun",JA:"interjection",JE:"noun",JO:"noun",KA:"noun",KI:"noun",LA:"noun",LI:"noun",LO:"interjection",MA:"noun",ME:"pronoun",MI:"noun",MM:"interjection",MO:"noun",MU:"noun",MY:"pronoun",NA:"adverb",NE:"adjective",NO:"noun",NU:"noun",OD:"noun",OE:"noun",OF:"preposition",OH:"interjection",OI:"interjection",OK:"adjective",OM:"noun",ON:"noun",OO:"noun",OP:"noun",OR:"noun",OS:"noun",OU:"noun",OW:"interjection",OX:"noun",OY:"interjection",PA:"noun",PE:"noun",PI:"noun",PO:"noun",QI:"noun",RE:"noun",SH:"interjection",SI:"noun",SO:"noun",TA:"interjection",TE:"noun",TI:"noun",TO:"preposition",UH:"interjection",UM:"interjection",UN:"noun",UP:"verb",US:"pronoun",UT:"noun",VU:"preposition",WE:"pronoun",WO:"noun",XI:"noun",XU:"noun",YA:"pronoun",YE:"pronoun",YI:"pronoun",YO:"interjection",ZA:"noun"};
-// No definition may ever read "plural of X", "past tense of X", or
-// "form of X — ...": those are replaced with the core word's own
-// definition, directly, with no prefix. Jeff, Nov 1, 2026. This covers
+// No definition may ever read "plural of X", "past tense of X",
+// "form of X — ...", or a Webster "See X" pointer ("See Note under
+// Our."): those are replaced with the core word's own definition,
+// directly, with no prefix. Jeff, Nov 1, 2026; See-pointers added
+// Nov 5, 2026 after OURS showed "See Note under Our." This covers
 // stored Webster entries ("form of ABASER — ..."), Wiktionary/dictionary
 // glosses ("plural of aal"), and stemmed forms. Jeff's own 2-letter
 // glosses (AM/IS: 'form of "to be"') do not match these patterns and
@@ -1117,6 +1143,16 @@ function coreWordFromDef(def) {
   let m = d.match(/^form of ([A-Z][A-Z\-]*) — /);
   if (m) return m[1];
   m = d.match(/^(?:plural|past tense|past participle|present participle|third-person singular|comparative|superlative|alternative form|elongated form|variant form) of ([A-Za-z][A-Za-z\-']*)/i);
+  if (m) return m[1].toUpperCase();
+  // Webster cross-references: "See Note under Our." (OURS) and
+  // "See Eke." / "See Have." — the word after See is always a
+  // capitalised headword, which is what separates a cross-reference
+  // from a real definition that happens to start with "see"
+  // ("see with attention", "seed of ...", "seemingly ...").
+  // The base word's own definition is used, never the pointer.
+  m = d.match(/^[Ss]ee (?:[Nn]ote )?[Uu]nder ([A-Za-z][A-Za-z\-']*)/);
+  if (m) return m[1].toUpperCase();
+  m = d.match(/^[Ss]ee ([A-Z][A-Za-z\-]*)[.\s]/);
   if (m) return m[1].toUpperCase();
   return null;
 }

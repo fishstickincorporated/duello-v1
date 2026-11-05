@@ -381,6 +381,25 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## DL/DW color swap, last-play line locked v51 (Nov 5, 2026, cache v51)
+
+- DL and DW swapped colors on the board: DL is now red
+  (#ff1303), DW is now orange (#ff8d03). TL green and TW
+  magenta are untouched. Only the two premium-square rules
+  changed — the danger/armed red (#ff1303) on Delete account,
+  the armed Forfeit/Pass buttons, and the red disc is the same
+  hex and stays red; it is no longer "DW red", it is just red.
+- The last-play line is now a fixed 18px tall (2px padding
+  above and below a 14px line, border-box) from the jump, so
+  playing the first word can no longer grow it and push the
+  board down. The height matches the line's old empty height,
+  so the board's resting position does not move. Render-checked
+  empty vs a long first-word line: identical 18px boxes.
+- Brand Handbook updated to v1.16 in Drive (palette table,
+  premium mapping table, premium-squares rule, new history
+  row; past history rows untouched). Rulebook and Tech Stack
+  name no premium colors, so they needed no change.
+
 ## Elo actually at the far right v50 (Nov 5, 2026, cache v50)
 
 - v48 only fixed Jeff's own row. The bug: on every other row

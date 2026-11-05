@@ -149,8 +149,8 @@ wandered left and right down the list; now every Elo lands in the
 same 52px column, right-aligned, on every row including your own
 (the empty action slot keeps it there). */
 .lb-row{display:grid;grid-template-columns:28px 36px minmax(0,1fr) 36px 44px;align-items:center;gap:10px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}
-.lb-row .rank{color:#ffd166;font-weight:900;font-size:18px;text-align:right}
-.lb-identity{min-width:0;overflow:hidden}
+.lb-row .rank{color:#ffd166;font-weight:900;font-size:18px;text-align:right;grid-column:1}
+.lb-identity{min-width:0;overflow:hidden;grid-column:3}
 .lb-row .lb-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lb-row .lb-user{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lb-pfp{width:36px;height:36px;flex:0 0 36px;border-radius:50%;overflow:hidden;background:#3a3f4b;display:flex;align-items:center;justify-content:center}
@@ -160,10 +160,12 @@ same 52px column, right-aligned, on every row including your own
 .lb-pfp{flex:0 0 36px}.lb-pfp svg{display:block}
 .lb-row .lb-name{color:#03eaff;font-weight:800;font-size:18px}
 .lb-row .lb-user{color:#b3b2b1;font-size:14px}
-.lb-row .lb-elo{color:#03eaff;font-weight:800;font-size:18px;text-align:right;font-variant-numeric:tabular-nums}
+.lb-row .lb-elo{color:#03eaff;font-weight:800;font-size:18px;text-align:right;font-variant-numeric:tabular-nums;grid-column:5}
 .lb-play{background:none;border:0;color:#03eaff;cursor:pointer;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;justify-self:center}
 .lb-play svg{display:block}
-.lb-action{width:36px;display:flex;align-items:center;justify-content:center;justify-self:center}
+.lb-action{width:36px;display:flex;align-items:center;justify-content:center;justify-self:center;grid-column:4}
+.lb-row .lb-pfp{grid-column:2}
+.lb-row .lb-play{grid-column:4}
 .lb-name{cursor:pointer}
 .searching-box,.rematch-box{display:flex;flex-direction:column;align-items:center;gap:16px;margin-top:60px;text-align:center}
 .searching-dots{display:flex;gap:8px}

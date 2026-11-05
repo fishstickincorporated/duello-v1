@@ -381,6 +381,20 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Elo actually at the far right v50 (Nov 5, 2026, cache v50)
+
+- v48 only fixed Jeff's own row. The bug: on every other row
+  the action slot is empty (youBadgeHTML returns ''), so the
+  row has four children, not five, and grid auto-placement put
+  the Elo span into column 4 (the 36px action column) instead
+  of column 5 — ending 66px short of the row edge. Jeff's row,
+  with its YOU badge, was the only one landing in column 5.
+  Fixed by giving every row child an explicit grid-column
+  (rank 1, pfp 2, identity 3, action/play 4, Elo 5), so the
+  Elo lands in the last column no matter how many children a
+  row has. Render-verified: a badge-less row and Jeff's row
+  now end their Elos on the same pixel.
+
 ## Bot sub-lines punctuated v49 (Nov 5, 2026, cache v49)
 
 - The bot sub-lines are sentences now: "Plays at your elo."

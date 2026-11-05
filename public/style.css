@@ -142,9 +142,9 @@ same 52px column, right-aligned, on every row including your own
 .lb-row .lb-name{color:#03eaff;font-weight:800;font-size:18px}
 .lb-row .lb-user{color:#b3b2b1;font-size:14px}
 .lb-row .lb-elo{color:#03eaff;font-weight:800;font-size:18px;text-align:right;font-variant-numeric:tabular-nums}
-.lb-friend{background:none;border:0;color:#03eaff;cursor:pointer;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center}
+.lb-friend{background:none;border:0;color:#b3b2b1;cursor:pointer;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center}
 .lb-friend svg{display:block}
-.lb-friend.requested{color:#b3b2b1}
+.lb-friend.requested{color:#03eaff}
 .lb-action{width:36px;display:flex;align-items:center;justify-content:center}
 .searching-box,.rematch-box{display:flex;flex-direction:column;align-items:center;gap:16px;margin-top:60px;text-align:center}
 .searching-dots{display:flex;gap:8px}

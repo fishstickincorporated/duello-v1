@@ -381,6 +381,13 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Friend icon: smaller, grey until sent v43 (Nov 5, 2026, cache v43)
+
+- The friend icon shrinks from 28px to 24px inside the same 36px
+  button, and the colors flip: grey (#b3b2b1) before the request
+  is sent, Duello blue once it is. The requested state still
+  shows the person with a check, and tapping it still unrequests.
+
 ## Global friend button + Elo alignment + username re-roll v42 (Nov 5, 2026, cache v42)
 
 - Friend requests toggle: tapping Requested again now unrequests

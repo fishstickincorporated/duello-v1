@@ -114,12 +114,13 @@ let globalRows = null;
 // The button is an SVG icon, not text or emoji: a person
 // silhouette with a plus for Add, the same person with a check
 // once requested. Both draw in currentColor, so the button's CSS
-// color (Duello blue unrequested, grey requested) controls them.
+// color controls them: grey before sending, Duello blue once the
+// request is sent. The icon itself is 24px inside the 36px button.
 function friendAddSVG() {
-  return `<svg viewBox="0 0 28 28" width="28" height="28" aria-hidden="true"><circle cx="11" cy="8" r="4" fill="currentColor"/><path d="M3 22 C3 17 6.5 14.5 11 14.5 C15.5 14.5 19 17 19 22 Z" fill="currentColor"/><g stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 15 V25"/><path d="M16 20 H26"/></g></svg>`;
+  return `<svg viewBox="0 0 28 28" width="24" height="24" aria-hidden="true"><circle cx="11" cy="8" r="4" fill="currentColor"/><path d="M3 22 C3 17 6.5 14.5 11 14.5 C15.5 14.5 19 17 19 22 Z" fill="currentColor"/><g stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 15 V25"/><path d="M16 20 H26"/></g></svg>`;
 }
 function friendRequestedSVG() {
-  return `<svg viewBox="0 0 28 28" width="28" height="28" aria-hidden="true"><circle cx="11" cy="8" r="4" fill="currentColor"/><path d="M3 22 C3 17 6.5 14.5 11 14.5 C15.5 14.5 19 17 19 22 Z" fill="currentColor"/><path d="M16.5 20.5 L19.5 23.5 L25.5 17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  return `<svg viewBox="0 0 28 28" width="24" height="24" aria-hidden="true"><circle cx="11" cy="8" r="4" fill="currentColor"/><path d="M3 22 C3 17 6.5 14.5 11 14.5 C15.5 14.5 19 17 19 22 Z" fill="currentColor"/><path d="M16.5 20.5 L19.5 23.5 L25.5 17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 function getFriendRequests() {
   try { const v = JSON.parse(localStorage.getItem('duello_friend_requests') || '[]'); return Array.isArray(v) ? v : []; }

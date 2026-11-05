@@ -381,6 +381,33 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Friend sent-plane, photo variety, instant stats, stat-window add v44 (Nov 5, 2026, cache v44)
+
+- The sent state is now a grey paper airplane (Material send
+  icon), not a blue friend-with-check: both friend states are
+  grey at 24px, and the shape — person + plus vs plane — tells
+  them apart. Tapping the plane still unrequests.
+- Persona photos vary now: 5 of the 100 have no photo (they show
+  the silhouette with the blue no-photo ring, like a real user
+  with no photo — never the robot, which is Competitive Bot) and
+  10 have a non-headshot photo (picsum seed images). The other 85
+  keep randomuser headshots. Applied by seed v4 (full delete +
+  re-insert on first boot, then never again); the personas table
+  needed a migration first, because photo_url was NOT NULL — the
+  seed now drops that constraint idempotently, and the schema
+  file matches. The game snapshot now also carries the persona's
+  username, so the stat window can key a friend request on it.
+- The searching screen no longer says "Finding a player within
+  40 Elo of you": just the dots and "Searching for opponent…".
+- Both clocks at 0 now pulls the stat window up instantly: the
+  old 3s final-board view after time expiry is gone, for every
+  finish type.
+- The stat window has an add-friend icon below the opponent's
+  name, persona games only (same add / sent-plane toggle as the
+  Global rows, same localStorage pending state). Bots get no
+  button. Games started before this version carry no persona
+  username in their snapshot, so they get no button either.
+
 ## Friend icon: smaller, grey until sent v43 (Nov 5, 2026, cache v43)
 
 - The friend icon shrinks from 28px to 24px inside the same 36px

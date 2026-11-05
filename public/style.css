@@ -144,8 +144,10 @@ same 52px column, right-aligned, on every row including your own
 .lb-row .lb-elo{color:#03eaff;font-weight:800;font-size:18px;text-align:right;font-variant-numeric:tabular-nums}
 .lb-friend{background:none;border:0;color:#b3b2b1;cursor:pointer;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center}
 .lb-friend svg{display:block}
-.lb-friend.requested{color:#03eaff}
+/* The sent state keeps the same grey: the paper plane, not the
+   color, is what tells it apart from Add. */
 .lb-action{width:36px;display:flex;align-items:center;justify-content:center}
+.stat-friend{margin:6px 0 8px}
 .searching-box,.rematch-box{display:flex;flex-direction:column;align-items:center;gap:16px;margin-top:60px;text-align:center}
 .searching-dots{display:flex;gap:8px}
 .searching-dots span{width:12px;height:12px;border-radius:50%;background:#03eaff;animation:searchPulse 1s ease-in-out infinite}
@@ -153,7 +155,6 @@ same 52px column, right-aligned, on every row including your own
 .searching-dots span:nth-child(3){animation-delay:.4s}
 @keyframes searchPulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
 .searching-text,.rematch-text{font-size:18px;font-weight:800}
-.searching-sub{color:#b3b2b1;font-size:14px}
 .rematch-box .controls{width:100%}
 .lb-row.you{outline:2px solid #03eaff}
 .you-badge{background:#03eaff;color:#1a1d24;font-size:11px;font-weight:800;border-radius:8px;padding:2px 6px}

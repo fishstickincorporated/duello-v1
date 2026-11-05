@@ -112,15 +112,15 @@ let globalRows = null;
 // Tapping Requested again unrequests: the toggle removes the name
 // and the button goes back to the add icon.
 // The button is an SVG icon, not text or emoji: a person
-// silhouette with a plus for Add, the same person with a check
-// once requested. Both draw in currentColor, so the button's CSS
-// color controls them: grey before sending, Duello blue once the
-// request is sent. The icon itself is 24px inside the 36px button.
+// silhouette with a plus for Add, and a sent paper airplane once
+// the request is sent. Both draw in currentColor at 24px inside
+// the 36px button, and both are grey: the shape, not the color,
+// tells the two states apart.
 function friendAddSVG() {
   return `<svg viewBox="0 0 28 28" width="24" height="24" aria-hidden="true"><circle cx="11" cy="8" r="4" fill="currentColor"/><path d="M3 22 C3 17 6.5 14.5 11 14.5 C15.5 14.5 19 17 19 22 Z" fill="currentColor"/><g stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 15 V25"/><path d="M16 20 H26"/></g></svg>`;
 }
-function friendRequestedSVG() {
-  return `<svg viewBox="0 0 28 28" width="24" height="24" aria-hidden="true"><circle cx="11" cy="8" r="4" fill="currentColor"/><path d="M3 22 C3 17 6.5 14.5 11 14.5 C15.5 14.5 19 17 19 22 Z" fill="currentColor"/><path d="M16.5 20.5 L19.5 23.5 L25.5 17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+function friendSentSVG() {
+  return `<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="currentColor"/></svg>`;
 }
 function getFriendRequests() {
   try { const v = JSON.parse(localStorage.getItem('duello_friend_requests') || '[]'); return Array.isArray(v) ? v : []; }
@@ -170,7 +170,7 @@ async function renderFriendsUI() {
     // column whatever the name length or the button state. Your own
     // row keeps the YOU badge in the action slot, so its Elo lines
     // up too and your full name never has to shrink for the badge.
-    row.innerHTML = `<span class="rank">${r.rank ?? (i + 1)}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${r.name}</div><div class="lb-user">@${r.username}</div></span><span class="lb-elo">${r.elo}</span>${r.isYou ? '<span class="lb-action"><span class="you-badge">YOU</span></span>' : `<button class="lb-friend${requested ? ' requested' : ''}" aria-label="${requested ? `Cancel friend request to ${r.name}` : `Add ${r.name} as a friend`}">${requested ? friendRequestedSVG() : friendAddSVG()}</button>`}`;
+    row.innerHTML = `<span class="rank">${r.rank ?? (i + 1)}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${r.name}</div><div class="lb-user">@${r.username}</div></span><span class="lb-elo">${r.elo}</span>${r.isYou ? '<span class="lb-action"><span class="you-badge">YOU</span></span>' : `<button class="lb-friend${requested ? ' sent' : ''}" aria-label="${requested ? `Cancel friend request to ${r.name}` : `Add ${r.name} as a friend`}">${requested ? friendSentSVG() : friendAddSVG()}</button>`}`;
     list.appendChild(row);
     // Global rows carry a friend-request button instead of Play:
     // matches come from Play Online. The request itself is local
@@ -182,12 +182,12 @@ async function renderFriendsUI() {
       if (getFriendRequests().includes(r.username)) {
         unrequestFriend(r.username);
         btn.innerHTML = friendAddSVG();
-        btn.classList.remove('requested');
+        btn.classList.remove('sent');
         btn.setAttribute('aria-label', `Add ${r.name} as a friend`);
       } else {
         markFriendRequested(r.username);
-        btn.innerHTML = friendRequestedSVG();
-        btn.classList.add('requested');
+        btn.innerHTML = friendSentSVG();
+        btn.classList.add('sent');
         btn.setAttribute('aria-label', `Cancel friend request to ${r.name}`);
       }
     };
@@ -366,7 +366,12 @@ function renderGame() {
   $('botElo').classList.toggle('inf', isFish);
   if (isFish) $('botPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">';
   else if (isPersonaGame && game.persona?.photoData) $('botPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
+  // A persona with no photo is a person without a photo, not a bot:
+  // show the silhouette (with the blue no-photo ring, like the
+  // player's own) instead of the robot, which is Competitive Bot.
+  else if (isPersonaGame) $('botPfp').innerHTML = silhouetteSVG(32);
   else $('botPfp').textContent = '🤖';
+  $('botPfp').classList.toggle('no-photo', isPersonaGame && !game.persona?.photoData);
   document.querySelector('.player-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'human');
   document.querySelector('.bot-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'bot');
   $('scoreHuman').textContent = String(game.scores.human); $('scoreBot').textContent = String(game.scores.bot);
@@ -463,10 +468,9 @@ function renderGame() {
   document.querySelector('.controls').classList.toggle('hidden', finished);
   $('endButtons').classList.toggle('hidden', !finished);
   $('gameDim').classList.toggle('dimmed', finished && !$('statWindow').classList.contains('hidden'));
-  // Final board stays visible for 3s after time expiry only, before
-  // the stats window covers it. Forfeit and other finishes show stats
-  // immediately (see isTimeoutFinish). Tapping Game Stats shows it
-  // immediately; Main Menu / Play Again cancel the pending show.
+  // Every finish shows the stats window at once now, including
+  // time expiry (Nov 5, 2026 — the old 3s final-board view is
+  // gone). Tapping the backdrop still dismisses it to the board.
   if (finished && game.stats) showStatWindowDelayed(game.stats);
   tickClocks();
   if (countdownActive) { $('clockHuman').textContent = '4:00'; $('clockBot').textContent = '4:00'; }
@@ -1009,18 +1013,15 @@ $('playBtn').addEventListener('pointerdown', e => { playPointerAt = Date.now(); 
 $('playBtn').addEventListener('click', e => { if (Date.now() - playPointerAt < 1000) return; doPlay(); });
 let statDelayTimer = null, statShownGameId = null;
 function clearStatDelay() { if (statDelayTimer) { clearTimeout(statDelayTimer); statDelayTimer = null; } }
-// 3s delay is ONLY for time expiry: both clocks at 0 (and not a
-// forfeit, which can also end with a clock at 0). Forfeit, consecutive
-// passes, and no-playable-moves finishes show stats immediately, since
-// their clocks are still running and 'Final score' alone does not
-// distinguish a timeout from two passes.
-function isTimeoutFinish() {
-  return !!game && game.status === 'finished' && game.reason !== 'By forfeit' && game.clocks.human <= 0 && game.clocks.bot <= 0;
-}
+// The stat window shows instantly on every finish now (Nov 5,
+// 2026): when both clocks hit 0 the window comes up at once
+// instead of showing the final board for 3s first. The old 3s
+// timeout delay and its isTimeoutFinish check are gone; the
+// statDelayTimer machinery stays as a harmless guard (startGame
+// and navigation still clear it) but nothing ever sets it.
 function showStatWindowDelayed(stats) {
   if (!game || statShownGameId === game.id || statDelayTimer) return;
-  if (!isTimeoutFinish()) { showStatWindow(stats); return; }
-  statDelayTimer = setTimeout(() => { statDelayTimer = null; if (game) showStatWindow(stats); }, 3000);
+  showStatWindow(stats);
 }
 function showStatWindow(stats) {
   clearStatDelay(); if (game) statShownGameId = game.id;
@@ -1055,13 +1056,42 @@ function showStatWindow(stats) {
   const best = (x) => x.best ? `${x.best.word} (<span class="num">${x.best.score} pts</span>)` : '—';
   const longest = (x) => x.longest ? `${x.longest.word} (<span class="num">${x.longest.word.length} letters</span>)` : '—';
   const opt = (x) => `${x.optimal}/${x.total}`;
-  const box = (name, pfp, st, noPhoto) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}">${pfp}</span><span>${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span> <span class="num">${opt(st)}</span></div></div>`;
+  const box = (name, pfp, st, noPhoto, extra = '') => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}">${pfp}</span><span>${name}</span></div>${extra}<div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span> <span class="num">${opt(st)}</span></div></div>`;
   const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
-  const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.jpeg" alt="Fishstick">' : isPersonaGame && game.persona?.photoData ? `<img src="${game.persona.photoData}" alt="">` : '🤖';
-  $('statGrid').innerHTML = box(humanLabel, humanPfp, stats.human, !(me && me.photoData)) + box(botLabel, botPfpBox, stats.bot, false);
+  // A persona with no photo gets the silhouette in the stat box and
+  // the top pfp too (same reasoning as the scoreboard: a person
+  // without a photo, not Competitive Bot).
+  const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.jpeg" alt="Fishstick">' : isPersonaGame && game.persona?.photoData ? `<img src="${game.persona.photoData}" alt="">` : isPersonaGame ? silhouetteSVG(36) : '🤖';
+  const botNoPhoto = isPersonaGame && !game.persona?.photoData;
+  // Friend button below the opponent's name, persona games only:
+  // same add / sent-plane toggle as the Global rows, keyed on the
+  // persona's username (added to the game snapshot in v44; games
+  // started before that have no username and get no button). Bots
+  // get no button.
+  const botUsername = isPersonaGame ? game.persona?.username : null;
+  const botRequested = !!(botUsername && getFriendRequests().includes(botUsername));
+  const botFriendBtn = botUsername ? `<button class="lb-friend stat-friend${botRequested ? ' sent' : ''}" aria-label="${botRequested ? `Cancel friend request to ${botLabel}` : `Add ${botLabel} as a friend`}">${botRequested ? friendSentSVG() : friendAddSVG()}</button>` : '';
+  $('statGrid').innerHTML = box(humanLabel, humanPfp, stats.human, !(me && me.photoData)) + box(botLabel, botPfpBox, stats.bot, botNoPhoto, botFriendBtn);
   if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">';
   else if (isPersonaGame && game.persona?.photoData) $('statBotPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
+  else if (isPersonaGame) $('statBotPfp').innerHTML = silhouetteSVG(44);
   else $('statBotPfp').textContent = '🤖';
+  $('statBotPfp').classList.toggle('no-photo', botNoPhoto);
+  const statFriendBtn = $('statGrid').querySelector('.stat-friend');
+  if (statFriendBtn && botUsername) statFriendBtn.onclick = (e) => {
+    const btn = e.currentTarget;
+    if (getFriendRequests().includes(botUsername)) {
+      unrequestFriend(botUsername);
+      btn.innerHTML = friendAddSVG();
+      btn.classList.remove('sent');
+      btn.setAttribute('aria-label', `Add ${botLabel} as a friend`);
+    } else {
+      markFriendRequested(botUsername);
+      btn.innerHTML = friendSentSVG();
+      btn.classList.add('sent');
+      btn.setAttribute('aria-label', `Cancel friend request to ${botLabel}`);
+    }
+  };
 }
 $('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) { clearStatDelay(); $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); } });
 function goHome() { clearStatDelay(); $('statWindow').classList.add('hidden'); show('homeScreen'); }

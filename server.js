@@ -125,16 +125,21 @@ async function seedPersonas() {
   // Persona data is versioned, not just seeded-once: v1 (Nov 4) was
   // uniform Elo 800-1200 with first_last usernames, v2 (Nov 4)
   // replaced it with bell-curve Elo around 1000 and mixed usernames,
-  // and v3 (Nov 5) keeps the same people and Elos but re-rolls the
-  // usernames: 7 username methods, only 3 animal handles left, no
-  // iron. A refresh is a full delete + re-insert, which is safe because
-  // personas are fake players: finished games keep their stats in
-  // state, and an in-progress persona game's end-of-game persona
-  // update simply no-ops if its id is gone. After v3 is applied,
-  // later boots never touch the table, so Elo movement survives.
+  // v3 (Nov 5) re-rolled the usernames again (7 methods, 3 animals,
+  // no iron), and v4 (Nov 5) keeps the same people, Elos, and
+  // usernames but varies the photos: 5% have no photo at all and
+  // 10% have a non-headshot photo. A refresh is a full delete +
+  // re-insert, which is safe because personas are fake players:
+  // finished games keep their stats in state, and an in-progress
+  // persona game's end-of-game persona update simply no-ops if its
+  // id is gone. After v4 is applied, later boots never touch the
+  // table, so Elo movement survives.
   await q('CREATE TABLE IF NOT EXISTS persona_seed (version INT PRIMARY KEY)');
   const v = await q('SELECT MAX(version) AS v FROM persona_seed');
-  if ((v.rows[0].v || 0) >= 3) return;
+  if ((v.rows[0].v || 0) >= 4) return;
+  // v4 needs NULL photos: the original schema declared photo_url
+  // NOT NULL, so drop that first (idempotent on later boots).
+  await q('ALTER TABLE personas ALTER COLUMN photo_url DROP NOT NULL');
   const list = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'personas.json'), 'utf8'));
   if (!list.length) return;
   // A real user's username always wins: a colliding persona handle
@@ -153,8 +158,8 @@ async function seedPersonas() {
     params.push(p.username, p.firstName, p.lastName, p.gender, p.elo, p.photoUrl);
   });
   await q(`INSERT INTO personas (username, first_name, last_name, gender, elo, photo_url) VALUES ${values.join(',')}`, params);
-  await q('INSERT INTO persona_seed (version) VALUES (3)');
-  console.log(`Personas refreshed to seed v3 (${rows.length})`);
+  await q('INSERT INTO persona_seed (version) VALUES (4)');
+  console.log(`Personas refreshed to seed v4 (${rows.length})`);
 }
 async function q(text, params) { return pool.query(text, params); }
 function hashPassword(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }
@@ -687,7 +692,7 @@ function newGame(user, botType, persona) {
   board.__premiums = premiums; // solver reads premiums from here; stripped on save/serialize
   const game = {
     userId: user.id, botType, botElo,
-    persona: persona ? { id: persona.id, firstName: persona.first_name, lastName: persona.last_name, photoData: persona.photo_url } : null,
+    persona: persona ? { id: persona.id, username: persona.username, firstName: persona.first_name, lastName: persona.last_name, photoData: persona.photo_url } : null,
     personaFinalMoveDone: false, personaFinalMovePending: false,
     board, premiums,
     humanRack: drawRack(), botRack: drawRack(),

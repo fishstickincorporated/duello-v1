@@ -37,7 +37,7 @@
   "lastName": "Jones",
   "gender": "male",
   "elo": 1155,
-  "photoUrl": "https://randomuser.me/api/portraits/men/4.jpg"
+  "photoUrl": "https://picsum.photos/seed/duello-wjones/200"
  },
  {
   "username": "gentlehawk33",
@@ -53,7 +53,7 @@
   "lastName": "Miller",
   "gender": "male",
   "elo": 887,
-  "photoUrl": "https://randomuser.me/api/portraits/men/6.jpg"
+  "photoUrl": "https://picsum.photos/seed/duello-richard_miller/200"
  },
  {
   "username": "luckylynx",
@@ -77,7 +77,7 @@
   "lastName": "Martinez",
   "gender": "male",
   "elo": 1066,
-  "photoUrl": "https://randomuser.me/api/portraits/men/9.jpg"
+  "photoUrl": null
  },
  {
   "username": "christopher_h",
@@ -165,7 +165,7 @@
   "lastName": "Lee",
   "gender": "male",
   "elo": 1002,
-  "photoUrl": "https://randomuser.me/api/portraits/men/20.jpg"
+  "photoUrl": null
  },
  {
   "username": "kevinperez",
@@ -205,7 +205,7 @@
   "lastName": "Sanchez",
   "gender": "male",
   "elo": 895,
-  "photoUrl": "https://randomuser.me/api/portraits/men/25.jpg"
+  "photoUrl": null
  },
  {
   "username": "swiftgrove",
@@ -213,7 +213,7 @@
   "lastName": "Clark",
   "gender": "male",
   "elo": 908,
-  "photoUrl": "https://randomuser.me/api/portraits/men/26.jpg"
+  "photoUrl": "https://picsum.photos/seed/duello-swiftgrove/200"
  },
  {
   "username": "garyramirez",
@@ -301,7 +301,7 @@
   "lastName": "Nguyen",
   "gender": "male",
   "elo": 1109,
-  "photoUrl": "https://randomuser.me/api/portraits/men/37.jpg"
+  "photoUrl": "https://picsum.photos/seed/duello-scott59/200"
  },
  {
   "username": "crisphaven",
@@ -325,7 +325,7 @@
   "lastName": "Green",
   "gender": "male",
   "elo": 1054,
-  "photoUrl": "https://randomuser.me/api/portraits/men/40.jpg"
+  "photoUrl": "https://picsum.photos/seed/duello-samuelgreen/200"
  },
  {
   "username": "gregoryadams",
@@ -421,7 +421,7 @@
   "lastName": "Evans",
   "gender": "female",
   "elo": 1105,
-  "photoUrl": "https://randomuser.me/api/portraits/women/2.jpg"
+  "photoUrl": "https://picsum.photos/seed/duello-jennifer_evans/200"
  },
  {
   "username": "linda11",
@@ -429,7 +429,7 @@
   "lastName": "Turner",
   "gender": "female",
   "elo": 1029,
-  "photoUrl": "https://randomuser.me/api/portraits/women/3.jpg"
+  "photoUrl": null
  },
  {
   "username": "elizabeth_diaz",
@@ -437,7 +437,7 @@
   "lastName": "Diaz",
   "gender": "female",
   "elo": 1120,
-  "photoUrl": "https://randomuser.me/api/portraits/women/4.jpg"
+  "photoUrl": "https://picsum.photos/seed/duello-elizabeth_diaz/200"
  },
  {
   "username": "barbara97",
@@ -453,7 +453,7 @@
   "lastName": "Cruz",
   "gender": "female",
   "elo": 997,
-  "photoUrl": "https://randomuser.me/api/portraits/women/6.jpg"
+  "photoUrl": "https://picsum.photos/seed/duello-scruz/200"
  },
  {
   "username": "jedwards",
@@ -517,7 +517,7 @@
   "lastName": "Cook",
   "gender": "female",
   "elo": 1167,
-  "photoUrl": "https://randomuser.me/api/portraits/women/14.jpg"
+  "photoUrl": "https://picsum.photos/seed/duello-swiftstone/200"
  },
  {
   "username": "ashley_rogers",
@@ -669,7 +669,7 @@
   "lastName": "Bennett",
   "gender": "female",
   "elo": 957,
-  "photoUrl": "https://randomuser.me/api/portraits/women/33.jpg"
+  "photoUrl": "https://picsum.photos/seed/duello-gentlecoast/200"
  },
  {
   "username": "lexicon",
@@ -733,7 +733,7 @@
   "lastName": "Sanders",
   "gender": "female",
   "elo": 1106,
-  "photoUrl": "https://randomuser.me/api/portraits/women/41.jpg"
+  "photoUrl": null
  },
  {
   "username": "carolyn_patel",

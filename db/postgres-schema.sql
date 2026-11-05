@@ -39,6 +39,6 @@ CREATE TABLE IF NOT EXISTS password_reset_codes (
 CREATE TABLE IF NOT EXISTS personas (
   id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL,
   first_name TEXT NOT NULL, last_name TEXT NOT NULL, gender TEXT NOT NULL,
-  elo INTEGER NOT NULL, photo_url TEXT NOT NULL,
+  elo INTEGER NOT NULL, photo_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

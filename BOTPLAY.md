@@ -381,6 +381,22 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Elo far right, fixed-size add button, faster matching v48 (Nov 5, 2026, cache v48)
+
+- Elo is all the way right on Global and search rows now: the
+  action column (YOU badge / Friends play icon) moved to the
+  left of the Elo column, so every Elo ends at the row's right
+  edge.
+- The profile window's Add Friend button was fixed-width in
+  v47 but not fixed-height: the Add state stood 48px tall and
+  the sent state 40px, so the card still shifted 8px on the
+  toggle. The button is now a fixed 216×48px box in both states
+  (180px wide + padding + border, 24px tall + padding +
+  border), so nothing moves at all.
+- Play Online finds an opponent in 2-3 seconds now, down from
+  3-5. Rematch and friend-challenge waits stay 5-7s — those are
+  a person deciding, not a search.
+
 ## Bot labels, no row friend buttons, fixed-size add button, first names v47 (Nov 5, 2026, cache v47)
 
 - The bot selector reads "Competitive" with the small line

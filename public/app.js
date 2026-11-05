@@ -163,7 +163,7 @@ async function ensureGlobalRows() {
 // only from the profile window now. Friends shows a play icon that
 // challenges that friend.
 function lbRowHTML(r, actionHTML) {
-  return `<span class="rank">${r.rank ?? ''}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${r.displayName || r.name}</div><div class="lb-user">@${r.username}</div></span><span class="lb-elo">${r.elo}</span>${actionHTML}`;
+  return `<span class="rank">${r.rank ?? ''}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${r.displayName || r.name}</div><div class="lb-user">@${r.username}</div></span>${actionHTML}<span class="lb-elo">${r.elo}</span>`;
 }
 function youBadgeHTML(r) {
   return r.isYou ? '<span class="lb-action"><span class="you-badge">YOU</span></span>' : '';
@@ -248,11 +248,12 @@ async function renderFriendsUI() {
   const list = $('leaderboardList'); list.innerHTML = '';
   rows.forEach((r, i) => {
     const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
-    // Grid row (see style.css): rank | pfp | name | Elo | action, all
-    // fixed-width except the name, so every Elo sits in the same
-    // column whatever the name length or the button state. Your own
-    // row keeps the YOU badge in the action slot, so its Elo lines
-    // up too and your full name never has to shrink for the badge.
+    // Grid row (see style.css): rank | pfp | name | action | Elo,
+    // all fixed-width except the name, so every Elo sits in the
+    // same column at the far right edge whatever the name length
+    // or the button state. Your own row keeps the YOU badge in the
+    // action slot, so its Elo lines up too and your full name never
+    // has to shrink for the badge.
     const isFriends = lbScope === 'friends';
     row.innerHTML = lbRowHTML(r, isFriends ? playActionHTML(r) : youBadgeHTML(r));
     list.appendChild(row);
@@ -313,7 +314,7 @@ async function loadMe() {
 $('playBotsBtn').onclick = () => show('botScreen');
 $('playFriendsBtn').onclick = showFriendsTab;
 // Matchmaking, not an instant game: Play Online (the globe) shows a
-// searching screen that ticks for a random 3-5 seconds, then makes
+// searching screen that ticks for a random 2-3 seconds, then makes
 // the match. Cancel, or any navigation away, abandons the search.
 // Challenging a friend reuses the same screen: it says "Waiting for
 // {name} to accept…" instead, ticks 5-7 seconds, and the friend
@@ -339,7 +340,7 @@ function startSearching() {
     if (!searchingActive) return;
     searchingActive = false; searchTimer = null;
     startGame('persona');
-  }, 3000 + Math.floor(Math.random() * 2000));
+  }, 2000 + Math.floor(Math.random() * 1000));
 }
 function startChallenge(r) {
   cancelSearch();

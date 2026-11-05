@@ -381,6 +381,19 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Bot sub-lines punctuated v49 (Nov 5, 2026, cache v49)
+
+- The bot sub-lines are sentences now: "Plays at your elo."
+  and "The official Duello engine."
+- The Elo position in Jeff's screenshot (1:48 PM) predates
+  v48 going live by about a minute: the shot shows the old
+  layout, where every Elo ended ~68px short of the row edge
+  (measured on the image: all Elos end at the same x, ~925,
+  with the empty action column to their right). v48, live since
+  just after the screenshot, puts the Elo in the last column,
+  right-aligned at the row's right edge — verified on the live
+  served CSS and JS. A reload picks it up.
+
 ## Elo far right, fixed-size add button, faster matching v48 (Nov 5, 2026, cache v48)
 
 - Elo is all the way right on Global and search rows now: the

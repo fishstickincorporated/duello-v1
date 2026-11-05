@@ -489,6 +489,14 @@ function renderGame() {
   // which is how a drag froze the whole screen. The next render after the
   // drag ends will show any bot move that arrived in the meantime.
   if (activeDragCleanup) return;
+  // Out of time: any tiles placed but not yet played go straight
+  // back to the rack, instead of sitting on the board unplayable
+  // while the opponent plays on. Placements are client-only until
+  // Play, so this needs no server call. Skipped while a play is in
+  // flight, since the server reply settles those tiles.
+  if (game.status === 'active' && game.clocks.human <= 0 && !playInFlight && pending.length > 0) {
+    pending = []; selectedRack = null;
+  }
   $('playerName').textContent = me && me.firstName ? me.firstName : 'You';
   try { const pp = document.querySelector('.player-panel .pfp'); pp.innerHTML = pfpHTML(me); pp.classList.toggle('no-photo', !(me && me.photoData)); const sp = document.querySelector('.stat-pfp .pfp'); sp.innerHTML = pfpHTML(me); sp.classList.toggle('no-photo', !(me && me.photoData)); } catch {}
   $('playerElo').textContent = (game.player && game.player.elo != null) ? game.player.elo : (me ? me.elo : '');
@@ -1223,11 +1231,21 @@ function showStatWindow(stats) {
     humanNameEl.onclick = () => openPersonModal({ name: humanFullName, username: me.username, elo: game.player ? game.player.elo : me.elo, photoData: me.photoData || null, isYou: true, isPersona: false });
   }
   const botUsername = isPersonaGame ? game.persona?.username : null;
-  const oppNameEl = boxes[1] && boxes[1].querySelector('.stat-box-name');
-  if (oppNameEl && botUsername) {
-    oppNameEl.style.cursor = 'pointer';
+  if (botUsername) {
     const botFullName = [game.persona.firstName, game.persona.lastName].filter(Boolean).join(' ') || botLabel;
-    oppNameEl.onclick = () => openPersonModal({ name: botFullName, username: botUsername, elo: game.botElo, photoData: game.persona?.photoData || null, isYou: false, isPersona: true });
+    const oppPerson = { name: botFullName, username: botUsername, elo: game.botElo, photoData: game.persona?.photoData || null, isYou: false, isPersona: true };
+    const oppNameEl = boxes[1] && boxes[1].querySelector('.stat-box-name');
+    if (oppNameEl) {
+      oppNameEl.style.cursor = 'pointer';
+      oppNameEl.onclick = () => openPersonModal(oppPerson);
+    }
+    // The larger top pfp opens the same profile window, as does the
+    // smaller one in the stat box. Bots have no profile, so this
+    // stays persona games only.
+    const oppTopPfp = $('statBotPfp');
+    if (oppTopPfp) { oppTopPfp.style.cursor = 'pointer'; oppTopPfp.onclick = () => openPersonModal(oppPerson); }
+    const oppBoxPfp = boxes[1] && boxes[1].querySelector('.stat-box-head .pfp');
+    if (oppBoxPfp) { oppBoxPfp.style.cursor = 'pointer'; oppBoxPfp.onclick = () => openPersonModal(oppPerson); }
   }
 }
 $('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) { clearStatDelay(); $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); } });

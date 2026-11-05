@@ -381,6 +381,29 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Profile button really fixed, out-of-time recall, stat pfp tap v52 (Nov 5, 2026, cache v52)
+
+- The Add Friend button is now 56px tall in total (was 24px)
+  with a visible grey border in the sent state. Root cause of
+  the cut-off text: the stylesheet sets `box-sizing:border-box`
+  globally, so the v48 `height:24px` was a 24px TOTAL height
+  with a 0px content box — the icon and text spilled out of it.
+  The v48 "216x48" claim was computed under content-box and
+  was wrong. Now the button is 180x56 total in both states
+  (32px content box: the 24px icon fits with room), and the
+  sent border is Secondary Grey instead of the button's own
+  background color, so the outline no longer vanishes on the
+  toggle and nothing appears or disappears.
+- Out of time: any tiles placed but not yet played go straight
+  back to the rack. The check sits at the top of renderGame
+  (before the board/rack render), so the tiles show back in the
+  rack on the same render. Skipped while a play is in flight,
+  since the server reply settles those tiles.
+- Tapping the opponent's pfp in the stat window — the larger
+  top one and the smaller one in the stat box — opens their
+  profile window, same as tapping their name. Persona games
+  only; bots have no profile.
+
 ## DL/DW color swap, last-play line locked v51 (Nov 5, 2026, cache v51)
 
 - DL and DW swapped colors on the board: DL is now red

@@ -109,6 +109,18 @@ let globalRows = null;
 // Friend-request buttons are UI-only until the friends backend
 // lands: requested usernames persist in localStorage so a row
 // stays Requested across loads, but nothing is sent anywhere.
+// Tapping Requested again unrequests: the toggle removes the name
+// and the button goes back to the add icon.
+// The button is an SVG icon, not text or emoji: a person
+// silhouette with a plus for Add, the same person with a check
+// once requested. Both draw in currentColor, so the button's CSS
+// color (Duello blue unrequested, grey requested) controls them.
+function friendAddSVG() {
+  return `<svg viewBox="0 0 28 28" width="28" height="28" aria-hidden="true"><circle cx="11" cy="8" r="4" fill="currentColor"/><path d="M3 22 C3 17 6.5 14.5 11 14.5 C15.5 14.5 19 17 19 22 Z" fill="currentColor"/><g stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 15 V25"/><path d="M16 20 H26"/></g></svg>`;
+}
+function friendRequestedSVG() {
+  return `<svg viewBox="0 0 28 28" width="28" height="28" aria-hidden="true"><circle cx="11" cy="8" r="4" fill="currentColor"/><path d="M3 22 C3 17 6.5 14.5 11 14.5 C15.5 14.5 19 17 19 22 Z" fill="currentColor"/><path d="M16.5 20.5 L19.5 23.5 L25.5 17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
 function getFriendRequests() {
   try { const v = JSON.parse(localStorage.getItem('duello_friend_requests') || '[]'); return Array.isArray(v) ? v : []; }
   catch { return []; }
@@ -117,6 +129,12 @@ function markFriendRequested(username) {
   try {
     const v = getFriendRequests();
     if (!v.includes(username)) { v.push(username); localStorage.setItem('duello_friend_requests', JSON.stringify(v)); }
+  } catch {}
+}
+function unrequestFriend(username) {
+  try {
+    const v = getFriendRequests().filter(u => u !== username);
+    localStorage.setItem('duello_friend_requests', JSON.stringify(v));
   } catch {}
 }
 async function ensureGlobalRows() {
@@ -146,16 +164,31 @@ async function renderFriendsUI() {
   rows.forEach((r, i) => {
     const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
     const requested = getFriendRequests().includes(r.username);
-    row.innerHTML = `<span class="rank">${r.rank ?? (i + 1)}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span><div class="lb-name">${r.name}</div><div class="lb-user">@${r.username}</div></span>${r.isYou ? '<span class="you-badge">YOU</span>' : ''}<span class="lb-elo">${r.elo}</span>${r.isYou ? '' : `<button class="lb-friend"${requested ? ' disabled' : ''}>${requested ? 'Requested' : 'Add Friend'}</button>`}`;
+    // Grid row (see style.css): rank | pfp | name | Elo | action, all
+    // fixed-width except the name, so every Elo sits in the same
+    // column whatever the name length or the button state. Your own
+    // row keeps the YOU badge in the action slot, so its Elo lines
+    // up too and your full name never has to shrink for the badge.
+    row.innerHTML = `<span class="rank">${r.rank ?? (i + 1)}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${r.name}</div><div class="lb-user">@${r.username}</div></span><span class="lb-elo">${r.elo}</span>${r.isYou ? '<span class="lb-action"><span class="you-badge">YOU</span></span>' : `<button class="lb-friend${requested ? ' requested' : ''}" aria-label="${requested ? `Cancel friend request to ${r.name}` : `Add ${r.name} as a friend`}">${requested ? friendRequestedSVG() : friendAddSVG()}</button>`}`;
     list.appendChild(row);
     // Global rows carry a friend-request button instead of Play:
     // matches come from Play Online. The request itself is local
     // pending state until the friends backend lands — tapping marks
-    // the row Requested and remembers it for the session's loads.
+    // the row Requested and remembers it for the session's loads,
+    // and tapping it again unrequests it.
     if (!r.isYou) row.querySelector('.lb-friend').onclick = (e) => {
       const btn = e.currentTarget;
-      markFriendRequested(r.username);
-      btn.textContent = 'Requested'; btn.disabled = true;
+      if (getFriendRequests().includes(r.username)) {
+        unrequestFriend(r.username);
+        btn.innerHTML = friendAddSVG();
+        btn.classList.remove('requested');
+        btn.setAttribute('aria-label', `Add ${r.name} as a friend`);
+      } else {
+        markFriendRequested(r.username);
+        btn.innerHTML = friendRequestedSVG();
+        btn.classList.add('requested');
+        btn.setAttribute('aria-label', `Cancel friend request to ${r.name}`);
+      }
     };
   });
   $('noFriendsCard').classList.toggle('hidden', !(lbScope === 'friends' && rows.length === 0));

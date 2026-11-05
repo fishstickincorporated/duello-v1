@@ -122,8 +122,18 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .search-wrap input:focus{outline:none;box-shadow:none}
 .search-icon{font-size:18px}
 .search-results{text-align:left}
-.search-result,.lb-row,.request-row{display:flex;align-items:center;gap:10px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}
-.lb-row .rank{color:#ffd166;font-weight:900;min-width:22px;font-size:18px}
+.search-result,.request-row{display:flex;align-items:center;gap:10px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}
+/* Leaderboard rows are a grid, not flex: rank | pfp | name | Elo |
+action, every column fixed-width except the name. The old flex row
+let the Elo sit wherever the name and the button ended, so Elos
+wandered left and right down the list; now every Elo lands in the
+same 52px column, right-aligned, on every row including your own
+(the empty action slot keeps it there). */
+.lb-row{display:grid;grid-template-columns:28px 36px minmax(0,1fr) 44px 36px;align-items:center;gap:10px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}
+.lb-row .rank{color:#ffd166;font-weight:900;font-size:18px;text-align:right}
+.lb-identity{min-width:0;overflow:hidden}
+.lb-row .lb-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lb-row .lb-user{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lb-pfp{width:36px;height:36px;flex:0 0 36px;border-radius:50%;overflow:hidden;background:#3a3f4b;display:flex;align-items:center;justify-content:center}
 .lb-pfp img{width:36px;height:36px;border-radius:50%;object-fit:cover;display:block}
 .lb-pfp svg{width:36px;height:36px;display:block}
@@ -131,9 +141,11 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .lb-pfp{flex:0 0 36px}.lb-pfp svg{display:block}
 .lb-row .lb-name{color:#03eaff;font-weight:800;font-size:18px}
 .lb-row .lb-user{color:#b3b2b1;font-size:14px}
-.lb-row .lb-elo{margin-left:auto;color:#03eaff;font-weight:800;font-size:18px}
-.lb-friend{background:none;border:0;color:#03eaff;font-weight:800;font-size:14px;cursor:pointer;padding:6px 2px;white-space:nowrap}
-.lb-friend:disabled{color:#b3b2b1;cursor:default}
+.lb-row .lb-elo{color:#03eaff;font-weight:800;font-size:18px;text-align:right;font-variant-numeric:tabular-nums}
+.lb-friend{background:none;border:0;color:#03eaff;cursor:pointer;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center}
+.lb-friend svg{display:block}
+.lb-friend.requested{color:#b3b2b1}
+.lb-action{width:36px;display:flex;align-items:center;justify-content:center}
 .searching-box,.rematch-box{display:flex;flex-direction:column;align-items:center;gap:16px;margin-top:60px;text-align:center}
 .searching-dots{display:flex;gap:8px}
 .searching-dots span{width:12px;height:12px;border-radius:50%;background:#03eaff;animation:searchPulse 1s ease-in-out infinite}
@@ -145,7 +157,7 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .rematch-box .controls{width:100%}
 .lb-row.you{outline:2px solid #03eaff}
 .you-badge{background:#03eaff;color:#1a1d24;font-size:11px;font-weight:800;border-radius:8px;padding:2px 6px}
-.lb-row .you-badge{align-self:flex-start;margin-top:2px}
+.lb-row .you-badge{padding:2px 4px;white-space:nowrap}
 .pending-label{color:#ffd166;font-size:12px;font-weight:700}
 .leaderboard-head{display:flex;align-items:center;justify-content:space-between;margin:22px 0 0}
 .leaderboard-label{font-weight:900;letter-spacing:1px;font-size:18px}

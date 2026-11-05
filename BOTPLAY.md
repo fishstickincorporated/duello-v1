@@ -381,6 +381,40 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Global friend button + Elo alignment + username re-roll v42 (Nov 5, 2026, cache v42)
+
+- Friend requests toggle: tapping Requested again now unrequests
+  (the name is removed from localStorage and the button goes back
+  to the add icon). The old button disabled itself once requested,
+  so there was no way back short of clearing site data.
+- Add Friend is now an SVG icon, not text and not emoji: a person
+  silhouette with a plus (Duello blue), drawn in currentColor like
+  the tab-bar friend icon. Once requested it shows the same person
+  with a check, in grey. Both states are 36px buttons with a 28px
+  icon and an aria-label naming the player.
+- Elo alignment: leaderboard rows are now a grid — rank 28px |
+  pfp 36px | name (flexible, ellipsis) | Elo 44px right-aligned |
+  action 36px — instead of flex, where the Elo sat wherever the
+  name and the button ended. Every Elo now lands in the same
+  column on every row. Your own row carries the YOU badge in the
+  action slot (instead of between the name and the Elo, which was
+  part of what pushed Elos around), so your full name still shows
+  and your Elo still lines up. Long names truncate with an
+  ellipsis instead of wrapping; measured with the real Comfortaa
+  font (rank 101 fits the 28px column, 4-digit Elo fits the 44px
+  column) and render-checked as a mock before pushing.
+- Usernames re-rolled (same 100 people, same Elos and photos):
+  7 username methods now — first_last, firstlast, first + number,
+  first initial + last, first + last initial, adjective + noun,
+  and word-game handles (wordsmith, tilefan, rackstar…) — instead
+  of 3. Animal handles drop from 20 to 3 (luckylynx,
+  gentlehawk33, wildfalcon kept) and iron goes from 2 to 0.
+  Applied by a versioned seed refresh (persona_seed version 3:
+  full delete + re-insert on the first boot, then never again),
+  so Elo movement still survives later restarts; a persona game
+  open during the deploy won't update that persona's Elo for
+  that one game (the player's own Elo still updates).
+
 ## Global matchmaking + stat/last-play fixes v41 (Nov 4, 2026, cache v41)
 
 - Stat screen: for a human-vs-human match (personas count as

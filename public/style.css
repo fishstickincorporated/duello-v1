@@ -129,7 +129,7 @@ let the Elo sit wherever the name and the button ended, so Elos
 wandered left and right down the list; now every Elo lands in the
 same 52px column, right-aligned, on every row including your own
 (the empty action slot keeps it there). */
-.lb-row{display:grid;grid-template-columns:28px 36px minmax(0,1fr) 44px 36px;align-items:center;gap:10px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}
+.lb-row{display:grid;grid-template-columns:28px 36px minmax(0,1fr) 44px 56px;align-items:center;gap:10px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}
 .lb-row .rank{color:#ffd166;font-weight:900;font-size:18px;text-align:right}
 .lb-identity{min-width:0;overflow:hidden}
 .lb-row .lb-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -142,11 +142,15 @@ same 52px column, right-aligned, on every row including your own
 .lb-row .lb-name{color:#03eaff;font-weight:800;font-size:18px}
 .lb-row .lb-user{color:#b3b2b1;font-size:14px}
 .lb-row .lb-elo{color:#03eaff;font-weight:800;font-size:18px;text-align:right;font-variant-numeric:tabular-nums}
-.lb-friend{background:none;border:0;color:#b3b2b1;cursor:pointer;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center}
+.lb-friend{background:none;border:0;color:#b3b2b1;cursor:pointer;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;justify-self:center}
 .lb-friend svg{display:block}
 /* The sent state keeps the same grey: the paper plane, not the
    color, is what tells it apart from Add. */
-.lb-action{width:36px;display:flex;align-items:center;justify-content:center}
+.lb-friend.sent{width:max-content;gap:4px;padding:0 2px;font-size:12px;font-weight:700}
+.sent-text{line-height:1}
+.lb-play{background:none;border:0;color:#03eaff;cursor:pointer;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;justify-self:center}
+.lb-play svg{display:block}
+.lb-action{width:36px;display:flex;align-items:center;justify-content:center;justify-self:center}
 .stat-friend{margin:6px 0 8px}
 .searching-box,.rematch-box{display:flex;flex-direction:column;align-items:center;gap:16px;margin-top:60px;text-align:center}
 .searching-dots{display:flex;gap:8px}

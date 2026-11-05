@@ -381,6 +381,33 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Sent text + plane, search rows, Play Friends live v45 (Nov 5, 2026, cache v45)
+
+- The sent state is now small grey "sent" text plus a small (16px)
+  paper plane, on Global rows and in the stat window. The action
+  column widens from 36px to 56px to fit it (the add icon stays
+  36px and centers in the wider column); measured with the real
+  font, "sent" + plane is 51px, so it fits with room to spare.
+  The name column narrows to 130px, so long names truncate a
+  little earlier than before.
+- Search results are leaderboard rows now: same grid (rank | pfp |
+  name over username | Elo | friend button), built by the same
+  row helpers as Global, instead of the old compact one-line
+  "Name @user" format with no Elo and no button.
+- Play Friends is live (was greyed out with SOON): it opens the
+  Friends leaderboard — the people you added from Global, sorted
+  by Elo, with a blue play icon instead of the add-friend button.
+  Tapping play opens the searching-style screen saying "Waiting
+  for {firstName} to accept…", ticking 5-7 seconds. The friend
+  accepts half the time and the game starts, or declines and the
+  screen offers Back to Friends. This is the same simulated
+  accept/decline as a rematch request: personas have no real app
+  for the request to pop up on, so their answer is simulated on
+  your device. A challenge to a real player has no delivery path
+  yet — after the wait the screen says so plainly instead of
+  hanging. Real accept/decline popups on a friend's phone need
+  the friends backend, which is still unbuilt.
+
 ## Friend sent-plane, photo variety, instant stats, stat-window add v44 (Nov 5, 2026, cache v44)
 
 - The sent state is now a grey paper airplane (Material send

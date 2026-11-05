@@ -97,13 +97,15 @@ function pfpHTML(userLike) {
 function goTab(id) { show(id); }
 $('tabHome').onclick = () => show('homeScreen');
 
-// ---------- Friends tab (UI only until accounts arrive) ----------
-// Every row below is local mock data. Nothing here touches the server:
-// Friends tab, no mocks: the Friends scope is empty until the friends
-// backend lands (no friends, no requests yet). The Global scope is real
-// registered users, top by Elo, from GET /api/leaderboard (guest rows
-// excluded server-side). Rows are cached for the session and refresh on
-// the next app load; the row markup matches the main build's friends tab.
+// ---------- Friends tab ----------
+// The Global scope is real registered users, top by Elo, from GET
+// /api/leaderboard (guest rows excluded server-side). The Friends
+// scope lists the people you added from Global (the request list
+// in localStorage, resolved against the leaderboard) with a play
+// icon to challenge them. Friend requests are still UI-only
+// pending state until the friends backend lands: nothing is sent
+// anywhere, and a challenge to a persona is answered by the same
+// simulated accept/decline as a rematch request.
 let lbScope = 'friends', deleteMode = false;
 let globalRows = null;
 // Friend-request buttons are UI-only until the friends backend
@@ -120,7 +122,16 @@ function friendAddSVG() {
   return `<svg viewBox="0 0 28 28" width="24" height="24" aria-hidden="true"><circle cx="11" cy="8" r="4" fill="currentColor"/><path d="M3 22 C3 17 6.5 14.5 11 14.5 C15.5 14.5 19 17 19 22 Z" fill="currentColor"/><g stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 15 V25"/><path d="M16 20 H26"/></g></svg>`;
 }
 function friendSentSVG() {
-  return `<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="currentColor"/></svg>`;
+  return `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="currentColor"/></svg>`;
+}
+// The sent state is small grey text plus the small plane, not just
+// an icon: `sent` + plane. Used on Global rows and in the stat
+// window, so both stay identical.
+function friendSentHTML() {
+  return `<span class="sent-text">sent</span>${friendSentSVG()}`;
+}
+function playSVG() {
+  return `<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>`;
 }
 function getFriendRequests() {
   try { const v = JSON.parse(localStorage.getItem('duello_friend_requests') || '[]'); return Array.isArray(v) ? v : []; }
@@ -145,6 +156,46 @@ async function ensureGlobalRows() {
   }
   return globalRows;
 }
+// One row shape for every leaderboard-style list (Global, Friends,
+// search results): rank | pfp | name over username | Elo | action.
+// The action depends on the list: Global and search show the
+// friend button (or the YOU badge on your own row), Friends shows
+// a play icon that challenges that friend.
+function lbRowHTML(r, actionHTML) {
+  return `<span class="rank">${r.rank ?? ''}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${r.name}</div><div class="lb-user">@${r.username}</div></span><span class="lb-elo">${r.elo}</span>${actionHTML}`;
+}
+function friendActionHTML(r) {
+  if (r.isYou) return '<span class="lb-action"><span class="you-badge">YOU</span></span>';
+  const requested = getFriendRequests().includes(r.username);
+  return `<button class="lb-friend${requested ? ' sent' : ''}" aria-label="${requested ? `Cancel friend request to ${r.name}` : `Add ${r.name} as a friend`}">${requested ? friendSentHTML() : friendAddSVG()}</button>`;
+}
+function wireFriendButton(btn, r) {
+  btn.onclick = (e) => {
+    const b = e.currentTarget;
+    if (getFriendRequests().includes(r.username)) {
+      unrequestFriend(r.username);
+      b.innerHTML = friendAddSVG();
+      b.classList.remove('sent');
+      b.setAttribute('aria-label', `Add ${r.name} as a friend`);
+    } else {
+      markFriendRequested(r.username);
+      b.innerHTML = friendSentHTML();
+      b.classList.add('sent');
+      b.setAttribute('aria-label', `Cancel friend request to ${r.name}`);
+    }
+  };
+}
+function playActionHTML(r) {
+  return `<button class="lb-play" aria-label="Challenge ${r.name} to a game">${playSVG()}</button>`;
+}
+function toLbRow(u) {
+  return {
+    id: u.id, isPersona: !!u.isPersona, rank: u.rank,
+    name: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username,
+    username: u.username, elo: u.elo, photoData: u.photoData || null,
+    isYou: !!(me && u.username === me.username),
+  };
+}
 async function renderFriendsUI() {
   // Pencil keeps its layout box on Global (visibility, not display), so the
   // LEADERBOARD label and everything below it sit at the exact same
@@ -154,48 +205,50 @@ async function renderFriendsUI() {
   let rows = [];
   if (lbScope === 'global') {
     const users = await ensureGlobalRows();
-    rows = users.map(u => ({
-      id: u.id, isPersona: !!u.isPersona, rank: u.rank,
-      name: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username,
-      username: u.username, elo: u.elo, photoData: u.photoData || null,
-      isYou: !!(me && u.username === me.username),
-    })).sort((a, b) => b.elo - a.elo);
+    rows = users.map(toLbRow).sort((a, b) => b.elo - a.elo);
+  } else {
+    // Friends are the people you added from Global: the request
+    // list in localStorage, resolved against the leaderboard rows.
+    // A stale request (a username from before a seed re-roll) just
+    // doesn't resolve and stays out of the list. Friends sort by
+    // Elo like Global; your own row can never appear here.
+    const users = await ensureGlobalRows();
+    const byUsername = new Map(users.map(u => [u.username, u]));
+    rows = getFriendRequests().map(u => byUsername.get(u)).filter(Boolean).map(toLbRow).sort((a, b) => b.elo - a.elo);
   }
   const list = $('leaderboardList'); list.innerHTML = '';
   rows.forEach((r, i) => {
     const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
-    const requested = getFriendRequests().includes(r.username);
     // Grid row (see style.css): rank | pfp | name | Elo | action, all
     // fixed-width except the name, so every Elo sits in the same
     // column whatever the name length or the button state. Your own
     // row keeps the YOU badge in the action slot, so its Elo lines
     // up too and your full name never has to shrink for the badge.
-    row.innerHTML = `<span class="rank">${r.rank ?? (i + 1)}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${r.name}</div><div class="lb-user">@${r.username}</div></span><span class="lb-elo">${r.elo}</span>${r.isYou ? '<span class="lb-action"><span class="you-badge">YOU</span></span>' : `<button class="lb-friend${requested ? ' sent' : ''}" aria-label="${requested ? `Cancel friend request to ${r.name}` : `Add ${r.name} as a friend`}">${requested ? friendSentSVG() : friendAddSVG()}</button>`}`;
+    const isFriends = lbScope === 'friends';
+    row.innerHTML = lbRowHTML(r, isFriends ? playActionHTML(r) : friendActionHTML(r));
     list.appendChild(row);
     // Global rows carry a friend-request button instead of Play:
     // matches come from Play Online. The request itself is local
     // pending state until the friends backend lands — tapping marks
-    // the row Requested and remembers it for the session's loads,
-    // and tapping it again unrequests it.
-    if (!r.isYou) row.querySelector('.lb-friend').onclick = (e) => {
-      const btn = e.currentTarget;
-      if (getFriendRequests().includes(r.username)) {
-        unrequestFriend(r.username);
-        btn.innerHTML = friendAddSVG();
-        btn.classList.remove('sent');
-        btn.setAttribute('aria-label', `Add ${r.name} as a friend`);
-      } else {
-        markFriendRequested(r.username);
-        btn.innerHTML = friendSentSVG();
-        btn.classList.add('sent');
-        btn.setAttribute('aria-label', `Cancel friend request to ${r.name}`);
-      }
-    };
+    // the row sent and remembers it for the session's loads, and
+    // tapping it again unrequests it. Friends rows carry a play
+    // icon instead: tapping challenges that friend.
+    if (isFriends) {
+      const btn = row.querySelector('.lb-play');
+      if (btn) btn.onclick = () => startChallenge(r);
+    } else if (!r.isYou) {
+      wireFriendButton(row.querySelector('.lb-friend'), r);
+    }
   });
   $('noFriendsCard').classList.toggle('hidden', !(lbScope === 'friends' && rows.length === 0));
   $('friendRequests').innerHTML = '';
 }
-$('tabFriends').onclick = () => { show('friendsScreen'); renderFriendsUI(); };
+function showFriendsTab() {
+  lbScope = 'friends';
+  $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active');
+  show('friendsScreen'); renderFriendsUI();
+}
+$('tabFriends').onclick = showFriendsTab;
 $('lbFriendsTab').onclick = () => { lbScope = 'friends'; $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active'); renderFriendsUI(); };
 $('lbGlobalTab').onclick = () => { lbScope = 'global'; $('lbGlobalTab').classList.add('active'); $('lbFriendsTab').classList.remove('active'); renderFriendsUI(); };
 $('friendsPencil').onclick = () => { if (lbScope !== 'friends') return; deleteMode = !deleteMode; renderFriendsUI(); };
@@ -205,12 +258,16 @@ $('friendSearch').addEventListener('input', () => {
   friendSearchTimer = setTimeout(async () => {
     const q = $('friendSearch').value.trim().toLowerCase(); const el = $('friendSearchResults'); el.innerHTML = '';
     if (!q) return;
+    await loadMe();
     const users = await ensureGlobalRows();
     users.filter(u => (`${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q) || u.username.toLowerCase().includes(q))).forEach(u => {
-      const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
-      const row = document.createElement('div'); row.className = 'search-result';
-      row.innerHTML = `<span class="lb-pfp${u.photoData ? '' : ' no-photo'}">${pfpHTML({ photoData: u.photoData || null })}</span><span><b>${name}</b> <span style="color:#b3b2b1">@${u.username}</span></span>`;
+      // Search rows are leaderboard rows, not a compact variant:
+      // rank | pfp | name over username | Elo | friend button.
+      const r = toLbRow(u);
+      const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
+      row.innerHTML = lbRowHTML(r, friendActionHTML(r));
       el.appendChild(row);
+      if (!r.isYou) wireFriendButton(row.querySelector('.lb-friend'), r);
     });
   }, 250);
 });
@@ -223,11 +280,26 @@ async function loadMe() {
   catch { return !!token; }
 }
 $('playBotsBtn').onclick = () => show('botScreen');
+$('playFriendsBtn').onclick = showFriendsTab;
 // Matchmaking, not an instant game: Play Online (the globe) shows a
 // searching screen that ticks for a random 3-5 seconds, then makes
 // the match. Cancel, or any navigation away, abandons the search.
+// Challenging a friend reuses the same screen: it says "Waiting for
+// {name} to accept…" instead, ticks 5-7 seconds, and the friend
+// accepts half the time — the same simulated accept/decline as a
+// rematch request, because a persona has no real app for the
+// request to pop up on. A real friend's phone would need the
+// friends backend to deliver it; until then a real player just
+// never answers, and the screen says so plainly instead of
+// hanging on the wait.
 let searchTimer = null, searchingActive = false;
-function cancelSearch() { searchingActive = false; if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; } }
+let searchMode = 'random', challengePersona = null;
+function cancelSearch() {
+  searchingActive = false; challengePersona = null; searchMode = 'random';
+  if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+  $('searchingText').textContent = 'Searching for opponent…';
+  $('searchCancelBtn').textContent = 'Cancel';
+}
 function startSearching() {
   cancelSearch();
   searchingActive = true;
@@ -238,7 +310,36 @@ function startSearching() {
     startGame('persona');
   }, 3000 + Math.floor(Math.random() * 2000));
 }
-$('searchCancelBtn').onclick = () => { cancelSearch(); show('homeScreen'); };
+function startChallenge(r) {
+  cancelSearch();
+  searchingActive = true; searchMode = 'challenge'; challengePersona = r;
+  $('searchingText').textContent = `Waiting for ${r.name.split(' ')[0]} to accept…`;
+  show('searchingScreen');
+  searchTimer = setTimeout(() => {
+    if (!searchingActive) return;
+    searchingActive = false; searchTimer = null;
+    const first = r.name.split(' ')[0];
+    if (!r.isPersona) {
+      // No delivery path to a real player's phone yet: say so
+      // instead of leaving the wait hanging forever.
+      $('searchingText').textContent = `${first} can't accept challenges yet — real-player challenges arrive with the friends backend.`;
+      $('searchCancelBtn').textContent = 'Back to Friends';
+      return;
+    }
+    if (Math.random() < 0.5) {
+      startGame('persona', r.id);
+    } else {
+      $('searchingText').textContent = `${first} declined the challenge.`;
+      $('searchCancelBtn').textContent = 'Back to Friends';
+    }
+  }, 5000 + Math.floor(Math.random() * 2000));
+}
+$('searchCancelBtn').onclick = () => {
+  const wasChallenge = searchMode === 'challenge';
+  cancelSearch();
+  if (wasChallenge) { lbScope = 'friends'; $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active'); show('friendsScreen'); renderFriendsUI(); }
+  else show('homeScreen');
+};
 $('playOnlineBtn').onclick = () => startSearching();
 // Rematch requests, persona games only: Play Again sends the
 // opponent a request instead of starting at once. The request
@@ -1070,7 +1171,7 @@ function showStatWindow(stats) {
   // get no button.
   const botUsername = isPersonaGame ? game.persona?.username : null;
   const botRequested = !!(botUsername && getFriendRequests().includes(botUsername));
-  const botFriendBtn = botUsername ? `<button class="lb-friend stat-friend${botRequested ? ' sent' : ''}" aria-label="${botRequested ? `Cancel friend request to ${botLabel}` : `Add ${botLabel} as a friend`}">${botRequested ? friendSentSVG() : friendAddSVG()}</button>` : '';
+  const botFriendBtn = botUsername ? `<button class="lb-friend stat-friend${botRequested ? ' sent' : ''}" aria-label="${botRequested ? `Cancel friend request to ${botLabel}` : `Add ${botLabel} as a friend`}">${botRequested ? friendSentHTML() : friendAddSVG()}</button>` : '';
   $('statGrid').innerHTML = box(humanLabel, humanPfp, stats.human, !(me && me.photoData)) + box(botLabel, botPfpBox, stats.bot, botNoPhoto, botFriendBtn);
   if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">';
   else if (isPersonaGame && game.persona?.photoData) $('statBotPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
@@ -1087,7 +1188,7 @@ function showStatWindow(stats) {
       btn.setAttribute('aria-label', `Add ${botLabel} as a friend`);
     } else {
       markFriendRequested(botUsername);
-      btn.innerHTML = friendSentSVG();
+      btn.innerHTML = friendSentHTML();
       btn.classList.add('sent');
       btn.setAttribute('aria-label', `Cancel friend request to ${botLabel}`);
     }

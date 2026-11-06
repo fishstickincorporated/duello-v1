@@ -160,7 +160,7 @@ same 52px column, right-aligned, on every row including your own
 .lb-row.no-rank .lb-identity{grid-column:2}
 .lb-row.no-rank .lb-action{grid-column:3}
 .lb-row.no-rank .lb-elo{grid-column:4}
-.lb-row .rank{color:#ffd166;font-weight:900;font-size:18px;text-align:right;grid-column:1}
+.lb-row .rank{color:#ffd166;font-weight:900;font-size:18px;text-align:left;grid-column:1}
 .lb-identity{min-width:0;overflow:hidden;grid-column:3}
 .lb-row .lb-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lb-row .lb-user{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

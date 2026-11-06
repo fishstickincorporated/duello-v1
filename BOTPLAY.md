@@ -383,6 +383,19 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Rank flush left, matching Elo's right padding v67 (Nov 6, 2026, cache v67)
+
+- The rank was right-aligned in its 28px column, so a
+  single-digit rank sat ~29px from the left edge while
+  the Elo sits 12px from the right edge — the whole left
+  group looked indented. The rank is now left-aligned,
+  so its left edge is exactly the row's 12px padding,
+  identical to the Elo's 12px on the right. Two-digit
+  ranks still fit their column; a 3-digit rank on a long
+  friends list extends 5px into the gap, clear of the
+  picture. Search rows (no rank) already put the picture
+  at 12px, unchanged.
+
 ## "Remove?" confirm sits in the red × slot v66 (Nov 6, 2026, cache v66)
 
 - The confirm no longer lives in a panel below the list:

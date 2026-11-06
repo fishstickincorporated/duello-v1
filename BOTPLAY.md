@@ -383,6 +383,30 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Point bubble stays put + leaderboards refresh on leaving the board v70 (Nov 6, 2026, cache v70)
+
+- Point bubble, two fixes. (1) Boldness: premium squares
+  (DL/TL/DW/TW) carry an 8-direction black text-shadow so
+  their letters read, and text-shadow is inherited — so a
+  bubble sitting on a premium square picked up the outline
+  and its number looked much bolder than on a plain square.
+  The bubble now sets text-shadow:none, so the number
+  renders identically wherever it sits. (2) The bubble
+  stays on the board for the last played word: renderGame
+  rebuilds every cell, so the bubble was destroyed at the
+  next render; it is now re-attached at the end of every
+  render on the most recent word move (game.lastCells, the
+  same cells the white last-word border highlights). A pass
+  leaves no bubble, a play still in flight keeps its
+  optimistic bubble, and a pending play's own bubble still
+  takes its place while arranging.
+- Leaderboards refresh on leaving the board: Main Menu
+  (the only way off the board screen — the tab bar is
+  hidden there) now refetches /api/me, the Global rows
+  and the friends list in the background, so Elo earned
+  in the game just played shows on the leaderboards
+  without a full reload.
+
 ## Home buttons reordered v69 (Nov 6, 2026, cache v69)
 
 - Home screen order is now Play Online, Play Bots,

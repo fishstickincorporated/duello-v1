@@ -823,6 +823,22 @@ function renderGame() {
   tickClocks();
   if (countdownActive) { $('clockHuman').textContent = '4:00'; $('clockBot').textContent = '4:00'; }
   updateStatus();
+  // The point bubble stays on the board for the last played word:
+  // renderGame rebuilds every cell, so a bubble attached to one is
+  // destroyed at the next render — re-attach it here, after
+  // updateStatus has shown (or hidden) the pending play's bubble.
+  // Only one bubble ever shows: if a pending bubble is up, the last
+  // play's stays off. A pass leaves no bubble. A play still in flight
+  // keeps its optimistic bubble on the just-played word instead of
+  // leaving the board bare until the server reply lands.
+  if (!document.querySelector('.play-bubble') && game.lastCells && game.lastCells.length) {
+    if (pending.length && playInFlight && lastValidate && lastValidate.valid && lastValidate.mainCells && lastValidate.mainCells.length) {
+      attachBubble(lastValidate.score, lastValidate.mainCells[lastValidate.mainCells.length - 1], 'last');
+    } else if (!pending.length) {
+      const lastMove = game.lastBy === 'human' ? game.lastHuman : game.lastBy === 'bot' ? game.lastBot : null;
+      if (lastMove && !lastMove.passed) attachBubble(lastMove.points, game.lastCells[game.lastCells.length - 1], 'last');
+    }
+  }
 }
 let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0;
 let countdownInterval = null, countdownActive = false;
@@ -1172,6 +1188,13 @@ async function updateStatus() {
     }, 500);
   }
 }
+function attachBubble(score, target, kind) {
+  const cells = document.querySelectorAll('#board .cell');
+  const cell = cells[target[0] * 10 + target[1]];
+  if (!cell) return;
+  const b = document.createElement('div'); b.className = 'play-bubble' + (kind ? ' ' + kind : ''); b.textContent = score;
+  cell.style.position = 'relative'; cell.style.zIndex = '50'; cell.appendChild(b);
+}
 function showBubble(score, mainCells) {
   hideBubble();
   if (!pending.length) return;
@@ -1186,11 +1209,7 @@ function showBubble(score, mainCells) {
     const sorted = pending.slice().sort((a, b) => sameRow ? a.col - b.col : a.row - b.row);
     target = [sorted[sorted.length - 1].row, sorted[sorted.length - 1].col];
   }
-  const cells = document.querySelectorAll('#board .cell');
-  const cell = cells[target[0] * 10 + target[1]];
-  if (!cell) return;
-  const b = document.createElement('div'); b.className = 'play-bubble'; b.textContent = score;
-  cell.style.position = 'relative'; cell.style.zIndex = '50'; cell.appendChild(b);
+  attachBubble(score, target);
 }
 function hideBubble() { document.querySelectorAll('.play-bubble').forEach(e => { if (e.parentElement) e.parentElement.style.zIndex = ''; e.remove(); }); }
 function placeTile(r, c) {
@@ -1456,7 +1475,18 @@ function showStatWindow(stats) {
   }
 }
 $('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) { clearStatDelay(); $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); } });
-function goHome() { clearStatDelay(); $('statWindow').classList.add('hidden'); show('homeScreen'); }
+// Leaving the board screen refreshes the leaderboard data in the
+// background: Elo earned in the game just played otherwise only
+// shows up after a full reload, because loadMe, the Global rows
+// and the friends list are all cached for the session. The tab bar
+// is hidden on the board screen, so Main Menu is the only way out
+// and the only place this needs to run.
+async function refreshLeaderboards() {
+  try { const d = await api('/api/me'); me = d.user; } catch (err) { deadSession(err); return; }
+  globalRows = null;
+  await loadServerFriends(true);
+}
+function goHome() { clearStatDelay(); $('statWindow').classList.add('hidden'); show('homeScreen'); refreshLeaderboards(); }
 $('mainMenuBtn').onclick = goHome; $('statMainMenu').onclick = goHome;
 $('playAgainBtn').onclick = () => { $('statWindow').classList.add('hidden'); if (currentBot === 'persona') requestRematch(); else startGame(currentBot, currentPersonaId); };
 $('statPlayAgain').onclick = () => { $('statWindow').classList.add('hidden'); if (currentBot === 'persona') requestRematch(); else startGame(currentBot, currentPersonaId); };

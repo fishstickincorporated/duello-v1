@@ -383,6 +383,13 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Home buttons reordered v69 (Nov 6, 2026, cache v69)
+
+- Home screen order is now Play Online, Play Bots,
+  Play Friends (was Bots, Friends, Online). Only the
+  three button elements moved in index.html; every
+  handler is wired by id, so nothing else changed.
+
 ## Picture and name shift left too v68 (Nov 6, 2026, cache v68)
 
 - v67 moved the rank but the picture and name stayed:

@@ -424,7 +424,9 @@ async function runFriendSearch() {
     const rows = await ensureGlobalRows();
     users = rows.filter(u => (`${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)));
   }
-  users.forEach(u => {
+  // At most the 5 most relevant results (the server already
+  // ranks and caps at 5; this caps the fallback too).
+  users.slice(0, 5).forEach(u => {
     // Search rows are leaderboard rows, not a compact variant:
     // rank | pfp | name over username | Elo. No friend button here
     // either — adding happens only from the profile window.
@@ -435,10 +437,16 @@ async function runFriendSearch() {
     const nameEl = row.querySelector('.lb-name');
     if (nameEl) nameEl.onclick = () => openPersonModal(r);
   });
+  // Results live for 10 seconds, then vanish and the search bar
+  // empties itself. Typing again restarts the clock (the input
+  // listener clears this timer).
+  if (friendSearchClearTimer) clearTimeout(friendSearchClearTimer);
+  friendSearchClearTimer = setTimeout(() => { $('friendSearch').value = ''; el.innerHTML = ''; }, 10000);
 }
-let friendSearchTimer = null;
+let friendSearchTimer = null, friendSearchClearTimer = null;
 $('friendSearch').addEventListener('input', () => {
   clearTimeout(friendSearchTimer);
+  clearTimeout(friendSearchClearTimer);
   friendSearchTimer = setTimeout(runFriendSearch, 250);
 });
 

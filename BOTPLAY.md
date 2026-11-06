@@ -383,6 +383,16 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Search: 5 most relevant, auto-clears after 10s v57 (Nov 5, 2026, cache v57)
+
+- Search shows only the 5 most relevant results. The server
+  ranks them — exact username first, then username starting
+  with the query, then name starting with it, then the rest
+  by Elo — and caps at 5 (the client caps the fallback path
+  too).
+- Ten seconds after results appear, they disappear and the
+  search bar empties itself. Typing again restarts the clock.
+
 ## First name + last initial, grey profile labels, blue pencil v56 (Nov 5, 2026, cache v56)
 
 - Both leaderboards and search now show first name + last

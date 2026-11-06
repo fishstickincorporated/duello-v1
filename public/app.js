@@ -100,7 +100,8 @@ $('tabHome').onclick = () => show('homeScreen');
 // ---------- Friends tab ----------
 // The Global scope is real registered users, top by Elo, from GET
 // /api/leaderboard (guest rows excluded server-side). The Friends
-// scope lists accepted friends with a play icon to challenge them.
+// scope lists accepted friends (no play button on the rows —
+// challenging happens from the profile window's Play button).
 // Friend requests are real since v53 (GET/POST /api/friends):
 // sending one makes it appear at the top of the recipient's
 // Friends page, and accepting it makes you friends. Personas
@@ -354,30 +355,25 @@ async function renderFriendsUI() {
     // action slot, so its Elo lines up too and your full name never
     // has to shrink for the badge.
     const isFriends = lbScope === 'friends';
-    // Friends rows carry a play icon instead: tapping challenges
-    // that friend. Global rows carry no friend button at all — the
-    // only way to add someone is tapping their name and adding
-    // them from the profile window. In delete mode the play icon
-    // becomes a red × that removes the friend; your own row is
-    // never removable.
+    // No play button on leaderboard rows any more: challenging
+    // a friend happens only from their profile window (Play
+    // button). The action slot stays as an empty box so the Elo
+    // keeps its column at the far right. In delete mode the
+    // slot becomes a red × that removes the friend; your own
+    // row is never removable.
     let action;
     if (!isFriends || r.isYou) action = youBadgeHTML(r);
     else if (deleteMode) action = '<button class="lb-delete" aria-label="Remove friend">×</button>';
-    else action = playActionHTML(r);
+    else action = '<span class="lb-action"></span>';
     row.innerHTML = lbRowHTML(r, action);
     list.appendChild(row);
-    if (isFriends && !r.isYou) {
-      if (deleteMode) {
-        const btn = row.querySelector('.lb-delete');
-        if (btn) btn.onclick = async () => {
-          if (r.isPersona) unrequestFriend(r.username);
-          else { try { await api('/api/friends/remove', { method: 'POST', body: JSON.stringify({ username: r.username }) }); } catch {} await loadServerFriends(true); }
-          renderFriendsUI();
-        };
-      } else {
-        const btn = row.querySelector('.lb-play');
-        if (btn) btn.onclick = () => startChallenge(r);
-      }
+    if (isFriends && !r.isYou && deleteMode) {
+      const btn = row.querySelector('.lb-delete');
+      if (btn) btn.onclick = async () => {
+        if (r.isPersona) unrequestFriend(r.username);
+        else { try { await api('/api/friends/remove', { method: 'POST', body: JSON.stringify({ username: r.username }) }); } catch {} await loadServerFriends(true); }
+        renderFriendsUI();
+      };
     }
     // Tapping the name opens their profile window.
     const nameEl = row.querySelector('.lb-name');

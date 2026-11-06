@@ -383,6 +383,14 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## No play button on leaderboard rows v58 (Nov 5, 2026, cache v58)
+
+- The play button is gone from Friends leaderboard rows.
+  Challenging a friend happens only from their profile
+  window (Play button). The action slot stays as an empty
+  box so the Elo keeps its far-right column, and delete
+  mode still shows the red × there.
+
 ## Search: 5 most relevant, auto-clears after 10s v57 (Nov 5, 2026, cache v57)
 
 - Search shows only the 5 most relevant results. The server

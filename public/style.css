@@ -237,6 +237,7 @@ same 52px column, right-aligned, on every row including your own
 .btn.blue-border{background:transparent;color:#03eaff;border:2px solid #03eaff;padding:12px;width:100%;font-size:17px;margin-top:10px}
 .mini-btn{background:#03eaff;color:#1a1d24;border:0;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px}
 .mini-btn.grey{background:#3a3f4b}
+.request-actions .mini-btn.grey{border:1px solid #03eaff}
 .mini-btn:disabled{background:#3a3f4b;color:#b3b2b1;cursor:not-allowed}
 /* Drag / shuffle fixes (bug 2 + 4) */
 .cell{ touch-action:none }
@@ -253,7 +254,7 @@ html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-
 .cell.drop-target{outline:none}
 
 
-.play-bubble{position:absolute;bottom:-10px;right:-10px;background:#ffd166;color:#1a1d24;font-size:12px;font-weight:800;padding:2px 6px;border-radius:10px;z-index:50}
+.play-bubble{position:absolute;bottom:-10px;right:-10px;background:#ffd166;color:#1a1d24;-webkit-text-fill-color:#1a1d24;font-size:12px;font-weight:800;padding:2px 6px;border-radius:10px;z-index:50}
 .rack.instant .tile{transition:none}
 
 /* Countdown sits over the board only, so the number is in the exact

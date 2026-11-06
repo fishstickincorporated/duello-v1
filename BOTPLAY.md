@@ -383,6 +383,30 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Always-black point bubble, optimal moves on its own line, decline border, server search v54 (Nov 5, 2026, cache v54)
+
+- Point bubble: the score bubble at the corner of a played word
+  was black on plain cells and white on premium squares. Root
+  cause: premium cells set `-webkit-text-fill-color:#fff`, an
+  inherited WebKit property that overrode the bubble's own
+  `color` on iOS Safari. The bubble now sets
+  `-webkit-text-fill-color:#1a1d24` explicitly, so the number
+  is always black.
+- Stat window: "Optimal moves" now sits on the line below its
+  label, like Best word and Longest word already did (it was
+  the only one still inline).
+- Decline button: the grey Decline button on incoming friend
+  requests now has a thin Duello blue border (1px solid
+  #03eaff). Accept is unchanged.
+- Search: a brand-new account was unsearchable — @neo could
+  not be found from @ceo. Root cause: search filtered only
+  the top-25 leaderboard rows, and a new account at 1000 Elo
+  sits below the top 25. New endpoint GET
+  /api/users/search?q= searches the whole users + personas
+  tables by name or username (top 20 by Elo); the client
+  uses it, falling back to the leaderboard filter if it
+  fails.
+
 ## One decimal stats, flat new-account Elo line, photo shrink, real friend requests, no stale profile v53 (Nov 5, 2026, cache v53)
 
 - Stats: Average word score and Optimal move % now carry one

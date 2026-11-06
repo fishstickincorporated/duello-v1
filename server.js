@@ -1650,6 +1650,24 @@ const server = http.createServer(async (req, res) => {
       SELECT * FROM ranked WHERE rank <= 25 OR (is_persona = 0 AND username = $1) ORDER BY elo DESC, created_at ASC`, [user.username]);
       return sendJson(res, 200, { users: r.rows.map(u => ({ id: u.id, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, photoData: u.photo_data || null, isPersona: u.is_persona === 1, rank: Number(u.rank) })) });
     }
+    if (pathname === '/api/users/search' && req.method === 'GET') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      // Search used to filter only the top-25 leaderboard rows, so a
+      // brand-new account at 1000 Elo (below the top 25) could never
+      // be found — e.g. @neo was unsearchable from @ceo. Search the
+      // whole users + personas tables instead, by name or username.
+      const qstr = (url.searchParams.get('q') || '').trim().toLowerCase();
+      if (!qstr) return sendJson(res, 200, { users: [] });
+      const like = `%${qstr.replace(/[%_\\]/g, m => '\\' + m)}%`;
+      const r = await q(`SELECT id, username, first_name, last_name, elo, photo_data, 0 AS is_persona FROM users
+        WHERE email NOT LIKE '%@guest.local' AND (LOWER(username) LIKE $1 OR LOWER(first_name || ' ' || last_name) LIKE $1)
+        UNION ALL
+        SELECT id, username, first_name, last_name, elo, photo_url AS photo_data, 1 AS is_persona FROM personas
+        WHERE LOWER(username) LIKE $1 OR LOWER(first_name || ' ' || last_name) LIKE $1
+        ORDER BY elo DESC LIMIT 20`, [like]);
+      return sendJson(res, 200, { users: r.rows.map(u => ({ id: u.id, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, photoData: u.photo_data || null, isPersona: u.is_persona === 1, rank: null })) });
+    }
     // ---------- Friends (real requests, v53) ----------
     // Requests used to live only in the sender's localStorage, so a
     // request never reached the other person's phone — and because

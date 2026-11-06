@@ -356,8 +356,15 @@ async function runFriendSearch() {
   const q = $('friendSearch').value.trim().toLowerCase(); const el = $('friendSearchResults'); el.innerHTML = '';
   if (!q) return;
   await loadMe();
-  const users = await ensureGlobalRows();
-  users.filter(u => (`${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q) || u.username.toLowerCase().includes(q))).forEach(u => {
+  // Server search, not the top-25 leaderboard: a new account at
+  // 1000 Elo is below the top 25 and was unfindable before.
+  let users = null;
+  try { const d = await api('/api/users/search?q=' + encodeURIComponent(q)); users = d.users || []; }
+  catch {
+    const rows = await ensureGlobalRows();
+    users = rows.filter(u => (`${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)));
+  }
+  users.forEach(u => {
     // Search rows are leaderboard rows, not a compact variant:
     // rank | pfp | name over username | Elo. No friend button here
     // either — adding happens only from the profile window.
@@ -1276,7 +1283,7 @@ function showStatWindow(stats) {
   const best = (x) => x.best ? `${x.best.word} (<span class="num">${x.best.score} pts</span>)` : '—';
   const longest = (x) => x.longest ? `${x.longest.word} (<span class="num">${x.longest.word.length} letters</span>)` : '—';
   const opt = (x) => `${x.optimal}/${x.total}`;
-  const box = (name, pfp, st, noPhoto) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}">${pfp}</span><span class="stat-box-name">${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span> <span class="num">${opt(st)}</span></div></div>`;
+  const box = (name, pfp, st, noPhoto) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}">${pfp}</span><span class="stat-box-name">${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span><br><span class="num">${opt(st)}</span></div></div>`;
   const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
   // A persona with no photo gets the silhouette in the stat box and
   // the top pfp too (same reasoning as the scoreboard: a person

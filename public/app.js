@@ -122,6 +122,13 @@ let globalRows = null;
 // toggles, a remove confirm), and friendsRenderedScope tracks
 // which scope the DOM currently shows.
 let friendsStale = true, friendsRenderedScope = null;
+// Global Ranks already fetched for a profile, by username, so
+// opening the same profile again shows the rank at once instead
+// of waiting on the fetch. Keyed by the viewed player, not the
+// viewer — the rank counts everyone, so it is the same whoever
+// looks. Cleared when a game ends, because Elos (and therefore
+// ranks) move then.
+const rankCache = new Map();
 // Server-owned friend state for the signed-in account: accepted
 // friends, incoming requests, outgoing requests. Cached per
 // username, so switching accounts never shows the old account's
@@ -269,11 +276,17 @@ async function openPersonModal(person) {
   $('personName').textContent = person.name;
   $('personUser').textContent = '@' + person.username;
   $('personElo').textContent = person.elo;
-  // Global Rank, below Elo. The row's own rank is the Friends
-  // rank on the Friends tab, so always ask the server for the
-  // true Global one; '—' until it answers.
-  $('personRank').textContent = '—';
-  api('/api/users/rank?username=' + encodeURIComponent(person.username)).then(d => { if (modalPerson && modalPerson.username === person.username) $('personRank').textContent = d.rank; }).catch(() => {});
+  // Global Rank, below Elo. Show it at once when it is already
+  // known — a Global row carries the server's true rank, and any
+  // rank fetched before sits in the session cache. Otherwise
+  // fetch it once (and cache it) instead of on every open; '—'
+  // only while that first fetch is in flight.
+  const knownRank = person.globalRank ?? rankCache.get(person.username);
+  if (knownRank != null) $('personRank').textContent = knownRank;
+  else {
+    $('personRank').textContent = '—';
+    api('/api/users/rank?username=' + encodeURIComponent(person.username)).then(d => { rankCache.set(person.username, d.rank); if (modalPerson && modalPerson.username === person.username) $('personRank').textContent = d.rank; }).catch(() => {});
+  }
   $('personAddBtn').style.display = person.isYou ? 'none' : '';
   renderPersonAddBtn();
   $('personModal').classList.remove('hidden');
@@ -349,6 +362,10 @@ async function renderFriendsUI() {
   if (lbScope === 'global') {
     const users = await ensureGlobalRows();
     rows = users.map(toLbRow).sort((a, b) => b.elo - a.elo);
+    // The rank on a Global row IS the true Global rank (the
+    // server's RANK() over everyone), so the profile window can
+    // show it at once with no fetch — see openPersonModal.
+    rows.forEach(r => { r.globalRank = r.rank; });
     // Both leaderboards show first name + last initial (see
     // shortName in lbRowHTML). The full name still lives on the
     // row object, so the profile window (opened by tapping the
@@ -444,6 +461,18 @@ async function renderFriendsUI() {
     }
   }
   friendsStale = false; friendsRenderedScope = lbScope;
+  // Warm the rank cache for the Friends list in the background,
+  // so opening a friend's profile shows their Global Rank at
+  // once instead of waiting on the fetch: the list is small, this
+  // runs only on a real render, and already-cached names are
+  // skipped. Global rows need none of this — they carry their
+  // rank already (see the global branch above).
+  if (lbScope === 'friends') {
+    for (const r of rows) {
+      if (rankCache.has(r.username)) continue;
+      api('/api/users/rank?username=' + encodeURIComponent(r.username)).then(d => rankCache.set(r.username, d.rank)).catch(() => {});
+    }
+  }
 }
 function showFriendsTab() {
   lbScope = 'friends';
@@ -491,6 +520,11 @@ async function runFriendSearch() {
     // No friend button here either — adding happens only from
     // the profile window.
     const r = toLbRow(u);
+    // The search fallback (top-25 rows) carries the leaderboard
+    // rank, which is the true Global one — tag it so the profile
+    // window shows it at once. Server search results have no
+    // rank, so those still fetch on first open.
+    if (u.rank != null) r.globalRank = u.rank;
     const row = document.createElement('div'); row.className = 'lb-row no-rank' + (r.isYou ? ' you' : '');
     row.innerHTML = lbRowHTML(r, youBadgeHTML(r), { hideRank: true });
     el.appendChild(row);
@@ -1423,6 +1457,10 @@ function showStatWindowDelayed(stats) {
   showStatWindow(stats);
 }
 function showStatWindow(stats) {
+  // A game just ended, so Elos moved and cached Global Ranks are
+  // stale — clear them here (Play Again starts a new game without
+  // going home, so the refresh there alone would miss it).
+  rankCache.clear();
   clearStatDelay(); if (game) statShownGameId = game.id;
   const w = $('statWindow'); w.classList.remove('hidden');
   $('gameDim').classList.add('dimmed');
@@ -1509,8 +1547,9 @@ async function refreshLeaderboards() {
   // A finished game changed the Elo and stats, so the cached
   // profile is stale: the next Profile tap refetches it. The
   // Friends list is invalidated the same way, via the forced
-  // friends refetch below.
-  profileData = null;
+  // friends refetch below. Ranks moved too, so the rank cache
+  // goes with them.
+  profileData = null; rankCache.clear();
   try { const d = await api('/api/me'); me = d.user; } catch (err) { deadSession(err); return; }
   globalRows = null;
   await loadServerFriends(true);

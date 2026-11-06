@@ -383,6 +383,28 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Profile Global Rank shows at once v75 (Nov 6, 2026, cache v75)
+
+- Opening a profile used to show '—' for Global Rank until
+  a /api/users/rank round-trip came back, on every open.
+  Now it shows at once whenever the rank is already known:
+  Global leaderboard rows carry the server's true rank, so
+  the modal uses it straight off the row (same for the
+  search fallback, whose rows carry the leaderboard rank);
+  any rank fetched once sits in a session cache, so a second
+  open of the same profile is instant too.
+- Friends' ranks are warmed in the background when the
+  Friends list renders (small list, once per render, cached
+  names skipped), so opening a friend's profile is instant
+  as well. First opens from search or the stat window still
+  fetch once, then cache.
+- The cache clears when a game ends (stat window) and when
+  leaving to home, because Elos — and therefore ranks —
+  move then. Verified with a test run of the resolution
+  logic: Global tap instant, friend/search first open
+  fetches once and the second is instant, a game end makes
+  the next open fetch fresh again.
+
 ## Tabs load once and stay loaded for the session v74 (Nov 6, 2026, cache v74)
 
 - The Profile tab no longer blanks and refetches /api/me on

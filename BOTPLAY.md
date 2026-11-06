@@ -383,6 +383,18 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## "Remove?" confirm sits in the red × slot v66 (Nov 6, 2026, cache v66)
+
+- The confirm no longer lives in a panel below the list:
+  tapping the red × swaps in a "Remove?" button right
+  there in the same action slot — red text, red border —
+  and tapping that removes the friend. The confirming
+  row widens its action column so the button fits and the
+  Elo stays at the far right. Tapping another row's ×
+  moves the confirm there; leaving delete mode (pencil
+  off, Global tab, sign-out) clears it. The old panel and
+  its Keep friend / Yes, remove buttons are gone.
+
 ## Persona requests stay "sent" forever v65 (Nov 6, 2026, cache v65)
 
 - Requesting a persona flipped their profile button to

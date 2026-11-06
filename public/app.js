@@ -110,8 +110,9 @@ $('tabHome').onclick = () => show('homeScreen');
 // answered by the same simulated accept/decline as a rematch
 // request.
 let lbScope = 'friends', deleteMode = false;
-// Friend waiting on the remove-confirm panel (set when the red ×
-// is tapped, cleared on Cancel or after the removal runs).
+// Friend whose row is showing the inline "Remove?" button (set
+// when the red × is tapped, cleared when it is tapped, when
+// delete mode is left, or after the removal runs).
 let pendingRemove = null;
 let globalRows = null;
 // Server-owned friend state for the signed-in account: accepted
@@ -362,38 +363,45 @@ async function renderFriendsUI() {
   const list = $('leaderboardList'); list.innerHTML = '';
   // Leaving delete mode (pencil off, or switching to Global)
   // dismisses a pending remove confirm with it.
-  if (!deleteMode) { pendingRemove = null; $('removeFriendConfirm').classList.add('hidden'); }
+  if (!deleteMode) pendingRemove = null;
   $('friendsPencil').classList.toggle('active', deleteMode && lbScope === 'friends');
   rows.forEach((r, i) => {
-    const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
+    const isFriends = lbScope === 'friends';
+    // The row being confirmed gets a wider action column for the
+    // "Remove?" button (see .lb-row.confirming in style.css).
+    const confirming = isFriends && deleteMode && pendingRemove && pendingRemove.username === r.username;
+    const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '') + (confirming ? ' confirming' : '');
     // Grid row (see style.css): rank | pfp | name | action | Elo,
     // all fixed-width except the name, so every Elo sits in the
     // same column at the far right edge whatever the name length
     // or the button state. Your own row keeps the YOU badge in the
     // action slot, so its Elo lines up too and your full name never
     // has to shrink for the badge.
-    const isFriends = lbScope === 'friends';
     // No play button on leaderboard rows any more: challenging
     // a friend happens only from their profile window (Play
     // button). The action slot stays as an empty box so the Elo
     // keeps its column at the far right. In delete mode the
-    // slot becomes a red × that removes the friend; your own
-    // row is never removable.
+    // slot holds a red ×; tapping it swaps in a "Remove?"
+    // button right there in the same slot — nothing is removed
+    // until that is tapped. Your own row is never removable.
     let action;
     if (!isFriends || r.isYou) action = youBadgeHTML(r);
-    else if (deleteMode) action = '<button class="lb-delete" aria-label="Remove friend">×</button>';
+    else if (deleteMode) action = confirming
+      ? '<button class="lb-remove-confirm">Remove?</button>'
+      : '<button class="lb-delete" aria-label="Remove friend">×</button>';
     else action = '<span class="lb-action"></span>';
     row.innerHTML = lbRowHTML(r, action);
     list.appendChild(row);
     if (isFriends && !r.isYou && deleteMode) {
-      const btn = row.querySelector('.lb-delete');
-      // The red × only asks — nothing is removed until the
-      // confirm button in the panel below the list is tapped.
-      if (btn) btn.onclick = () => {
-        pendingRemove = r;
-        $('removeFriendText').textContent = `Remove ${shortName(r)} (@${r.username}) from your friends?`;
-        $('removeFriendConfirm').classList.remove('hidden');
-        $('removeFriendConfirm').scrollIntoView({ block: 'nearest' });
+      const delBtn = row.querySelector('.lb-delete');
+      if (delBtn) delBtn.onclick = () => { pendingRemove = r; renderFriendsUI(); };
+      const confBtn = row.querySelector('.lb-remove-confirm');
+      if (confBtn) confBtn.onclick = async () => {
+        const target = pendingRemove; pendingRemove = null;
+        if (!target) return;
+        if (target.isPersona) unrequestFriend(target.username);
+        else { try { await api('/api/friends/remove', { method: 'POST', body: JSON.stringify({ username: target.username }) }); } catch {} await loadServerFriends(true); }
+        renderFriendsUI();
       };
     }
     // Tapping the name opens their profile window.
@@ -429,17 +437,6 @@ $('tabFriends').onclick = showFriendsTab;
 $('lbFriendsTab').onclick = () => { lbScope = 'friends'; $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active'); renderFriendsUI(); };
 $('lbGlobalTab').onclick = () => { lbScope = 'global'; deleteMode = false; $('lbGlobalTab').classList.add('active'); $('lbFriendsTab').classList.remove('active'); renderFriendsUI(); };
 $('friendsPencil').onclick = () => { if (lbScope !== 'friends') return; deleteMode = !deleteMode; renderFriendsUI(); };
-// Remove-friend confirm panel: Cancel keeps the friend, the
-// confirm button runs the removal that the red × only asked for.
-$('removeFriendCancelBtn').onclick = () => { pendingRemove = null; $('removeFriendConfirm').classList.add('hidden'); };
-$('removeFriendConfirmBtn').onclick = async () => {
-  const r = pendingRemove; pendingRemove = null;
-  $('removeFriendConfirm').classList.add('hidden');
-  if (!r) return;
-  if (r.isPersona) unrequestFriend(r.username);
-  else { try { await api('/api/friends/remove', { method: 'POST', body: JSON.stringify({ username: r.username }) }); } catch {} await loadServerFriends(true); }
-  renderFriendsUI();
-};
 async function runFriendSearch() {
   // A leading @ is stripped: typing "@neo" searches for neo, so
   // the @ in a displayed handle never makes a search miss.
@@ -2012,12 +2009,12 @@ function renderPwReqs(listId, pw) {
 // profile must never be what the next sign-in first sees.
 function wipeAccountScreens() {
   blankProfileUI();
+  pendingRemove = null;
   $('leaderboardList').innerHTML = '';
   $('friendRequests').innerHTML = '';
   $('friendSearchResults').innerHTML = '';
   $('friendSearch').value = '';
   $('noFriendsCard').classList.add('hidden');
-  $('removeFriendConfirm').classList.add('hidden');
 }
 $('profileSignOutBtn').onclick = async () => {
   try { await api('/api/signout', { method: 'POST' }); } catch {}

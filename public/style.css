@@ -152,7 +152,7 @@ let the Elo sit wherever the name and the button ended, so Elos
 wandered left and right down the list; now every Elo lands in the
 same 52px column, right-aligned, on every row including your own
 (the empty action slot keeps it there). */
-.lb-row{display:grid;grid-template-columns:28px 36px minmax(0,1fr) 36px 44px;align-items:center;gap:10px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}
+.lb-row{display:grid;grid-template-columns:22px 36px minmax(0,1fr) 36px 44px;align-items:center;gap:6px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}
 /* Search rows show no rank: the rank column is dropped and the
    other pieces shift left one column, keeping their alignment. */
 .lb-row.no-rank{grid-template-columns:36px minmax(0,1fr) 36px 44px}
@@ -161,6 +161,10 @@ same 52px column, right-aligned, on every row including your own
 .lb-row.no-rank .lb-action{grid-column:3}
 .lb-row.no-rank .lb-elo{grid-column:4}
 .lb-row .rank{color:#ffd166;font-weight:900;font-size:18px;text-align:left;grid-column:1}
+/* A 3-digit rank (100+ friends, or a Global true rank past 99)
+   drops a size so it still fits its narrow column without
+   touching the picture. */
+.lb-row .rank.small{font-size:14px}
 .lb-identity{min-width:0;overflow:hidden;grid-column:3}
 .lb-row .lb-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lb-row .lb-user{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -197,7 +201,7 @@ same 52px column, right-aligned, on every row including your own
 .lb-delete{background:none;border:0;color:#ff1303;cursor:pointer;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;justify-self:center;font-size:24px;line-height:1;grid-column:4}
 /* The row being confirmed gives its action column room for the
    "Remove?" button, so the Elo keeps its far-right column. */
-.lb-row.confirming{grid-template-columns:28px 36px minmax(0,1fr) 84px 44px}
+.lb-row.confirming{grid-template-columns:22px 36px minmax(0,1fr) 84px 44px}
 .lb-remove-confirm{background:transparent;color:#ff1303;border:2px solid #ff1303;border-radius:8px;cursor:pointer;font-size:14px;font-weight:800;padding:4px 6px;white-space:nowrap;grid-column:4;justify-self:center}
 .leaderboard-tabs{display:flex;gap:8px;margin:10px 0}
 .lb-tab{flex:1;padding:10px;border:0;border-radius:10px;background:#262a33;color:#e8ecf1;cursor:pointer;font-weight:800;font-size:18px}

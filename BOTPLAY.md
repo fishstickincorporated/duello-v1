@@ -383,6 +383,18 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Picture and name shift left too v68 (Nov 6, 2026, cache v68)
+
+- v67 moved the rank but the picture and name stayed:
+  they sit after the rank column and the gap, so they
+  only move when those shrink. The rank column is now
+  22px (was 28px) and the row gap 6px (was 10px), so the
+  picture starts at 40px from the left edge (was 50px)
+  and the name at 82px (was 96px), while the rank stays
+  at its 12px and the Elo at its 12px on the right. A
+  3-digit rank drops to 14px so it still fits its column
+  without touching the picture.
+
 ## Rank flush left, matching Elo's right padding v67 (Nov 6, 2026, cache v67)
 
 - The rank was right-aligned in its 28px column, so a

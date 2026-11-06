@@ -205,7 +205,7 @@ function lbRowHTML(r, actionHTML, opts) {
   // Search results show no rank at all (hideRank): the rank span
   // is left out and the row uses the no-rank grid, so nothing
   // shifts — pfp, name, action and Elo keep their columns.
-  const rank = opts && opts.hideRank ? '' : `<span class="rank">${r.rank ?? ''}</span>`;
+  const rank = opts && opts.hideRank ? '' : `<span class="rank${(r.rank || 0) >= 100 ? ' small' : ''}">${r.rank ?? ''}</span>`;
   return `${rank}<span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${shortName(r)}</div><div class="lb-user">@${r.username}</div></span>${actionHTML}<span class="lb-elo">${r.elo}</span>`;
 }
 function youBadgeHTML(r) {

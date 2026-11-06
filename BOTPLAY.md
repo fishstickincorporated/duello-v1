@@ -383,6 +383,25 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Remove confirm, @-proof search, no rank in search results v59 (Nov 5, 2026, cache v59)
+
+- Removing a friend now asks first: tapping the red × in
+  delete mode opens a confirm panel under the list —
+  "Remove [name] (@username) from your friends?" — with
+  Keep friend and Yes, remove. Nothing is removed until
+  Yes, remove is tapped. Leaving delete mode (pencil off,
+  or switching to Global) dismisses the panel.
+- Search strips a leading @ on both sides: typing "@neo"
+  searches for neo. Removing someone as a friend never
+  affected search — search covers every user and persona
+  regardless of friendship (remove only deletes the
+  friendship row) — but the @ prefix did make a search
+  miss, which is the likely reason @neo was unfindable.
+- Search result rows show no rank: the rank column is
+  dropped and pfp / name / action / Elo shift one column
+  left, keeping their alignment. Leaderboard rows are
+  unchanged.
+
 ## No play button on leaderboard rows v58 (Nov 5, 2026, cache v58)
 
 - The play button is gone from Friends leaderboard rows.

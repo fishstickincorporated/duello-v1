@@ -153,6 +153,13 @@ wandered left and right down the list; now every Elo lands in the
 same 52px column, right-aligned, on every row including your own
 (the empty action slot keeps it there). */
 .lb-row{display:grid;grid-template-columns:28px 36px minmax(0,1fr) 36px 44px;align-items:center;gap:10px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}
+/* Search rows show no rank: the rank column is dropped and the
+   other pieces shift left one column, keeping their alignment. */
+.lb-row.no-rank{grid-template-columns:36px minmax(0,1fr) 36px 44px}
+.lb-row.no-rank .lb-pfp{grid-column:1}
+.lb-row.no-rank .lb-identity{grid-column:2}
+.lb-row.no-rank .lb-action{grid-column:3}
+.lb-row.no-rank .lb-elo{grid-column:4}
 .lb-row .rank{color:#ffd166;font-weight:900;font-size:18px;text-align:right;grid-column:1}
 .lb-identity{min-width:0;overflow:hidden;grid-column:3}
 .lb-row .lb-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

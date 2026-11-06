@@ -1657,7 +1657,10 @@ const server = http.createServer(async (req, res) => {
       // brand-new account at 1000 Elo (below the top 25) could never
       // be found — e.g. @neo was unsearchable from @ceo. Search the
       // whole users + personas tables instead, by name or username.
-      const qstr = (url.searchParams.get('q') || '').trim().toLowerCase();
+      // A leading @ is stripped server-side too: "@neo" searches
+      // for neo, so the @ in a displayed handle never makes a
+      // search miss.
+      const qstr = (url.searchParams.get('q') || '').trim().toLowerCase().replace(/^@+/, '');
       if (!qstr) return sendJson(res, 200, { users: [] });
       const like = `%${qstr.replace(/[%_\\]/g, m => '\\' + m)}%`;
       // Most relevant first: exact username, username starting

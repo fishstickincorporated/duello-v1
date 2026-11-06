@@ -110,6 +110,9 @@ $('tabHome').onclick = () => show('homeScreen');
 // answered by the same simulated accept/decline as a rematch
 // request.
 let lbScope = 'friends', deleteMode = false;
+// Friend waiting on the remove-confirm panel (set when the red ×
+// is tapped, cleared on Cancel or after the removal runs).
+let pendingRemove = null;
 let globalRows = null;
 // Server-owned friend state for the signed-in account: accepted
 // friends, incoming requests, outgoing requests. Cached per
@@ -197,8 +200,12 @@ async function ensureGlobalRows() {
 // there except the YOU badge on your own row — friends are added
 // only from the profile window now. Friends shows a play icon that
 // challenges that friend.
-function lbRowHTML(r, actionHTML) {
-  return `<span class="rank">${r.rank ?? ''}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${shortName(r)}</div><div class="lb-user">@${r.username}</div></span>${actionHTML}<span class="lb-elo">${r.elo}</span>`;
+function lbRowHTML(r, actionHTML, opts) {
+  // Search results show no rank at all (hideRank): the rank span
+  // is left out and the row uses the no-rank grid, so nothing
+  // shifts — pfp, name, action and Elo keep their columns.
+  const rank = opts && opts.hideRank ? '' : `<span class="rank">${r.rank ?? ''}</span>`;
+  return `${rank}<span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${shortName(r)}</div><div class="lb-user">@${r.username}</div></span>${actionHTML}<span class="lb-elo">${r.elo}</span>`;
 }
 function youBadgeHTML(r) {
   return r.isYou ? '<span class="lb-action"><span class="you-badge">YOU</span></span>' : '';
@@ -345,6 +352,9 @@ async function renderFriendsUI() {
     rows.forEach((r, i) => { r.rank = i + 1; });
   }
   const list = $('leaderboardList'); list.innerHTML = '';
+  // Leaving delete mode (pencil off, or switching to Global)
+  // dismisses a pending remove confirm with it.
+  if (!deleteMode) { pendingRemove = null; $('removeFriendConfirm').classList.add('hidden'); }
   $('friendsPencil').classList.toggle('active', deleteMode && lbScope === 'friends');
   rows.forEach((r, i) => {
     const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
@@ -369,10 +379,13 @@ async function renderFriendsUI() {
     list.appendChild(row);
     if (isFriends && !r.isYou && deleteMode) {
       const btn = row.querySelector('.lb-delete');
-      if (btn) btn.onclick = async () => {
-        if (r.isPersona) unrequestFriend(r.username);
-        else { try { await api('/api/friends/remove', { method: 'POST', body: JSON.stringify({ username: r.username }) }); } catch {} await loadServerFriends(true); }
-        renderFriendsUI();
+      // The red × only asks — nothing is removed until the
+      // confirm button in the panel below the list is tapped.
+      if (btn) btn.onclick = () => {
+        pendingRemove = r;
+        $('removeFriendText').textContent = `Remove ${shortName(r)} (@${r.username}) from your friends?`;
+        $('removeFriendConfirm').classList.remove('hidden');
+        $('removeFriendConfirm').scrollIntoView({ block: 'nearest' });
       };
     }
     // Tapping the name opens their profile window.
@@ -408,8 +421,21 @@ $('tabFriends').onclick = showFriendsTab;
 $('lbFriendsTab').onclick = () => { lbScope = 'friends'; $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active'); renderFriendsUI(); };
 $('lbGlobalTab').onclick = () => { lbScope = 'global'; deleteMode = false; $('lbGlobalTab').classList.add('active'); $('lbFriendsTab').classList.remove('active'); renderFriendsUI(); };
 $('friendsPencil').onclick = () => { if (lbScope !== 'friends') return; deleteMode = !deleteMode; renderFriendsUI(); };
+// Remove-friend confirm panel: Cancel keeps the friend, the
+// confirm button runs the removal that the red × only asked for.
+$('removeFriendCancelBtn').onclick = () => { pendingRemove = null; $('removeFriendConfirm').classList.add('hidden'); };
+$('removeFriendConfirmBtn').onclick = async () => {
+  const r = pendingRemove; pendingRemove = null;
+  $('removeFriendConfirm').classList.add('hidden');
+  if (!r) return;
+  if (r.isPersona) unrequestFriend(r.username);
+  else { try { await api('/api/friends/remove', { method: 'POST', body: JSON.stringify({ username: r.username }) }); } catch {} await loadServerFriends(true); }
+  renderFriendsUI();
+};
 async function runFriendSearch() {
-  const q = $('friendSearch').value.trim().toLowerCase(); const el = $('friendSearchResults'); el.innerHTML = '';
+  // A leading @ is stripped: typing "@neo" searches for neo, so
+  // the @ in a displayed handle never makes a search miss.
+  const q = $('friendSearch').value.trim().toLowerCase().replace(/^@+/, ''); const el = $('friendSearchResults'); el.innerHTML = '';
   if (!q) return;
   await loadMe();
   // Server search, not the top-25 leaderboard: a new account at
@@ -424,11 +450,12 @@ async function runFriendSearch() {
   // ranks and caps at 5; this caps the fallback too).
   users.slice(0, 5).forEach(u => {
     // Search rows are leaderboard rows, not a compact variant:
-    // rank | pfp | name over username | Elo. No friend button here
-    // either — adding happens only from the profile window.
+    // pfp | name over username | Elo — no rank column at all.
+    // No friend button here either — adding happens only from
+    // the profile window.
     const r = toLbRow(u);
-    const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
-    row.innerHTML = lbRowHTML(r, youBadgeHTML(r));
+    const row = document.createElement('div'); row.className = 'lb-row no-rank' + (r.isYou ? ' you' : '');
+    row.innerHTML = lbRowHTML(r, youBadgeHTML(r), { hideRank: true });
     el.appendChild(row);
     const nameEl = row.querySelector('.lb-name');
     if (nameEl) nameEl.onclick = () => openPersonModal(r);

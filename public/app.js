@@ -358,7 +358,10 @@ async function renderFriendsUI() {
     const realRows = (serverFriends.friends || []).map(u => toLbRow(u));
     const selfRow = me ? toLbRow({ id: me.id, username: me.username, firstName: me.firstName, lastName: me.lastName, elo: me.elo, photoData: me.photoData || null, isPersona: false }) : null;
     rows = [...realRows, ...(selfRow ? [selfRow] : [])].sort((a, b) => b.elo - a.elo);
-    rows.forEach((r, i) => { r.rank = i + 1; });
+    // Ties share a rank, and the next rank skips ahead: two players
+    // tied at 19 are both 19, and the next player is 21.
+    let tieElo = null, tieRank = 0;
+    rows.forEach((r, i) => { if (r.elo !== tieElo) { tieRank = i + 1; tieElo = r.elo; } r.rank = tieRank; });
   }
   const list = $('leaderboardList'); list.innerHTML = '';
   // Leaving delete mode (pencil off, or switching to Global)

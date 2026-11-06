@@ -383,6 +383,21 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Leaderboard ties share a rank v73 (Nov 6, 2026, cache v73)
+
+- Ties now share a rank, and the next rank skips ahead:
+  two players tied at 19 are both 19, and the next
+  player is 21. Fixed in all three places ranks are
+  made: the Global leaderboard SQL went from ROW_NUMBER
+  (a distinct rank per row, ties broken by created_at)
+  to RANK() over Elo desc; the profile rank endpoint
+  counts only players strictly ahead instead of also
+  counting earlier-created players at the same Elo; and
+  the Friends list (ranked client-side) assigns the
+  shared rank the same way. Verified with Jeff's exact
+  case in a test run: 19 / 19 / 21, and a 3-way tie at
+  the top gives 1 / 1 / 1 / 4.
+
 ## Status padding, no flip to a timed-out opponent, highest word counts the play v72 (Nov 6, 2026, cache v72)
 
 - Status line now has 8px padding above and below, so a

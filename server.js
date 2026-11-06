@@ -1661,7 +1661,7 @@ const server = http.createServer(async (req, res) => {
         UNION ALL
         SELECT id, username, first_name, last_name, elo, photo_url AS photo_data, created_at, 1 AS is_persona FROM personas
       ), ranked AS (
-        SELECT *, ROW_NUMBER() OVER (ORDER BY elo DESC, created_at ASC) AS rank FROM allrows
+        SELECT *, RANK() OVER (ORDER BY elo DESC) AS rank FROM allrows
       )
       SELECT * FROM ranked WHERE rank <= 25 OR (is_persona = 0 AND username = $1) ORDER BY elo DESC, created_at ASC`, [user.username]);
       return sendJson(res, 200, { users: r.rows.map(u => ({ id: u.id, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, photoData: u.photo_data || null, isPersona: u.is_persona === 1, rank: Number(u.rank) })) });
@@ -1705,15 +1705,16 @@ const server = http.createServer(async (req, res) => {
       // True Global rank for one player (the profile window shows
       // it below Elo). The leaderboard only ships the top 25, so a
       // player outside it has no rank client-side; count everyone
-      // ahead of them instead, with the leaderboard's tie-break
-      // (Elo desc, then earliest created first).
+      // strictly ahead of them instead. Ties share a rank, and the
+      // next rank skips ahead — the same rule as the leaderboard's
+      // RANK() window.
       const username = (url.searchParams.get('username') || '').trim().toLowerCase();
       const target = await getUserByUsername(username) || (await q('SELECT * FROM personas WHERE username=$1', [username])).rows[0];
       if (!target) return sendJson(res, 404, { error: 'That player is not available.' });
       const r = await q(`WITH allrows AS (
         SELECT elo, created_at FROM users WHERE email NOT LIKE '%@guest.local'
         UNION ALL SELECT elo, created_at FROM personas
-      ) SELECT COUNT(*)::int + 1 AS rank FROM allrows WHERE elo > $1 OR (elo = $1 AND created_at < $2)`, [target.elo, target.created_at]);
+      ) SELECT COUNT(*)::int + 1 AS rank FROM allrows WHERE elo > $1`, [target.elo]);
       return sendJson(res, 200, { rank: r.rows[0].rank });
     }
     // ---------- Friends (real requests, v53) ----------

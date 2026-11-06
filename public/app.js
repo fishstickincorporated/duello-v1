@@ -197,7 +197,7 @@ async function ensureGlobalRows() {
 // only from the profile window now. Friends shows a play icon that
 // challenges that friend.
 function lbRowHTML(r, actionHTML) {
-  return `<span class="rank">${r.rank ?? ''}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${r.displayName || r.name}</div><div class="lb-user">@${r.username}</div></span>${actionHTML}<span class="lb-elo">${r.elo}</span>`;
+  return `<span class="rank">${r.rank ?? ''}</span><span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${shortName(r)}</div><div class="lb-user">@${r.username}</div></span>${actionHTML}<span class="lb-elo">${r.elo}</span>`;
 }
 function youBadgeHTML(r) {
   return r.isYou ? '<span class="lb-action"><span class="you-badge">YOU</span></span>' : '';
@@ -290,9 +290,18 @@ function toLbRow(u) {
     id: u.id, isPersona: !!u.isPersona, rank: u.rank,
     name: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username,
     firstName: u.firstName || '',
+    lastName: u.lastName || '',
     username: u.username, elo: u.elo, photoData: u.photoData || null,
     isYou: !!(me && u.username === me.username),
   };
+}
+// Leaderboards and search show first name + last initial only
+// ("Jeff M."); the full name appears only when you tap through
+// to the profile window.
+function shortName(r) {
+  const f = r.firstName || (r.name || '').split(' ')[0] || r.username;
+  const ln = r.lastName || (r.name || '').split(' ').slice(1).join(' ');
+  return ln ? `${f} ${ln[0]}.` : f;
 }
 async function renderFriendsUI() {
   // Pencil keeps its layout box on Global (visibility, not display), so the
@@ -305,10 +314,10 @@ async function renderFriendsUI() {
   if (lbScope === 'global') {
     const users = await ensureGlobalRows();
     rows = users.map(toLbRow).sort((a, b) => b.elo - a.elo);
-    // Global shows first names only — no last names on the list.
-    // The full name still lives on the row object, so the profile
-    // window (opened by tapping the name) shows it.
-    rows.forEach(r => { r.displayName = r.firstName || r.name; });
+    // Both leaderboards show first name + last initial (see
+    // shortName in lbRowHTML). The full name still lives on the
+    // row object, so the profile window (opened by tapping the
+    // name) shows it.
   } else {
     // Friends are mutual: an accepted request puts each side on
     // the other's list (the server returns accepted rows in
@@ -385,7 +394,7 @@ async function renderFriendsUI() {
   if (lbScope === 'friends') {
     // At most two requests at a time: deciding one reveals the next.
     for (const u of (serverFriends.incoming || []).slice(0, 2)) {
-      const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
+      const name = shortName({ firstName: u.firstName, lastName: u.lastName, name: '', username: u.username });
       const row = document.createElement('div'); row.className = 'request-row';
       row.innerHTML = `<span class="lb-pfp${u.photoData ? '' : ' no-photo'}">${pfpHTML(u)}</span><span class="lb-identity"><div class="lb-name">${name}</div><div class="lb-user">@${u.username}</div></span><span class="request-actions"><button class="mini-btn" data-act="accept">Accept</button><button class="mini-btn grey" data-act="decline">Decline</button></span>`;
       row.querySelector('[data-act="accept"]').onclick = async () => { try { await api('/api/friends/respond', { method: 'POST', body: JSON.stringify({ username: u.username, accept: true }) }); } catch {} await loadServerFriends(true); renderFriendsUI(); };

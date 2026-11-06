@@ -383,6 +383,21 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## First name + last initial, grey profile labels, blue pencil v56 (Nov 5, 2026, cache v56)
+
+- Both leaderboards and search now show first name + last
+  initial ("Jeff M.") instead of first names only on Global
+  and full names on Friends/search. The full name still
+  shows when you tap through to the profile window.
+- Profile window: the "Elo" and "Global Rank" labels are grey
+  like the username now, with the values in Duello blue. The
+  two lines sit close together (2px apart) with 12px above
+  and below the pair, so they are evenly spaced between the
+  username and the Play button.
+- Pencil: when delete mode is on, the pencil itself turns
+  Duello blue (its SVG stroke is recoloured by CSS) — no
+  outline/border around it any more.
+
 ## Elo capitalised, blue stat values, 2 requests at a time, Play on friend profiles, working pencil, friends ranks from 1, Global Rank v55 (Nov 5, 2026, cache v55)
 
 - Elo is a word now: "Plays at your Elo." — it was the only

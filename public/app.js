@@ -222,7 +222,11 @@ function playActionHTML(r) {
 let modalPerson = null;
 function isModalFriend() {
   if (!modalPerson) return false;
-  return modalPerson.isPersona ? getFriendRequests().includes(modalPerson.username) : isRealFriend(modalPerson.username);
+  // Accepted friends only. A requested persona is not a friend:
+  // personas never accept, so their button stays "sent" forever
+  // instead of flipping to Play the moment you request them
+  // (the old version counted a request as friendship here).
+  return !modalPerson.isPersona && isRealFriend(modalPerson.username);
 }
 function renderPersonAddBtn() {
   const btn = $('personAddBtn');

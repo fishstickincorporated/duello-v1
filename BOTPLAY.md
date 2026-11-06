@@ -383,6 +383,18 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Persona requests stay "sent" forever v65 (Nov 6, 2026, cache v65)
+
+- Requesting a persona flipped their profile button to
+  Play at once, because isModalFriend() counted a local
+  request as friendship — the "sent" state could never
+  show for a persona. Now only accepted friends count:
+  a requested persona's button reads grey "sent" with the
+  plane and stays that way, since personas never accept.
+  Tapping it still unrequests, back to Add Friend. Real
+  players are unchanged (accepted → Play, requested →
+  sent).
+
 ## Nobody is a friend until they accept; personas never are v64 (Nov 6, 2026, cache v64)
 
 - Requesting a persona used to put them straight on the

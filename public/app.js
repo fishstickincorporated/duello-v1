@@ -1332,7 +1332,14 @@ async function doPlay() {
   const prevHuman = game.clocks.human, prevFetchAt = gameFetchAt;
   const prevScore = game.scores.human, prevLastHuman = game.lastHuman, prevRack = game.humanRack.slice();
   game.clocks.human = Math.max(0, game.clocks.human - clientElapsedMs);
-  game.clocks.turn = 'bot'; gameFetchAt = tapAt;
+  // The turn only flips to the opponent at the tap when they still
+  // have time: with their clock already at 0 there is no bot turn
+  // at all (the server keeps the turn with the human), so flipping
+  // here flashed "Waiting for your opponent." for the split second
+  // until the reply landed.
+  const botHasTime = game.clocks.bot > 0;
+  if (botHasTime) game.clocks.turn = 'bot';
+  gameFetchAt = tapAt;
   // Score immediately at the tap, not when the Play POST returns: the
   // validation verdict for these exact placements already carries the
   // score (including bonuses), so add it now and show the played words
@@ -1362,7 +1369,7 @@ async function doPlay() {
   playInFlight = true;
   renderGame();
   $('playBtn').disabled = true; $('playBtn').classList.remove('validating', 'play-valid', 'play-invalid');
-  $('status').textContent = 'Waiting for your opponent.'; tickClocks();
+  $('status').textContent = botHasTime ? 'Waiting for your opponent.' : 'Your move.'; tickClocks();
   try {
     botTurnTapTime = tapAt;
     game = await api(`/api/games/${game.id}/play`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })), clientElapsedMs }) });

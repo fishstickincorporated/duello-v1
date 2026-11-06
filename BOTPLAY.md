@@ -383,6 +383,33 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Status padding, no flip to a timed-out opponent, highest word counts the play v72 (Nov 6, 2026, cache v72)
+
+- Status line now has 8px padding above and below, so a
+  point bubble hanging off the bottom row (10px below the
+  board) clears the status text instead of covering it.
+- When the opponent is out of time, a Play tap no longer
+  flips the turn to them for the split second until the
+  reply lands: the client only flips the turn at the tap
+  when the opponent's clock is above 0 (the server
+  already kept the turn in that case), and the status
+  stays "Your move." instead of "Waiting for your
+  opponent."
+- Highest word score (and the 50+/100+ counts, and the
+  average) now measure the PLAY's total, not one word
+  inside it: a play's points are its words plus bonuses,
+  so the old per-word max missed big plays — an 83-point
+  play whose best single word was 40 never showed, and
+  its 50+ count never moved. Fixed in both places that
+  compute it (profile stats and the end-of-game stats),
+  named by the play's main word; longest word still
+  counts letters. Stored moves already carry the play
+  total and main word, so finished games recompute
+  correctly with no migration — the 83 shows up on the
+  next profile load. Verified with a test run of the
+  shipped computeStats against an 83-point play vs FORD
+  at 60: the 83 wins.
+
 ## Bubble after the human's moves too v71 (Nov 6, 2026, cache v71)
 
 - The v70 bubble only ever showed after the opponent's

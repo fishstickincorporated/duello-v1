@@ -278,11 +278,17 @@ async function profileStatsFor(userId) {
         st.totalMoves++;
         if (m.isOptimal) st.optimalMoves++;
         if (m.bingo) st.bingos++;
+        // Word-score stats measure the PLAY's total, not one word
+        // inside it: a play's points are its words plus any bonuses,
+        // so a per-word max missed big plays entirely (an 83-point
+        // play whose best single word was 40 never showed, and its
+        // 50+ count never moved).
+        const ms = m.score || 0;
+        wordScoreSum += ms; wordCount++;
+        if (ms >= 50) st.wordsOver50++;
+        if (ms >= 100) st.wordsOver100++;
+        if (ms > st.highestWordScore) { st.highestWordScore = ms; st.highestWord = m.mainWord || ''; }
         for (const w of (m.words || [])) {
-          wordScoreSum += w.score || 0; wordCount++;
-          if ((w.score || 0) >= 50) st.wordsOver50++;
-          if ((w.score || 0) >= 100) st.wordsOver100++;
-          if ((w.score || 0) > st.highestWordScore) { st.highestWordScore = w.score || 0; st.highestWord = w.word || ''; }
           if (w.word && w.word.length > st.longestWordLen) { st.longestWordLen = w.word.length; st.longestWord = w.word; }
           uniq.add(w.word);
         }
@@ -839,9 +845,11 @@ function computeStats(moves) {
   for (const m of moves) {
     total++;
     if (m.isOptimal) { optimal++; if (m.mainWord) optimalWords.push(m.mainWord); }
+    // Highest "word" is the highest-scoring PLAY, named by its main
+    // word — same unit as the profile stats (see profileStatsFor).
+    if (!best || (m.score || 0) > best.score) best = { word: m.mainWord || '', score: m.score || 0 };
     for (const w of m.words) {
       unique.add(w.word);
-      if (!best || w.score > best.score) best = w;
       if (!longest || w.word.length > longest.word.length) longest = w;
     }
   }

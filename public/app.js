@@ -460,6 +460,12 @@ async function renderFriendsUI() {
       reqEl.appendChild(row);
     }
   }
+  // Incoming challenges sit above the friend requests: they are
+  // live (60 seconds), so they render on every Friends visit and
+  // the poll below keeps them fresh while the page is open. This
+  // runs on both scopes — a challenge should reach you wherever
+  // you are on the Friends page.
+  renderIncomingChallenges();
   friendsStale = false; friendsRenderedScope = lbScope;
   // Warm the rank cache for the Friends list in the background,
   // so opening a friend's profile shows their Global Rank at
@@ -474,6 +480,49 @@ async function renderFriendsUI() {
     }
   }
 }
+// Incoming real-player challenges, rendered into the top of the
+// Friends page (above the friend requests). Accept creates the
+// game on the server and joins it; Decline ends the challenge.
+async function renderIncomingChallenges() {
+  const el = $('challengeRequests');
+  if (!el) return;
+  let list = [];
+  try { const d = await api('/api/challenges/incoming'); list = d.challenges || []; }
+  catch (err) { if (deadSession(err)) return; return; }
+  el.innerHTML = '';
+  for (const c of list) {
+    const u = c.from;
+    const name = shortName({ firstName: u.firstName, lastName: u.lastName, name: '', username: u.username });
+    const row = document.createElement('div'); row.className = 'request-row';
+    row.innerHTML = `<span class="lb-pfp${u.photoData ? '' : ' no-photo'}">${pfpHTML(u)}</span><span class="lb-identity"><div class="lb-name">${name} challenged you</div><div class="lb-user">@${u.username}</div></span><span class="request-actions"><button class="mini-btn" data-act="accept">Accept</button><button class="mini-btn grey" data-act="decline">Decline</button></span>`;
+    row.querySelector('[data-act="accept"]').onclick = async () => {
+      try {
+        const d = await api(`/api/challenges/${c.id}/respond`, { method: 'POST', body: JSON.stringify({ accept: true }) });
+        if (d.gameId) { el.innerHTML = ''; joinChallengeGame(d.gameId); return; }
+      } catch {}
+      renderIncomingChallenges();
+    };
+    row.querySelector('[data-act="decline"]').onclick = async () => {
+      try { await api(`/api/challenges/${c.id}/respond`, { method: 'POST', body: JSON.stringify({ accept: false }) }); } catch {}
+      renderIncomingChallenges();
+    };
+    el.appendChild(row);
+  }
+}
+// Challenges arrive while the Friends page is open, so poll for
+// them every 5 seconds while it is visible — no push notification
+// exists, and a 60-second challenge cannot wait for the next
+// manual refresh. Runs once, guarded by screen and token.
+let challengePollTimer = null;
+function startChallengePoll() {
+  if (challengePollTimer) return;
+  challengePollTimer = setInterval(() => {
+    if (!$('friendsScreen') || $('friendsScreen').classList.contains('hidden')) return;
+    if (!token) return;
+    renderIncomingChallenges();
+  }, 5000);
+}
+startChallengePoll();
 function showFriendsTab() {
   lbScope = 'friends';
   $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active');
@@ -583,9 +632,16 @@ $('playFriendsBtn').onclick = showFriendsTab;
 // never answers, and the screen says so plainly instead of
 // hanging on the wait.
 let searchTimer = null, searchingActive = false;
-let searchMode = 'random', challengePersona = null;
+let searchMode = 'random', challengePersona = null, liveChallengeId = null;
 function cancelSearch() {
   searchingActive = false; challengePersona = null; searchMode = 'random';
+  // Walking away withdraws a live real-player challenge, so it
+  // never sits stale on the recipient's Friends page — and an
+  // accepted challenge can never strand them in a game alone.
+  // (show() calls this on any navigation away, and the Cancel
+  // button calls it too; the accept/decline/timeout paths clear
+  // liveChallengeId themselves first.)
+  if (liveChallengeId) { const id = liveChallengeId; liveChallengeId = null; api(`/api/challenges/${id}/cancel`, { method: 'POST' }).catch(() => {}); }
   if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
   $('searchingText').textContent = 'Searching for opponent…';
   $('searchCancelBtn').textContent = 'Cancel';
@@ -600,22 +656,60 @@ function startSearching() {
     startGame('persona');
   }, 2000 + Math.floor(Math.random() * 1000));
 }
-function startChallenge(r) {
+async function startChallenge(r) {
   cancelSearch();
   searchingActive = true; searchMode = 'challenge'; challengePersona = r;
-  $('searchingText').textContent = `Waiting for ${r.name.split(' ')[0]} to accept…`;
+  const first = r.name.split(' ')[0];
+  $('searchingText').textContent = `Waiting for ${first} to accept…`;
   show('searchingScreen');
-  searchTimer = setTimeout(() => {
-    if (!searchingActive) return;
-    searchingActive = false; searchTimer = null;
-    const first = r.name.split(' ')[0];
-    if (!r.isPersona) {
-      // No delivery path to a real player's phone yet: say so
-      // instead of leaving the wait hanging forever.
-      $('searchingText').textContent = `${first} can't accept challenges yet — real-player challenges arrive with the friends backend.`;
+  if (!r.isPersona) {
+    // A real challenge goes through the friends backend: the
+    // recipient sees it at the top of their Friends page and
+    // accepts or declines there. Wait up to 60 seconds, polling
+    // the challenge every 2 seconds; Cancel (or the timeout)
+    // withdraws it so it never sits stale on their page.
+    let challengeId = null;
+    try {
+      const d = await api('/api/challenges', { method: 'POST', body: JSON.stringify({ username: r.username }) });
+      challengeId = d.id;
+    } catch (e) {
+      if (!searchingActive) return;
+      searchingActive = false; searchTimer = null;
+      $('searchingText').textContent = (e && e.message) || `Couldn't reach ${first} right now.`;
       $('searchCancelBtn').textContent = 'Back to Friends';
       return;
     }
+    // The user may have tapped Cancel while the send was in flight:
+    // the challenge now exists on the server, so withdraw it at
+    // once instead of leaving it on the recipient's page.
+    if (!searchingActive) { try { await api(`/api/challenges/${challengeId}/cancel`, { method: 'POST' }); } catch {} return; }
+    liveChallengeId = challengeId;
+    let waited = 0;
+    const pollChallenge = async () => {
+      if (!searchingActive) return;
+      try {
+        const ch = await api(`/api/challenges/${challengeId}`);
+        if (!searchingActive) return;
+        if (ch.status === 'accepted' && ch.gameId) { searchingActive = false; searchTimer = null; liveChallengeId = null; joinChallengeGame(ch.gameId); return; }
+        if (ch.status === 'declined') { searchingActive = false; searchTimer = null; liveChallengeId = null; $('searchingText').textContent = `${first} declined the challenge.`; $('searchCancelBtn').textContent = 'Back to Friends'; return; }
+        if (ch.status !== 'pending') { searchingActive = false; searchTimer = null; liveChallengeId = null; $('searchingText').textContent = `That challenge ended.`; $('searchCancelBtn').textContent = 'Back to Friends'; return; }
+      } catch {}
+      waited += 2000;
+      if (waited >= 60000) {
+        searchingActive = false; searchTimer = null; liveChallengeId = null;
+        try { await api(`/api/challenges/${challengeId}/cancel`, { method: 'POST' }); } catch {}
+        $('searchingText').textContent = `${first} didn't answer — they may not be in the app right now.`;
+        $('searchCancelBtn').textContent = 'Back to Friends';
+        return;
+      }
+      if (searchingActive) searchTimer = setTimeout(pollChallenge, 2000);
+    };
+    searchTimer = setTimeout(pollChallenge, 2000);
+    return;
+  }
+  searchTimer = setTimeout(() => {
+    if (!searchingActive) return;
+    searchingActive = false; searchTimer = null;
     if (Math.random() < 0.5) {
       startGame('persona', r.id);
     } else {
@@ -623,6 +717,39 @@ function startChallenge(r) {
       $('searchCancelBtn').textContent = 'Back to Friends';
     }
   }, 5000 + Math.floor(Math.random() * 2000));
+}
+// Join a real-player game that already exists (an accepted
+// challenge): load it and run the same countdown start as a
+// fresh game. One retry on the load: the accept just created
+// the row, so a single blip must not strand the player on the
+// Friends page with the challenge already gone.
+async function joinChallengeGame(gameId) {
+  currentBot = 'human'; currentPersonaId = null; botTurnTapTime = Date.now();
+  try {
+    game = await api(`/api/games/${gameId}`);
+  } catch (e) {
+    try { await new Promise(r => setTimeout(r, 1000)); game = await api(`/api/games/${gameId}`); }
+    catch (e2) {
+      if (e2 && e2.message === 'Not signed in.') { token = ''; storeDel('duello_token'); me = null; setAuthMode('signin'); show('authScreen'); return; }
+      return;
+    }
+  }
+  enterGameScreen();
+}
+// The shared game start: clocks pinned during the countdown,
+// rack hidden until the countdown ends. startGame (bot games)
+// and joinChallengeGame (real games) both land here.
+function enterGameScreen() {
+  // Display 4:00 during the countdown, not the server's create-round-trip
+  // value (3:59): the clocks only start when the countdown ends (see /start).
+  game.clocks.human = 240000; game.clocks.bot = 240000;
+  gameFetchAt = Date.now(); pending = []; selectedRack = null; armed = {};
+  clearStatDelay(); statShownGameId = null;
+  // Set the countdown flag BEFORE the first render, so that render draws
+  // the rack as empty slots (not full letters) from the very first frame.
+  countdownActive = true;
+  ensureLocalWords();
+  show('gameScreen'); $('gameScreen').classList.add('counting'); renderGame(); startCountdown();
 }
 $('searchCancelBtn').onclick = () => {
   const wasChallenge = searchMode === 'challenge';
@@ -676,16 +803,7 @@ async function startGame(bot, personaId) {
     if (e && e.message === 'Not signed in.') { token = ''; storeDel('duello_token'); me = null; setAuthMode('signin'); show('authScreen'); return; }
     return;
   }
-  // Display 4:00 during the countdown, not the server's create-round-trip
-  // value (3:59): the clocks only start when the countdown ends (see /start).
-  game.clocks.human = 240000; game.clocks.bot = 240000;
-  gameFetchAt = Date.now(); pending = []; selectedRack = null; armed = {};
-  clearStatDelay(); statShownGameId = null;
-  // Set the countdown flag BEFORE the first render, so that render draws
-  // the rack as empty slots (not full letters) from the very first frame.
-  countdownActive = true;
-  ensureLocalWords();
-  show('gameScreen'); $('gameScreen').classList.add('counting'); renderGame(); startCountdown();
+  enterGameScreen();
 }
 async function endCountdown() {
   // Keep the clocks pinned until the new state actually arrives. The old
@@ -760,17 +878,21 @@ function renderGame() {
   $('playerElo').textContent = (game.player && game.player.elo != null) ? game.player.elo : (me ? me.elo : '');
   const isFish = game.botType === 'fishstick';
   const isPersonaGame = game.botType === 'persona';
-  $('botName').textContent = isFish ? 'Fishstick' : isPersonaGame ? (game.persona?.firstName || 'Player') : 'Bot';
+  const isHumanGame = game.botType === 'human';
+  $('botName').textContent = isFish ? 'Fishstick' : isPersonaGame ? (game.persona?.firstName || 'Player') : isHumanGame ? (game.opponent?.firstName || 'Player') : 'Bot';
   $('botElo').textContent = isFish ? '∞' : game.botElo;
   $('botElo').classList.toggle('inf', isFish);
   if (isFish) $('botPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">';
   else if (isPersonaGame && game.persona?.photoData) $('botPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
+  else if (isHumanGame && game.opponent?.photoData) $('botPfp').innerHTML = `<img src="${game.opponent.photoData}" alt="">`;
   // A persona with no photo is a person without a photo, not a bot:
   // show the silhouette (with the blue no-photo ring, like the
   // player's own) instead of the robot, which is Competitive Bot.
+  // Same for a real opponent without a photo.
   else if (isPersonaGame) $('botPfp').innerHTML = silhouetteSVG(32);
+  else if (isHumanGame) $('botPfp').innerHTML = silhouetteSVG(32);
   else $('botPfp').textContent = '🤖';
-  $('botPfp').classList.toggle('no-photo', isPersonaGame && !game.persona?.photoData);
+  $('botPfp').classList.toggle('no-photo', (isPersonaGame && !game.persona?.photoData) || (isHumanGame && !game.opponent?.photoData));
   document.querySelector('.player-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'human');
   document.querySelector('.bot-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'bot');
   $('scoreHuman').textContent = String(game.scores.human); $('scoreBot').textContent = String(game.scores.bot);
@@ -993,7 +1115,10 @@ async function pollBotTurn() {
     if (next.clocks.turn === 'bot' && next.status === 'active') {
       // Relative remaining time from the server, never the server's absolute
       // clock: comparing Render time to phone time added a spurious ~2s poll.
-      const delay = next.botThinkRemainingMs != null ? Math.max(200, next.botThinkRemainingMs) : 500;
+      // A real opponent takes their time: poll every 2s instead of the
+      // bot's think-driven cadence (botThinkRemainingMs is null for
+      // human games, which would otherwise fall to 500ms).
+      const delay = game.botType === 'human' ? 2000 : (next.botThinkRemainingMs != null ? Math.max(200, next.botThinkRemainingMs) : 500);
       if (botTimer) clearTimeout(botTimer);
       botTimer = setTimeout(pollBotTurn, delay);
       return;
@@ -1022,8 +1147,12 @@ function botWatchdog() {
 }
 function beginBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
-  $('status').textContent = game.clocks.human <= 0 ? 'Out of time, opponent plays on.' : (game.botType === 'persona' && game.persona ? `Waiting for ${game.persona.firstName}.` : 'Waiting for your opponent.');
+  $('status').textContent = game.clocks.human <= 0 ? 'Out of time, opponent plays on.' : (game.botType === 'persona' && game.persona ? `Waiting for ${game.persona.firstName}.` : game.botType === 'human' && game.opponent ? `Waiting for ${game.opponent.firstName}.` : 'Waiting for your opponent.');
   if (botTimer) clearTimeout(botTimer);
+  // A real opponent has no think time: poll at once, then every 2s
+  // (see pollBotTurn), instead of waiting out a bot think that
+  // does not exist.
+  if (game.botType === 'human') { botTimer = setTimeout(pollBotTurn, 0); return; }
   // Perceived think is measured from the tap, not from the server reply.
   // Think is 5s normally, 2s once the human clock is at 0 (the server
   // sends its chosen duration as botThinkMs; fall back to the clock rule).
@@ -1465,7 +1594,8 @@ function showStatWindow(stats) {
   const w = $('statWindow'); w.classList.remove('hidden');
   $('gameDim').classList.add('dimmed');
   const isPersonaGame = game && game.botType === 'persona';
-  const botLabel = (game && game.botType === 'fishstick') ? 'Fishstick' : isPersonaGame ? (game.persona?.firstName || 'Player') : 'Bot';
+  const isHumanGame = game && game.botType === 'human';
+  const botLabel = (game && game.botType === 'fishstick') ? 'Fishstick' : isPersonaGame ? (game.persona?.firstName || 'Player') : isHumanGame ? (game.opponent?.firstName || 'Player') : 'Bot';
   const humanLabel = (me && me.firstName) ? me.firstName : 'You';
   // Winner is the game's recorded result, not the score comparison:
   // a forfeit is a loss even when the forfeiter is ahead on points.
@@ -1480,9 +1610,9 @@ function showStatWindow(stats) {
   $('eloMoveHuman').className = 'elo-move ' + ((stats.eloDeltaHuman ?? 0) < 0 ? 'neg' : 'pos');
   // Both Elo moves show for a human-vs-human match, and personas
   // count as humans: their rating moves opposite yours, so it is
-  // shown like yours. For Competitive Bot and Fishstick the bot
-  // move stays blank, as before.
-  if (isPersonaGame) {
+  // shown like yours. A real opponent's move shows the same way.
+  // For Competitive Bot and Fishstick the bot move stays blank.
+  if (isPersonaGame || isHumanGame) {
     $('eloMoveBot').textContent = fmtMove(null, stats.eloDeltaBot ?? 0);
     $('eloMoveBot').className = 'elo-move ' + ((stats.eloDeltaBot ?? 0) < 0 ? 'neg' : 'pos');
   } else {
@@ -1498,19 +1628,22 @@ function showStatWindow(stats) {
   // A persona with no photo gets the silhouette in the stat box and
   // the top pfp too (same reasoning as the scoreboard: a person
   // without a photo, not Competitive Bot).
-  const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.jpeg" alt="Fishstick">' : isPersonaGame && game.persona?.photoData ? `<img src="${game.persona.photoData}" alt="">` : isPersonaGame ? silhouetteSVG(36) : '🤖';
-  const botNoPhoto = isPersonaGame && !game.persona?.photoData;
+  const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.jpeg" alt="Fishstick">' : isPersonaGame && game.persona?.photoData ? `<img src="${game.persona.photoData}" alt="">` : isHumanGame && game.opponent?.photoData ? `<img src="${game.opponent.photoData}" alt="">` : isPersonaGame || isHumanGame ? silhouetteSVG(36) : '🤖';
+  const botNoPhoto = (isPersonaGame && !game.persona?.photoData) || (isHumanGame && !game.opponent?.photoData);
   $('statGrid').innerHTML = box(humanLabel, humanPfp, stats.human, !(me && me.photoData)) + box(botLabel, botPfpBox, stats.bot, botNoPhoto);
   if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.jpeg" alt="Fishstick">';
   else if (isPersonaGame && game.persona?.photoData) $('statBotPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
+  else if (isHumanGame && game.opponent?.photoData) $('statBotPfp').innerHTML = `<img src="${game.opponent.photoData}" alt="">`;
   else if (isPersonaGame) $('statBotPfp').innerHTML = silhouetteSVG(44);
+  else if (isHumanGame) $('statBotPfp').innerHTML = silhouetteSVG(44);
   else $('statBotPfp').textContent = '🤖';
   $('statBotPfp').classList.toggle('no-photo', botNoPhoto);
   // No add-friend icon here any more (Nov 5, 2026): tapping a name
-  // opens that person's profile window instead. Persona games only
-  // for the opponent (bots have no profile); games started before
-  // v44 carry no persona username, so that name is not tappable.
-  // Your own name opens your profile too (no add button on it).
+  // opens that person's profile window instead. Persona and real
+  // games for the opponent (bots have no profile); games started
+  // before v44 carry no persona username, so that name is not
+  // tappable. Your own name opens your profile too (no add button
+  // on it).
   const boxes = $('statGrid').querySelectorAll('.stat-box');
   const humanNameEl = boxes[0] && boxes[0].querySelector('.stat-box-name');
   if (humanNameEl && me) {
@@ -1518,10 +1651,11 @@ function showStatWindow(stats) {
     const humanFullName = [me.firstName, me.lastName].filter(Boolean).join(' ') || humanLabel;
     humanNameEl.onclick = () => openPersonModal({ name: humanFullName, username: me.username, elo: game.player ? game.player.elo : me.elo, photoData: me.photoData || null, isYou: true, isPersona: false });
   }
-  const botUsername = isPersonaGame ? game.persona?.username : null;
+  const botUsername = isPersonaGame ? game.persona?.username : isHumanGame ? game.opponent?.username : null;
   if (botUsername) {
-    const botFullName = [game.persona.firstName, game.persona.lastName].filter(Boolean).join(' ') || botLabel;
-    const oppPerson = { name: botFullName, username: botUsername, elo: game.botElo, photoData: game.persona?.photoData || null, isYou: false, isPersona: true };
+    const oppInfo = isHumanGame ? game.opponent : game.persona;
+    const botFullName = [oppInfo.firstName, oppInfo.lastName].filter(Boolean).join(' ') || botLabel;
+    const oppPerson = { name: botFullName, username: botUsername, elo: game.botElo, photoData: oppInfo?.photoData || null, isYou: false, isPersona: isPersonaGame };
     const oppNameEl = boxes[1] && boxes[1].querySelector('.stat-box-name');
     if (oppNameEl) {
       oppNameEl.style.cursor = 'pointer';
@@ -1556,7 +1690,14 @@ async function refreshLeaderboards() {
 }
 function goHome() { clearStatDelay(); $('statWindow').classList.add('hidden'); show('homeScreen'); refreshLeaderboards(); }
 $('mainMenuBtn').onclick = goHome; $('statMainMenu').onclick = goHome;
-$('playAgainBtn').onclick = () => { $('statWindow').classList.add('hidden'); if (currentBot === 'persona') requestRematch(); else startGame(currentBot, currentPersonaId); };
+$('playAgainBtn').onclick = () => {
+  $('statWindow').classList.add('hidden');
+  if (currentBot === 'persona') requestRematch();
+  // Play Again against a real player is another challenge to the
+  // same opponent: they accept it like the first one.
+  else if (currentBot === 'human' && game && game.opponent) startChallenge({ name: [game.opponent.firstName, game.opponent.lastName].filter(Boolean).join(' ') || 'Player', username: game.opponent.username, elo: game.botElo, photoData: game.opponent.photoData || null, isPersona: false });
+  else startGame(currentBot, currentPersonaId);
+};
 $('statPlayAgain').onclick = () => { $('statWindow').classList.add('hidden'); if (currentBot === 'persona') requestRematch(); else startGame(currentBot, currentPersonaId); };
 $('gameStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
 const defCache = new Map();
@@ -2111,6 +2252,7 @@ function wipeAccountScreens() {
   friendsStale = true; friendsRenderedScope = null;
   $('leaderboardList').innerHTML = '';
   $('friendRequests').innerHTML = '';
+  $('challengeRequests').innerHTML = '';
   $('friendSearchResults').innerHTML = '';
   $('friendSearch').value = '';
   $('noFriendsCard').classList.add('hidden');

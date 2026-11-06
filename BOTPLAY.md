@@ -383,6 +383,44 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Real-player challenges v76 (Nov 6, 2026, cache v76) — PUSH PENDING
+
+- Push approval timed out before Jeff tapped it (Nov 6, 2026):
+  the code is built and tested but NOT live yet; the live
+  version is still v75. Re-push only when he says go.
+
+- The friends backend now delivers real challenges: tapping
+  Play on a friend's profile (or Play Again after a real game)
+  sends a live challenge; the recipient sees it at the top of
+  their Friends page (above the friend requests, polled every
+  5s while the page is open) and accepts or declines there.
+  Accept creates the game, both players join through the same
+  5s countdown. The challenger waits up to 60s, polling every
+  2s; decline, Cancel, timeout, or navigating away withdraws
+  the challenge, and stale pendings expire server-side after
+  5 minutes.
+- A real game reuses the bot-game state with bot_type 'human'
+  (challenger = 'human' side, recipient = 'bot' side, new
+  games.opponent_id column). serializeGame flips racks, scores,
+  clocks, turn, last plays, and Elo deltas per viewer, so the
+  whole client renders unchanged and neither player ever sees
+  the other's rack. No bot think is ever armed for a human game;
+  the opponent polls every 2s instead of the think cadence.
+- Both Elos move at the end (standard K=32 zero-sum, challenger
+  perspective, elo_history rows for both); profile stats count
+  real games for both players (vsHumans scope) from each
+  player's own side; the stat window flips per viewer and shows
+  both Elo moves; Play Again sends a fresh challenge.
+- Server rules: challenges only go to accepted friends; one
+  pending challenge per pair; POST /api/games rejects bot
+  'human' (real games only start from an accepted challenge).
+  Tested with a vm harness against the real server code
+  (28 checks: newGame model + no think, both serialize views,
+  stats flip, gameSides, Elo deltas, applyBotNoMovePass pass /
+  has-move / full-board paths — all pass). Not yet phone-tested
+  end to end: the @ceo <-> @neo accept flow still needs Jeff's
+  two-account check.
+
 ## Profile Global Rank shows at once v75 (Nov 6, 2026, cache v75)
 
 - Opening a profile used to show '—' for Global Rank until

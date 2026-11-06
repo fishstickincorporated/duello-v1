@@ -153,6 +153,21 @@ async function initDb() {
     UNIQUE (from_user_id, to_user_id),
     CHECK (from_user_id <> to_user_id)
   )`);
+  // Real-player challenges (v76): one row per live challenge, pending
+  // until the recipient accepts (which creates the game) or declines,
+  // or the challenger cancels / it times out. A game between two real
+  // players is a normal games row with bot_type 'human' and the
+  // recipient as opponent_id — see newGame / serializeGame.
+  await pool.query(`CREATE TABLE IF NOT EXISTS challenges (
+    id SERIAL PRIMARY KEY,
+    from_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    to_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','declined','expired','cancelled')),
+    game_id INT REFERENCES games(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (from_user_id <> to_user_id)
+  )`);
+  await pool.query('ALTER TABLE games ADD COLUMN IF NOT EXISTS opponent_id INT REFERENCES users(id)');
   await seedPersonas();
 }
 async function seedPersonas() {
@@ -244,17 +259,19 @@ function sendResendEmail(to, subject, text) {
   });
 }
 // Profile stats, ported from the main build: finished games only, from the
-// games.state JSONB. All bot-play games are bot games, so vsHumans is
-// empty by construction until real multiplayer exists.
+// games.state JSONB. A real-player game counts for BOTH players: the
+// recipient's games are the rows where they are opponent_id, and every
+// per-side stat below is read from that player's own side.
 async function profileStatsFor(userId) {
-  const rows = (await q("SELECT state, bot_type FROM games WHERE user_id=$1 AND state->>'status'='finished'", [userId])).rows;
+  const rows = (await q("SELECT state, bot_type FROM games WHERE (user_id=$1 OR opponent_id=$1) AND state->>'status'='finished'", [userId])).rows;
   function empty() { return { gamesPlayed: 0, wins: 0, losses: 0, draws: 0, avgGameScore: 0, highestGameScore: 0, avgWordScore: 0, highestWordScore: 0, highestWord: '', longestWord: '', longestWordLen: 0, optimalMoves: 0, totalMoves: 0, optimalPct: 0, uniqueWords: 0, wordsOver50: 0, wordsOver100: 0, bingos: 0 }; }
-  // Personas count as humans everywhere stats split by opponent:
-  // vsHumans is persona games only, vsBots excludes personas, and
-  // aggregate counts persona games like any other non-Fishstick game.
+  // Personas and real players both count as humans everywhere stats
+  // split by opponent: vsHumans is persona + real-player games,
+  // vsBots excludes both, and aggregate counts them like any other
+  // non-Fishstick game.
   function scope(mode) {
-    const isPersonaGame = (g) => g.botType === 'persona';
-    const skip = (g) => (mode === 'vsHumans' && !isPersonaGame(g)) || (mode === 'vsBots' && isPersonaGame(g));
+    const isHumanGame = (g) => g.botType === 'persona' || g.botType === 'human';
+    const skip = (g) => (mode === 'vsHumans' && !isHumanGame(g)) || (mode === 'vsBots' && isHumanGame(g));
     const st = empty(); let wordScoreSum = 0, wordCount = 0; const uniq = new Set();
     const gs = [];
     for (const r of rows) {
@@ -265,15 +282,20 @@ async function profileStatsFor(userId) {
     }
     for (const g of gs) {
       if (skip(g)) continue;
+      // Which side this player was: the row owner is 'human', the
+      // recipient of a real-player game is 'bot'. Every stat below
+      // reads from that side, so both players' profiles agree.
+      const mySide = (g.userId === userId) ? 'human' : 'bot';
+      const oppSide = mySide === 'human' ? 'bot' : 'human';
       // Fishstick matches never count toward the record or games played.
       const isFish = g.botType === 'fishstick';
       if (!isFish) {
         st.gamesPlayed++;
-        if (g.winner === 'human') st.wins++; else if (g.winner === 'bot') st.losses++; else if (g.winner === 'draw') st.draws++;
-        else if (g.reason === 'By forfeit') st.losses++; else if (g.scores.human > g.scores.bot) st.wins++; else if (g.scores.bot > g.scores.human) st.losses++; else st.draws++;
+        if (g.winner === mySide) st.wins++; else if (g.winner === oppSide) st.losses++; else if (g.winner === 'draw') st.draws++;
+        else if (g.reason === 'By forfeit') st.losses++; else if (g.scores[mySide] > g.scores[oppSide]) st.wins++; else if (g.scores[oppSide] > g.scores[mySide]) st.losses++; else st.draws++;
       }
-      st.highestGameScore = Math.max(st.highestGameScore, (g.scores && g.scores.human) || 0);
-      const moves = (g.moves && g.moves.human) || [];
+      st.highestGameScore = Math.max(st.highestGameScore, (g.scores && g.scores[mySide]) || 0);
+      const moves = (g.moves && g.moves[mySide]) || [];
       for (const m of moves) {
         st.totalMoves++;
         if (m.isOptimal) st.optimalMoves++;
@@ -297,7 +319,7 @@ async function profileStatsFor(userId) {
     let totalScore = 0, played = 0;
     // Average game score counts only games where the player's own clock
     // fully expired — games ended early (forfeit, stalls) are excluded.
-    for (const g of gs) { if (skip(g)) continue; if (!(g.clocks && g.clocks.human <= 0)) continue; totalScore += (g.scores && g.scores.human) || 0; played++; }
+    for (const g of gs) { if (skip(g)) continue; const mySide = (g.userId === userId) ? 'human' : 'bot'; if (!(g.clocks && g.clocks[mySide] <= 0)) continue; totalScore += (g.scores && g.scores[mySide]) || 0; played++; }
     st.avgGameScore = played ? Math.round(totalScore / played) : 0;
     st.avgWordScore = wordCount ? Math.round(wordScoreSum / wordCount * 10) / 10 : 0;
     st.optimalPct = st.totalMoves ? Math.round(st.optimalMoves / st.totalMoves * 1000) / 10 : 0;
@@ -733,14 +755,24 @@ function pickCompetitiveMove(moves, elo) {
 }
 
 // ---------- Game state ----------
-function newGame(user, botType, persona) {
-  const botElo = botType === 'fishstick' ? 3000 : botType === 'persona' ? persona.elo : user.elo;
+function newGame(user, botType, persona, opponent) {
+  const botElo = botType === 'fishstick' ? 3000 : botType === 'persona' ? persona.elo : botType === 'human' ? opponent.elo : user.elo;
   const premiums = makePremiums();
   const board = emptyBoard();
   board.__premiums = premiums; // solver reads premiums from here; stripped on save/serialize
   const game = {
     userId: user.id, botType, botElo,
     persona: persona ? { id: persona.id, username: persona.username, firstName: persona.first_name, lastName: persona.last_name, photoData: persona.photo_url } : null,
+    // Real-player games: the recipient is the 'bot' side of the
+    // stored state (their rack, score, clock, and moves all live
+    // there), and the viewer flip in serializeGame shows each player
+    // their own side. challenger/opponent carry the public info each
+    // side needs to name the other; humanElo is the challenger's Elo
+    // at creation, so the recipient sees it as the opponent's Elo.
+    opponentId: botType === 'human' ? opponent.id : null,
+    opponent: botType === 'human' ? { username: opponent.username, firstName: opponent.first_name, lastName: opponent.last_name, photoData: opponent.photo_data || null } : null,
+    challenger: botType === 'human' ? { username: user.username, firstName: user.first_name, lastName: user.last_name, photoData: user.photo_data || null } : null,
+    humanElo: botType === 'human' ? user.elo : null,
     personaFinalMoveDone: false, personaFinalMovePending: false,
     board, premiums,
     humanRack: drawRack(), botRack: drawRack(),
@@ -758,7 +790,9 @@ function newGame(user, botType, persona) {
     lastHuman: null, lastBot: null,
     eloDeltaHuman: null, eloDeltaBot: null, eloAfterHuman: null, eloAfterBot: null,
   };
-  if (game.turn === 'bot') { game.botThinkMs = botThinkMsFor(game); game.botThinkUntil = Date.now() + game.botThinkMs; }
+  // A real opponent never thinks: no bot think is ever armed for a
+  // human game, whichever side starts.
+  if (game.turn === 'bot' && botType !== 'human') { game.botThinkMs = botThinkMsFor(game); game.botThinkUntil = Date.now() + game.botThinkMs; }
   return game;
 }
 function stripBoard(board) { return board.map(row => row.slice()); }
@@ -769,6 +803,12 @@ function isFreshGame(game) {
 }
 function serializeGame(game, user) {
   const now = Date.now();
+  // A real-player game is stored challenger-vs-opponent, but each
+  // viewer sees themself as the 'human' side: racks, scores, clocks,
+  // last plays, Elo deltas, and the turn all flip for the opponent,
+  // so the whole client renders unchanged. Bot games never flip.
+  const isOpponent = game.botType === 'human' && game.opponentId === user.id;
+  const flipSide = (s) => isOpponent ? (s === 'human' ? 'bot' : 'human') : s;
   let clockHuman = game.clocks.human, clockBot = game.clocks.bot;
   // Fresh games show 4:00/4:00 until /start, no matter how long the
   // create round-trip or the countdown took. This is the server half of
@@ -780,20 +820,33 @@ function serializeGame(game, user) {
     else clockBot = Math.max(0, clockBot - elapsed);
   }
   return {
-    id: game.id, botType: game.botType, botElo: game.botElo, persona: game.persona || null,
+    id: game.id, botType: game.botType,
+    // The opponent viewer sees the challenger's Elo (after the game,
+    // their after-Elo) where the challenger sees the opponent's.
+    botElo: isOpponent ? (game.eloAfterHuman ?? game.humanElo) : game.botElo,
+    persona: game.persona || null,
+    // The other real player, human games only; bot games keep the
+    // existing persona/botType display. Flipped per viewer.
+    opponent: game.botType === 'human' ? (isOpponent ? (game.challenger || null) : (game.opponent || null)) : null,
     board: stripBoard(game.board), premiums: game.premiums,
-    humanRack: game.humanRack, botRackCount: game.botRack.length,
-    scores: game.scores, clocks: { human: clockHuman, bot: clockBot, turn: game.turn, turnStartedAt: game.turnStartedAt },
-    botThinkUntil: game.botThinkUntil || null,
+    humanRack: isOpponent ? game.botRack : game.humanRack,
+    botRackCount: isOpponent ? game.humanRack.length : game.botRack.length,
+    scores: { human: isOpponent ? game.scores.bot : game.scores.human, bot: isOpponent ? game.scores.human : game.scores.bot },
+    clocks: { human: isOpponent ? clockBot : clockHuman, bot: isOpponent ? clockHuman : clockBot, turn: flipSide(game.turn), turnStartedAt: game.turnStartedAt },
+    botThinkUntil: game.botType === 'human' ? null : (game.botThinkUntil || null),
     // Relative remaining time, not just the absolute server timestamp: the
     // client must never compare a Render server clock to the phone clock
     // (skew there added a second poll and pushed the perceived think to ~7s).
-    botThinkRemainingMs: game.botThinkUntil ? Math.max(0, game.botThinkUntil - now) : null,
-    botThinkMs: game.botThinkMs || null,
+    botThinkRemainingMs: game.botType === 'human' ? null : (game.botThinkUntil ? Math.max(0, game.botThinkUntil - now) : null),
+    botThinkMs: game.botType === 'human' ? null : (game.botThinkMs || null),
     status: game.status, reason: game.reason,
-    lastCells: game.lastCells, lastWord: game.lastWord, lastScore: game.lastScore, lastBy: game.lastBy,
-    lastHuman: game.lastHuman, lastBot: game.lastBot,
-    eloDeltaHuman: game.eloDeltaHuman, eloDeltaBot: game.eloDeltaBot, eloAfterHuman: game.eloAfterHuman, eloAfterBot: game.eloAfterBot,
+    lastCells: game.lastCells, lastWord: game.lastWord, lastScore: game.lastScore, lastBy: game.lastBy ? flipSide(game.lastBy) : null,
+    lastHuman: isOpponent ? game.lastBot : game.lastHuman,
+    lastBot: isOpponent ? game.lastHuman : game.lastBot,
+    eloDeltaHuman: isOpponent ? game.eloDeltaBot : game.eloDeltaHuman,
+    eloDeltaBot: isOpponent ? game.eloDeltaHuman : game.eloDeltaBot,
+    eloAfterHuman: isOpponent ? game.eloAfterBot : game.eloAfterHuman,
+    eloAfterBot: isOpponent ? game.eloAfterHuman : game.eloAfterBot,
     isFirst: boardIsEmpty(game.board),
     player: { firstName: user.first_name, username: user.username, elo: user.elo },
   };
@@ -803,7 +856,7 @@ async function saveGameRow(game) {
   delete copy.id;
   const json = JSON.stringify(copy);
   if (game.id) await q('UPDATE games SET state=$1::jsonb, updated_at=now() WHERE id=$2', [json, game.id]);
-  else { const r = await q('INSERT INTO games (user_id, bot_type, bot_elo, state) VALUES ($1,$2,$3,$4::jsonb) RETURNING id', [game.userId, game.botType, game.botElo, json]); game.id = Number(r.rows[0].id); }
+  else { const r = await q('INSERT INTO games (user_id, bot_type, bot_elo, opponent_id, state) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [game.userId, game.botType, game.botElo, game.opponentId || null, json]); game.id = Number(r.rows[0].id); }
 }
 function loadGameRow(row) {
   const g = typeof row.state === 'string' ? JSON.parse(row.state) : row.state;
@@ -868,6 +921,37 @@ async function endGame(game, user, reason, winnerSide) {
   // nobody. Competitive Bot is no exception: its next game re-syncs
   // to the player's current Elo at creation, so storing the opposite
   // move here does not break its always-equal matching.
+  // A real-player game moves BOTH ratings: the delta is computed
+  // from the challenger's fresh Elo against the opponent's Elo at
+  // creation (the same asymmetry as the bot path, where the bot's
+  // rating is its start Elo), and both users get an elo_history row.
+  // The passed-in user may be either player (whoever's request
+  // ended the game), so both rows are loaded fresh here.
+  if (game.botType === 'human' && game.opponentId) {
+    const challenger = (await q('SELECT * FROM users WHERE id=$1', [game.userId])).rows[0];
+    const opponent = (await q('SELECT * FROM users WHERE id=$1', [game.opponentId])).rows[0];
+    if (challenger && opponent) {
+      const delta = eloDelta(challenger.elo, game.botElo, actual);
+      game.eloDeltaHuman = delta;
+      game.eloDeltaBot = -delta;
+      game.eloAfterHuman = challenger.elo + delta;
+      game.eloAfterBot = game.botElo + game.eloDeltaBot;
+      game.botElo = game.eloAfterBot;
+      await q('UPDATE users SET elo=$1, elo_high=GREATEST(elo_high,$2) WHERE id=$3', [game.eloAfterHuman, game.eloAfterHuman, challenger.id]);
+      await q('UPDATE users SET elo=$1, elo_high=GREATEST(elo_high,$2) WHERE id=$3', [game.eloAfterBot, game.eloAfterBot, opponent.id]);
+      await saveGameRow(game);
+      await q('INSERT INTO elo_history (user_id, game_id, elo_after, delta) VALUES ($1,$2,$3,$4)', [challenger.id, game.id, game.eloAfterHuman, delta]);
+      await q('INSERT INTO elo_history (user_id, game_id, elo_after, delta) VALUES ($1,$2,$3,$4)', [opponent.id, game.id, game.eloAfterBot, -delta]);
+      return game;
+    }
+    // A player row is gone (deleted account): finish the game with
+    // no rating move rather than failing the request.
+    game.eloDeltaHuman = 0; game.eloDeltaBot = 0;
+    game.eloAfterHuman = challenger ? challenger.elo : null;
+    game.eloAfterBot = opponent ? opponent.elo : game.botElo;
+    await saveGameRow(game);
+    return game;
+  }
   const delta = eloDelta(user.elo, game.botElo, actual);
   game.eloDeltaHuman = delta;
   game.eloDeltaBot = -delta;
@@ -996,6 +1080,35 @@ function applyHumanNoMovePass(game) {
   game.lastHuman = { word: null, points: 0, passed: true, auto: true, noMoves: true };
   startBotTurn(game);
   return false;
+}
+function applyBotNoMovePass(game) {
+  // Mirror of applyHumanNoMovePass for the bot side, used only in
+  // real-player games (the bot side is the other real player): if
+  // it is their turn and they have no playable move, they
+  // automatically pass (-30s) and the turn goes back to the
+  // challenger. If neither side has a move (or the challenger's
+  // clock is already 0), the game ends by score instead.
+  // Returns true only when it flagged the game to end.
+  if (game.status !== 'active' || game.turn !== 'bot') return false;
+  const isFirst = boardIsEmpty(game.board);
+  if (findMoves(game.board, game.botRack, isFirst, false).length) return false;
+  if (!findMoves(game.board, game.humanRack, isFirst, false).length || game.clocks.human <= 0) {
+    game._pendingNoMovesEnd = true;
+    return true;
+  }
+  game.clocks.bot = Math.max(0, game.clocks.bot - 30000);
+  game.consecutivePasses++;
+  game.consecutiveNoMoves++;
+  game.lastBot = { word: null, points: 0, passed: true, auto: true, noMoves: true };
+  game.turn = 'human'; game.turnStartedAt = Date.now();
+  return false;
+}
+// Which side the requesting player is, in a real-player game: the
+// challenger (row owner) is 'human', the recipient is 'bot'. Bot
+// games always resolve to 'human'.
+function gameSides(game, user) {
+  const isOpp = game.botType === 'human' && game.opponentId === user.id;
+  return { isOpp, mySide: isOpp ? 'bot' : 'human', oppSide: isOpp ? 'human' : 'bot' };
 }
 
 function stepBotClockTo20sMark(game) {
@@ -1333,17 +1446,30 @@ function readBody(req) {
   });
 }
 async function loadGameForUser(user, id) {
-  const r = await q('SELECT * FROM games WHERE id=$1 AND user_id=$2', [id, user.id]);
+  // Either player of a real game can load it: the challenger by
+  // user_id, the recipient by opponent_id. Bot games only ever
+  // match the owner.
+  const r = await q('SELECT * FROM games WHERE id=$1 AND (user_id=$2 OR opponent_id=$2)', [id, user.id]);
   return r.rows[0] ? loadGameRow(r.rows[0]) : null;
 }
-function gameStatsPayload(game) {
+function gameStatsPayload(game, flip) {
   const h = computeStats(game.moves.human || []);
   const b = computeStats(game.moves.bot || []);
+  const hs = { best: h.best, longest: h.longest, optimal: h.optimal, total: h.total, uniqueCount: h.uniqueCount, optimalWords: h.optimalWords };
+  const bs = { best: b.best, longest: b.longest, optimal: b.optimal, total: b.total, uniqueCount: b.uniqueCount, optimalWords: b.optimalWords };
+  // The stat window shows the viewer on the left: flip the sides
+  // (and the winner, the scores, and the Elo moves) for the
+  // opponent of a real game, same rule as serializeGame.
   return {
-    reason: game.reason, winner: game.winner, scores: game.scores,
-    human: { best: h.best, longest: h.longest, optimal: h.optimal, total: h.total, uniqueCount: h.uniqueCount, optimalWords: h.optimalWords },
-    bot: { best: b.best, longest: b.longest, optimal: b.optimal, total: b.total, uniqueCount: b.uniqueCount, optimalWords: b.optimalWords },
-    eloDeltaHuman: game.eloDeltaHuman, eloDeltaBot: game.eloDeltaBot, eloAfterHuman: game.eloAfterHuman, eloAfterBot: game.eloAfterBot,
+    reason: game.reason,
+    winner: flip ? (game.winner === 'human' ? 'bot' : game.winner === 'bot' ? 'human' : game.winner) : game.winner,
+    scores: flip ? { human: game.scores.bot, bot: game.scores.human } : game.scores,
+    human: flip ? bs : hs,
+    bot: flip ? hs : bs,
+    eloDeltaHuman: flip ? game.eloDeltaBot : game.eloDeltaHuman,
+    eloDeltaBot: flip ? game.eloDeltaHuman : game.eloDeltaBot,
+    eloAfterHuman: flip ? game.eloAfterBot : game.eloAfterHuman,
+    eloAfterBot: flip ? game.eloAfterHuman : game.eloAfterBot,
   };
 }
 
@@ -1780,6 +1906,74 @@ const server = http.createServer(async (req, res) => {
       await q('DELETE FROM friend_requests WHERE (from_user_id=$1 AND to_user_id=$2) OR (from_user_id=$2 AND to_user_id=$1)', [user.id, other.id]);
       return sendJson(res, 200, { ok: true });
     }
+    // ---------- Challenges (real-player games, v76) ----------
+    // A challenge is a live, 60-second invitation: the challenger
+    // waits on the searching screen while the recipient sees it at
+    // the top of their Friends page and accepts or declines. Accept
+    // creates the game (challenger is the 'human' side, recipient
+    // the 'bot' side); decline, cancel, or timeout ends it. The
+    // recipient's page polls for incoming challenges, so no push
+    // notification is needed while the app is open.
+    async function expireStaleChallenges() {
+      await q("UPDATE challenges SET status='expired' WHERE status='pending' AND created_at < now() - interval '5 minutes'");
+    }
+    if (pathname === '/api/challenges' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const target = await getUserByUsername(String(b.username || '').trim().toLowerCase());
+      if (!target) return sendJson(res, 400, { error: 'That player is not available.' });
+      if (target.id === user.id) return sendJson(res, 400, { error: 'You cannot challenge yourself.' });
+      // Challenges only go to friends: the Play button only appears
+      // for friends, and the server enforces the same rule.
+      const fr = (await q("SELECT * FROM friend_requests WHERE ((from_user_id=$1 AND to_user_id=$2) OR (from_user_id=$2 AND to_user_id=$1)) AND status='accepted'", [user.id, target.id])).rows[0];
+      if (!fr) return sendJson(res, 400, { error: 'You can only challenge friends.' });
+      await expireStaleChallenges();
+      const existing = (await q("SELECT * FROM challenges WHERE ((from_user_id=$1 AND to_user_id=$2) OR (from_user_id=$2 AND to_user_id=$1)) AND status='pending'", [user.id, target.id])).rows[0];
+      if (existing) return sendJson(res, 400, { error: 'A challenge is already waiting between you.' });
+      const ins = await q('INSERT INTO challenges (from_user_id, to_user_id) VALUES ($1,$2) RETURNING id', [user.id, target.id]);
+      return sendJson(res, 200, { id: Number(ins.rows[0].id), status: 'pending' });
+    }
+    if (pathname === '/api/challenges/incoming' && req.method === 'GET') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      await expireStaleChallenges();
+      const r = await q(`SELECT c.id AS cid, c.status, c.game_id, c.created_at, u.id AS uid, u.username, u.first_name, u.last_name, u.elo, u.photo_data FROM challenges c JOIN users u ON u.id = c.from_user_id WHERE c.to_user_id=$1 AND c.status='pending' ORDER BY c.created_at ASC`, [user.id]);
+      return sendJson(res, 200, { challenges: r.rows.map(c => ({ id: Number(c.cid), status: c.status, gameId: c.game_id ? Number(c.game_id) : null, createdAt: c.created_at, from: { id: Number(c.uid), username: c.username, firstName: c.first_name, lastName: c.last_name, elo: c.elo, photoData: c.photo_data || null } })) });
+    }
+    const challengeMatch = pathname.match(/^\/api\/challenges\/(\d+)(?:\/(respond|cancel))?$/);
+    if (challengeMatch) {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const ch = (await q('SELECT * FROM challenges WHERE id=$1', [challengeMatch[1]])).rows[0];
+      if (!ch) return sendJson(res, 404, { error: 'Challenge not found.' });
+      const action = challengeMatch[2];
+      if (req.method === 'GET' && !action) {
+        if (ch.from_user_id !== user.id && ch.to_user_id !== user.id) return sendJson(res, 403, { error: 'Not your challenge.' });
+        return sendJson(res, 200, { id: ch.id, status: ch.status, gameId: ch.game_id ? Number(ch.game_id) : null });
+      }
+      if (req.method === 'POST' && action === 'respond') {
+        if (ch.to_user_id !== user.id) return sendJson(res, 403, { error: 'Only the challenged player can answer.' });
+        if (ch.status !== 'pending') return sendJson(res, 400, { error: 'That challenge is no longer waiting.' });
+        const b = await readBody(req);
+        if (!b.accept) {
+          await q("UPDATE challenges SET status='declined' WHERE id=$1", [ch.id]);
+          return sendJson(res, 200, { ok: true, status: 'declined' });
+        }
+        const challenger = (await q('SELECT * FROM users WHERE id=$1', [ch.from_user_id])).rows[0];
+        if (!challenger) return sendJson(res, 400, { error: 'That player is no longer available.' });
+        const game = newGame(challenger, 'human', null, user);
+        await saveGameRow(game);
+        await q("UPDATE challenges SET status='accepted', game_id=$1 WHERE id=$2", [game.id, ch.id]);
+        return sendJson(res, 200, { ok: true, status: 'accepted', gameId: game.id });
+      }
+      if (req.method === 'POST' && action === 'cancel') {
+        if (ch.from_user_id !== user.id) return sendJson(res, 403, { error: 'Only the challenger can cancel.' });
+        if (ch.status !== 'pending') return sendJson(res, 200, { ok: true, status: ch.status });
+        await q("UPDATE challenges SET status='cancelled' WHERE id=$1", [ch.id]);
+        return sendJson(res, 200, { ok: true, status: 'cancelled' });
+      }
+    }
     if (pathname === '/api/define' && req.method === 'GET') {
       return sendJson(res, 200, await getDefinition(url.searchParams.get('word') || ''));
     }
@@ -1787,6 +1981,9 @@ const server = http.createServer(async (req, res) => {
       const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
       const b = await readBody(req);
+      // Real-player games only ever start from an accepted challenge
+      // (the recipient creates the row), never from this endpoint.
+      if (b.bot === 'human') return sendJson(res, 400, { error: 'Real-player games start from a challenge, not here.' });
       const botType = b.bot === 'fishstick' ? 'fishstick' : b.bot === 'persona' ? 'persona' : 'competitive';
       let persona = null;
       if (botType === 'persona') {
@@ -1820,17 +2017,25 @@ const server = http.createServer(async (req, res) => {
       const game = await loadGameForUser(user, gameMatch[1]);
       if (!game) return sendJson(res, 404, { error: 'Game not found.' });
       const action = gameMatch[2];
+      // In a real-player game the recipient plays the 'bot' side of
+      // the stored state; every handler below works in terms of
+      // mySide/oppSide so the same code serves both players.
+      const { isOpp, mySide, oppSide } = gameSides(game, user);
+      const myRack = () => game[mySide === 'human' ? 'humanRack' : 'botRack'];
       if (req.method === 'GET' && !action) {
         // Fresh games: do not settle or advance anything before /start.
         if (game.status === 'active' && !isFreshGame(game)) {
-          await advanceBotTurnIfReady(game, user);
+          // A real opponent moves on their own phone: never run the
+          // bot engine for a human game, just settle the clock and
+          // skip dead turns.
+          if (game.botType !== 'human') await advanceBotTurnIfReady(game, user);
           settleClock(game);
           let guard = 0;
           while (game.status === 'active' && game.clocks[game.turn] <= 0 && guard++ < 5) {
             if (game.clocks.human <= 0 && game.clocks.bot <= 0) { await finishIfNeeded(game, user); break; }
             game.turn = game.turn === 'human' ? 'bot' : 'human';
             game.turnStartedAt = Date.now();
-            if (game.turn === 'bot') {
+            if (game.turn === 'bot' && game.botType !== 'human') {
               if (!game.botThinkUntil) { game.botThinkMs = botThinkMsFor(game); game.botThinkUntil = Date.now() + game.botThinkMs; }
               if (Date.now() >= (game.botThinkUntil || game.turnStartedAt + botThinkMsFor(game))) {
                 const moved = runBotTurn(game);
@@ -1843,11 +2048,14 @@ const server = http.createServer(async (req, res) => {
           if (game.status === 'active' && game.turn === 'human') {
             applyHumanNoMovePass(game);
             await finishIfNeeded(game, user);
+          } else if (game.status === 'active' && game.turn === 'bot' && game.botType === 'human') {
+            applyBotNoMovePass(game);
+            await finishIfNeeded(game, user);
           }
           await saveGameRow(game);
         }
         const out = serializeGame(game, user);
-        if (game.status === 'finished') out.stats = gameStatsPayload(game);
+        if (game.status === 'finished') out.stats = gameStatsPayload(game, isOpp);
         return sendJson(res, 200, out);
       }
       if (req.method === 'POST' && action === 'start') {
@@ -1863,38 +2071,43 @@ const server = http.createServer(async (req, res) => {
           if (!hm.length && !bm.length && !game.lastHuman && !game.lastBot) {
             game.clocks = { human: 240000, bot: 240000 };
             game.turnStartedAt = Date.now();
-            game.botThinkUntil = game.turn === 'bot' ? Date.now() + botThinkMsFor(game) : null;
-            if (game.turn === 'bot') game.botThinkMs = botThinkMsFor(game);
+            // No bot think for a real opponent: their turn just starts.
+            game.botThinkUntil = game.turn === 'bot' && game.botType !== 'human' ? Date.now() + botThinkMsFor(game) : null;
+            if (game.turn === 'bot' && game.botType !== 'human') game.botThinkMs = botThinkMsFor(game);
             game.started = true;
             await saveGameRow(game);
-            if (game.turn === 'bot') scheduleBotMove(game);
+            if (game.turn === 'bot' && game.botType !== 'human') scheduleBotMove(game);
           }
         }
         if (game.status === 'active' && game.turn === 'human') {
           applyHumanNoMovePass(game);
           if (await finishIfNeeded(game, user)) { /* finished */ }
           await saveGameRow(game);
+        } else if (game.status === 'active' && game.turn === 'bot' && game.botType === 'human') {
+          applyBotNoMovePass(game);
+          if (await finishIfNeeded(game, user)) { /* finished */ }
+          await saveGameRow(game);
         }
         const out = serializeGame(game, user);
-        if (game.status === 'finished') out.stats = gameStatsPayload(game);
+        if (game.status === 'finished') out.stats = gameStatsPayload(game, isOpp);
         return sendJson(res, 200, out);
       }
       if (req.method === 'POST' && action === 'shuffle') {
         const b = await readBody(req);
         const rack = b.rack;
         if (!Array.isArray(rack) || rack.length !== 6) return sendJson(res, 400, { error: 'Rack must have 6 tiles.' });
-        const a = [...game.humanRack].sort().join('');
+        const a = [...myRack()].sort().join('');
         const c = [...rack].sort().join('');
         if (a !== c) return sendJson(res, 400, { error: 'Rack does not match.' });
-        game.humanRack = rack.map(String);
+        game[mySide === 'human' ? 'humanRack' : 'botRack'] = rack.map(String);
         await saveGameRow(game);
         return sendJson(res, 200, serializeGame(game, user));
       }
       if (req.method === 'POST' && action === 'validate') {
-        if (game.status !== 'active' || game.turn !== 'human') return sendJson(res, 200, { valid: false, error: 'Not your turn.' });
+        if (game.status !== 'active' || game.turn !== mySide) return sendJson(res, 200, { valid: false, error: 'Not your turn.' });
         const b = await readBody(req);
         const placements = (b.placements || []).map(p => ({ row: Number(p.row), col: Number(p.col), letter: String(p.letter || '').toUpperCase() }));
-        const v = validatePlay(game.board, game.humanRack, placements, game.premiums, boardIsEmpty(game.board));
+        const v = validatePlay(game.board, myRack(), placements, game.premiums, boardIsEmpty(game.board));
         return sendJson(res, 200, v);
       }
       if (req.method === 'POST' && action === 'play') {
@@ -1902,19 +2115,22 @@ const server = http.createServer(async (req, res) => {
         if (game.status !== 'active') return sendJson(res, 400, { error: 'Game is finished.' });
         const b0 = await readBody(req);
         settleClock(game, b0.clientElapsedMs);
-        if (game.turn !== 'human') return sendJson(res, 400, { error: 'Not your turn.' });
-        if (game.clocks.human <= 0) {
-          // Timed out: skip human, let the bot keep playing (you cannot win on time).
-          startBotTurn(game);
+        if (game.turn !== mySide) return sendJson(res, 400, { error: 'Not your turn.' });
+        if (game.clocks[mySide] <= 0) {
+          // Timed out: skip this side, let the other side keep playing
+          // (you cannot win on time). For a bot opponent that means
+          // starting its turn; for a real one the turn just flips.
+          if (game.botType === 'human') { game.turn = oppSide; game.turnStartedAt = Date.now(); game.botThinkUntil = null; }
+          else startBotTurn(game);
           await saveGameRow(game);
           const out = serializeGame(game, user);
-          if (game.status === 'finished') out.stats = gameStatsPayload(game);
+          if (game.status === 'finished') out.stats = gameStatsPayload(game, isOpp);
           return sendJson(res, 200, { ...out, timedOut: true });
         }
         const b = b0;
         const placements = (b.placements || []).map(p => ({ row: Number(p.row), col: Number(p.col), letter: String(p.letter || '').toUpperCase() }));
         const isFirst = boardIsEmpty(game.board);
-        const v = validatePlay(game.board, game.humanRack, placements, game.premiums, isFirst);
+        const v = validatePlay(game.board, myRack(), placements, game.premiums, isFirst);
         if (!v.valid) return sendJson(res, 400, v);
         // The exhaustive best-move scan is what made the Play reply slow:
         // the rack sat blank (played slots emptied at the tap, refilled
@@ -1924,26 +2140,28 @@ const server = http.createServer(async (req, res) => {
         // (loading after the scan means bot saves made in between are kept).
         // The reply itself carries the refilled rack immediately.
         const preBoard = game.board.map(row => row.slice());
-        const preRack = game.humanRack.slice();
-        const deferredGameId = game.id, deferredUserId = game.userId, deferredScore = v.score;
+        const preRack = myRack().slice();
+        const deferredGameId = game.id, deferredUserId = game.userId, deferredScore = v.score, deferredSide = mySide;
         const runDeferredOptimal = () => setImmediate(async () => {
           try {
             const bestMoves = findMoves(preBoard, preRack, isFirst, false);
             const bestScore = bestMoves.length ? bestMoves[0].score : null;
             const g2 = await loadGameForUser({ id: deferredUserId }, deferredGameId);
-            if (!g2 || !g2.moves || !g2.moves.human || !g2.moves.human.length) return;
-            const last = g2.moves.human[g2.moves.human.length - 1];
+            if (!g2 || !g2.moves || !g2.moves[deferredSide] || !g2.moves[deferredSide].length) return;
+            const last = g2.moves[deferredSide][g2.moves[deferredSide].length - 1];
             last.isOptimal = (bestScore !== null && deferredScore === bestScore);
             await saveGameRow(g2);
           } catch {}
         });
-        applyMove(game, 'human', v, null);
-        if (game.clocks.bot <= 0) {
-          // Opponent out of time: no bot turn at all. The turn stays with
-          // the human, their clock keeps running, and they can play move
-          // after move instead of waiting out a bot think that can never
-          // produce a move.
-          game.turn = 'human'; game.turnStartedAt = Date.now(); game.botThinkUntil = null;
+        applyMove(game, mySide, v, null);
+        if (game.clocks[oppSide] <= 0) {
+          // Opponent out of time: no turn for them at all. The turn
+          // stays with the mover, their clock keeps running, and they
+          // can play move after move instead of waiting out a turn
+          // that can never produce a move.
+          game.turn = mySide; game.turnStartedAt = Date.now(); game.botThinkUntil = null;
+        } else if (game.botType === 'human') {
+          game.turn = oppSide; game.turnStartedAt = Date.now(); game.botThinkUntil = null;
         } else {
           startBotTurn(game);
           game.botThinkUntil = playReqStart + (game.botThinkMs || 5000);
@@ -1951,10 +2169,13 @@ const server = http.createServer(async (req, res) => {
         if (game.status === 'active' && game.turn === 'human') {
           applyHumanNoMovePass(game);
           await finishIfNeeded(game, user);
+        } else if (game.status === 'active' && game.turn === 'bot' && game.botType === 'human') {
+          applyBotNoMovePass(game);
+          await finishIfNeeded(game, user);
         }
         await saveGameRow(game);
         const out = serializeGame(game, user);
-        if (game.status === 'finished') out.stats = gameStatsPayload(game);
+        if (game.status === 'finished') out.stats = gameStatsPayload(game, isOpp);
         // Reply first, scan after: the response (with the refilled rack) is
         // already handed to the socket before the deferred scan runs, so
         // the scan can no longer hold the rack blank.
@@ -1967,21 +2188,23 @@ const server = http.createServer(async (req, res) => {
         if (game.status !== 'active') return sendJson(res, 400, { error: 'Game is finished.' });
         const bPass = await readBody(req).catch(() => ({}));
         settleClock(game, bPass.clientElapsedMs);
-        if (game.turn !== 'human') return sendJson(res, 400, { error: 'Not your turn.' });
+        if (game.turn !== mySide) return sendJson(res, 400, { error: 'Not your turn.' });
         // No passing in a one-sided stretch: when either clock is at
         // 0, the player who is out of time cannot pass (they have no
         // turn to give up), and the player still moving cannot pass
         // either — they play on alone until the game ends.
-        if (game.clocks.human <= 0) return sendJson(res, 400, { error: 'You are out of time.' });
-        if (game.clocks.bot <= 0) return sendJson(res, 400, { error: 'Your opponent is out of time, so you can\'t pass.' });
-        game.clocks.human = Math.max(0, game.clocks.human - 30000);
+        if (game.clocks[mySide] <= 0) return sendJson(res, 400, { error: 'You are out of time.' });
+        if (game.clocks[oppSide] <= 0) return sendJson(res, 400, { error: 'Your opponent is out of time, so you can\'t pass.' });
+        game.clocks[mySide] = Math.max(0, game.clocks[mySide] - 30000);
         game.consecutivePasses++;
         game.consecutiveNoMoves = 0;
-        game.lastHuman = { word: null, points: 0, passed: true };
+        game[mySide === 'human' ? 'lastHuman' : 'lastBot'] = { word: null, points: 0, passed: true };
         if (game.consecutivePasses >= 2) {
           game.botThinkUntil = null;
           const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';
           await endGame(game, user, 'Final score', winner);
+        } else if (game.botType === 'human') {
+          game.turn = oppSide; game.turnStartedAt = Date.now(); game.botThinkUntil = null;
         } else {
           startBotTurn(game);
           game.botThinkUntil = passReqStart + (game.botThinkMs || 5000);
@@ -1990,17 +2213,21 @@ const server = http.createServer(async (req, res) => {
         if (game.status === 'active' && game.turn === 'human') {
           applyHumanNoMovePass(game);
           await finishIfNeeded(game, user);
+        } else if (game.status === 'active' && game.turn === 'bot' && game.botType === 'human') {
+          applyBotNoMovePass(game);
+          await finishIfNeeded(game, user);
         }
         await saveGameRow(game);
         const out = serializeGame(game, user);
-        if (game.status === 'finished') out.stats = gameStatsPayload(game);
+        if (game.status === 'finished') out.stats = gameStatsPayload(game, isOpp);
         return sendJson(res, 200, out);
       }
       if (req.method === 'POST' && action === 'forfeit') {
         if (game.status !== 'active') return sendJson(res, 400, { error: 'Game is finished.' });
-        await endGame(game, user, 'By forfeit', 'bot');
+        // The forfeiter loses, whoever they are; the other side wins.
+        await endGame(game, user, 'By forfeit', oppSide);
         const out = serializeGame(game, user);
-        out.stats = gameStatsPayload(game);
+        out.stats = gameStatsPayload(game, isOpp);
         return sendJson(res, 200, out);
       }
     }

@@ -383,6 +383,20 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Bubble after the human's moves too v71 (Nov 6, 2026, cache v71)
+
+- The v70 bubble only ever showed after the opponent's
+  moves: validatePlay (the human's path) never returned
+  highlightCells, so applyMove stored lastCells =
+  undefined for every human move — the client's bubble
+  guard found no cells, and the white last-word border
+  went missing the same way. The bot's solver path always
+  set it. Both valid returns in validatePlay now carry
+  highlightCells with the same rule as findMoves (main
+  word, or the higher-scoring word for a single tile
+  forming two). Server-only change; the bubble code from
+  v70 is untouched.
+
 ## Point bubble stays put + leaderboards refresh on leaving the board v70 (Nov 6, 2026, cache v70)
 
 - Point bubble, two fixes. (1) Boldness: premium squares

@@ -430,7 +430,9 @@ function validatePlay(board, rack, placements, premiums, isFirst) {
     const isDuello1 = both.some(w => w.word === 'DUELLO');
     const bonus1 = isDuello1 ? 30 : 0;
     const main1 = scored1.find(w => w.word === 'DUELLO') || scored1.reduce((a, b) => (b.score > a.score ? b : a));
-    return { valid: true, words: scored1, score: scored1.reduce((s, w) => s + w.score, 0) + bonus1, mainWord: main1.word, mainCells: main1.cells, bonus: bonus1, isDuello: isDuello1, bingo: false, placements };
+    // Highlight rule, same as findMoves: main1 is already the DUELLO
+    // word or the higher-scoring of the two, so it is the highlight.
+    return { valid: true, words: scored1, score: scored1.reduce((s, w) => s + w.score, 0) + bonus1, mainWord: main1.word, mainCells: main1.cells, highlightCells: main1.cells, bonus: bonus1, isDuello: isDuello1, bingo: false, placements };
   }
   // Words formed
   const main = wordAt(trial, placements[0].row, placements[0].col, dir);
@@ -462,7 +464,13 @@ function validatePlay(board, rack, placements, premiums, isFirst) {
   if (isDuello) bonus += 30;
   if (bingo) bonus += 30;
   score += bonus;
-  return { valid: true, words: scored, score, mainWord: main.word, mainCells: main.cells, bonus, isDuello, bingo, placements };
+  // Highlight rule, same as findMoves: the main word, since this
+  // branch only runs for multi-tile plays (single tiles go through
+  // the branch above). Without this, applyMove stored
+  // lastCells = undefined for every human move, so the last-play
+  // bubble — and the white last-word border — only ever showed
+  // after the opponent's moves.
+  return { valid: true, words: scored, score, mainWord: main.word, mainCells: main.cells, highlightCells: main.cells, bonus, isDuello, bingo, placements };
 }
 
 // ---------- Solver (exhaustive for Fishstick, full list for Competitive) ----------

@@ -324,6 +324,9 @@ async function renderFriendsUI() {
   $('friendRequests').innerHTML = '';
   $('noFriendsCard').classList.add('hidden');
   await loadMe();
+  // A dead session was just sent to sign-in by loadMe; don't
+  // render this account's lists on a cleared token.
+  if (!token) return;
   await loadServerFriends();
   let rows = [];
   if (lbScope === 'global') {
@@ -444,7 +447,9 @@ async function runFriendSearch() {
   // the @ in a displayed handle never makes a search miss.
   const q = $('friendSearch').value.trim().toLowerCase().replace(/^@+/, ''); const el = $('friendSearchResults'); el.innerHTML = '';
   if (!q) return;
-  await loadMe();
+  // loadMe sends a dead session to sign-in and returns false;
+  // don't run a search on a rejected session.
+  if (!(await loadMe())) return;
   // Server search, not the top-25 leaderboard: a new account at
   // 1000 Elo is below the top 25 and was unfindable before.
   let users = null, searchFallback = false;
@@ -494,7 +499,21 @@ async function loadMe() {
   // on each game response, so call sites must not pay a request per play.
   if (me) return true;
   try { const d = await api('/api/me'); me = d.user; return true; }
-  catch { return !!token; }
+  catch (err) {
+    // A rejected session used to be swallowed here: the app kept
+    // running with a token the server no longer accepts, so the
+    // friends list and Global went quietly empty and search fell
+    // back to top-25-only (which is how a real account below the
+    // top 25 looked unfindable). A dead session goes to sign-in
+    // instead, like every other 401 handler in this file; other
+    // errors (offline) keep the old behaviour.
+    if (err && err.message === 'Not signed in.') {
+      token = ''; storeDel('duello_token'); me = null; profileData = null;
+      wipeAccountScreens(); setAuthMode('signin'); show('authScreen');
+      return false;
+    }
+    return !!token;
+  }
 }
 $('playBotsBtn').onclick = () => show('botScreen');
 $('playFriendsBtn').onclick = showFriendsTab;

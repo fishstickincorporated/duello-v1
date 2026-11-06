@@ -383,6 +383,21 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Dead session goes to sign-in instead of silently degrading v61 (Nov 6, 2026, cache v61)
+
+- Root cause of the @neo search miss, found via the v60
+  fallback note: the search request from @ceo was failing,
+  so it fell back to top-25-only, where @neo never appears.
+  The failure was a dead @ceo session that loadMe() used to
+  swallow — the app kept running on a token the server no
+  longer accepts, so friends/Global went quietly empty and
+  search silently degraded. A rejected session now clears
+  the token and goes to the sign-in screen, like every
+  other 401 handler; search and the Friends list stop
+  instead of running on a cleared token. Other errors
+  (offline) behave as before. Fix on the phone: sign in
+  as @ceo again and search "neo".
+
 ## No stale account flash on switch; search fallback says so v60 (Nov 6, 2026, cache v60)
 
 - Switching accounts no longer flashes the other account:

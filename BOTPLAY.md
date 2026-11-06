@@ -383,6 +383,20 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Dead session caught everywhere, fallback names the failure v62 (Nov 6, 2026, cache v62)
+
+- v61's fix had a hole: loadMe() short-circuits once `me`
+  is cached, so a session that dies after that (password
+  changed elsewhere, sign-out on another device) still
+  degraded everything silently. One shared deadSession()
+  check now sits on every silent catch — loadMe, the
+  leaderboard cache, the friends load, and search — so a
+  rejected session always goes to sign-in, never to an
+  empty list or a fallback. Anything else still falls back
+  to the top 25, and the note now names the failure
+  ("Search isn't working (…​) — showing top players
+  only.") so the next report says exactly what broke.
+
 ## Dead session goes to sign-in instead of silently degrading v61 (Nov 6, 2026, cache v61)
 
 - Root cause of the @neo search miss, found via the v60

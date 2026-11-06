@@ -140,7 +140,7 @@ async function loadServerFriends(force) {
     try { localStorage.setItem('duello_friend_requests', JSON.stringify(keep)); } catch {}
   }
   try { const d = await api('/api/friends'); serverFriends = d; serverFriendsLoadedFor = me && me.username; }
-  catch { serverFriends = { friends: [], incoming: [], outgoing: [] }; }
+  catch (err) { deadSession(err); serverFriends = { friends: [], incoming: [], outgoing: [] }; }
   return serverFriends;
 }
 function isRealFriend(username) { return (serverFriends && serverFriends.friends || []).some(u => u.username === username); }
@@ -190,7 +190,7 @@ function unrequestFriend(username) {
 async function ensureGlobalRows() {
   if (!globalRows) {
     try { const d = await api('/api/leaderboard'); globalRows = d.users || []; }
-    catch { globalRows = []; }
+    catch (err) { deadSession(err); globalRows = []; }
   }
   return globalRows;
 }
@@ -452,19 +452,23 @@ async function runFriendSearch() {
   if (!(await loadMe())) return;
   // Server search, not the top-25 leaderboard: a new account at
   // 1000 Elo is below the top 25 and was unfindable before.
-  let users = null, searchFallback = false;
+  let users = null, searchFallback = false, searchFailReason = '';
   try { const d = await api('/api/users/search?q=' + encodeURIComponent(q)); users = d.users || []; }
-  catch {
-    // Server search unreachable (offline, dead session): fall back
-    // to the top-25 leaderboard, but say so — a silent fallback
-    // makes a real account below the top 25 look unfindable.
+  catch (err) {
+    // A dead session goes to sign-in, never to the fallback: the
+    // fallback only masks it, and the top-25 list is where a real
+    // account below the top 25 looks unfindable. Anything else
+    // falls back, and the note names the failure so the next
+    // report says exactly what broke.
+    if (deadSession(err)) return;
     searchFallback = true;
+    searchFailReason = (err && err.message) || 'network error';
     const rows = await ensureGlobalRows();
     users = rows.filter(u => (`${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)));
   }
   if (searchFallback) {
     const note = document.createElement('div'); note.className = 'small';
-    note.textContent = 'Search is offline right now — showing top players only.';
+    note.textContent = `Search isn't working (${searchFailReason}) — showing top players only.`;
     el.appendChild(note);
   }
   // At most the 5 most relevant results (the server already
@@ -494,24 +498,28 @@ $('friendSearch').addEventListener('input', () => {
   friendSearchTimer = setTimeout(runFriendSearch, 250);
 });
 
+// A rejected session anywhere means the token is dead (the
+// password was changed elsewhere, or the account signed out on
+// another device). Send the user to sign-in instead of letting
+// every list quietly go empty. Returns true when it redirected.
+// The v61 fix only covered loadMe with no cached user — but
+// loadMe short-circuits once `me` is set, so a session that
+// dies after that kept degrading everything silently.
+function deadSession(err) {
+  if (err && err.message === 'Not signed in.') {
+    token = ''; storeDel('duello_token'); me = null; profileData = null;
+    wipeAccountScreens(); setAuthMode('signin'); show('authScreen');
+    return true;
+  }
+  return false;
+}
 async function loadMe() {
   // Real /api/me, but cached: the scoreboard Elo comes from game.player
   // on each game response, so call sites must not pay a request per play.
   if (me) return true;
   try { const d = await api('/api/me'); me = d.user; return true; }
   catch (err) {
-    // A rejected session used to be swallowed here: the app kept
-    // running with a token the server no longer accepts, so the
-    // friends list and Global went quietly empty and search fell
-    // back to top-25-only (which is how a real account below the
-    // top 25 looked unfindable). A dead session goes to sign-in
-    // instead, like every other 401 handler in this file; other
-    // errors (offline) keep the old behaviour.
-    if (err && err.message === 'Not signed in.') {
-      token = ''; storeDel('duello_token'); me = null; profileData = null;
-      wipeAccountScreens(); setAuthMode('signin'); show('authScreen');
-      return false;
-    }
+    if (deadSession(err)) return false;
     return !!token;
   }
 }

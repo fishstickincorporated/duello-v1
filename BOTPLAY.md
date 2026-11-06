@@ -383,6 +383,27 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Tabs load once and stay loaded for the session v74 (Nov 6, 2026, cache v74)
+
+- The Profile tab no longer blanks and refetches /api/me on
+  every tap: it renders once and the tab just shows the
+  screen again. The Friends tab likewise keeps its rendered
+  list — a tab tap is a no-op when the same scope is already
+  shown and nothing changed. Home and Bots already only
+  showed their screens, so nothing changed there.
+- The cache invalidates exactly where the app itself knows
+  the data changed, so nothing goes stale: finishing a game
+  (goHome's refresh) clears the cached profile and forces
+  the friends refetch; accepting, declining, removing, or
+  sending a friend request forces a refetch; the pencil and
+  the remove confirm mark the list stale; switching Friends
+  / Global scope always renders the other scope; signing
+  out, deleting the account, or a dead session wipes the
+  cached screens. Saving a profile edit still refetches,
+  as before. Verified with a state-machine test run: repeat
+  tab taps skip, scope changes, pencil toggles, forced
+  refetches, and sign-out wipes all render.
+
 ## Leaderboard ties share a rank v73 (Nov 6, 2026, cache v73)
 
 - Ties now share a rank, and the next rank skips ahead:

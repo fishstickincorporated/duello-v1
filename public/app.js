@@ -115,12 +115,20 @@ let lbScope = 'friends', deleteMode = false;
 // delete mode is left, or after the removal runs).
 let pendingRemove = null;
 let globalRows = null;
+// The rendered leaderboard stays loaded for the session: a tab
+// tap only shows the screen again instead of blanking and
+// rebuilding the list. friendsStale goes true whenever the data
+// behind it changes (a forced friends refetch, delete-mode
+// toggles, a remove confirm), and friendsRenderedScope tracks
+// which scope the DOM currently shows.
+let friendsStale = true, friendsRenderedScope = null;
 // Server-owned friend state for the signed-in account: accepted
 // friends, incoming requests, outgoing requests. Cached per
 // username, so switching accounts never shows the old account's
 // friends or requests.
 let serverFriends = null, serverFriendsLoadedFor = null, friendMigrationDone = false;
 async function loadServerFriends(force) {
+  if (force) friendsStale = true;
   if (serverFriends && !force && serverFriendsLoadedFor === (me && me.username)) return serverFriends;
   await ensureGlobalRows();
   // One-time migration: requests made before v53 lived only in
@@ -317,6 +325,10 @@ function shortName(r) {
   return ln ? `${f} ${ln[0]}.` : f;
 }
 async function renderFriendsUI() {
+  // Already loaded for this scope and nothing changed since: just
+  // keep the screen as it is. The tab tap already called show(),
+  // so there is no blanking, no refetch, and no rebuild.
+  if (!friendsStale && friendsRenderedScope === lbScope) return;
   // Pencil keeps its layout box on Global (visibility, not display), so the
   // LEADERBOARD label and everything below it sit at the exact same
   // position on both tabs instead of shifting when the pencil appears.
@@ -397,13 +409,14 @@ async function renderFriendsUI() {
     list.appendChild(row);
     if (isFriends && !r.isYou && deleteMode) {
       const delBtn = row.querySelector('.lb-delete');
-      if (delBtn) delBtn.onclick = () => { pendingRemove = r; renderFriendsUI(); };
+      if (delBtn) delBtn.onclick = () => { pendingRemove = r; friendsStale = true; renderFriendsUI(); };
       const confBtn = row.querySelector('.lb-remove-confirm');
       if (confBtn) confBtn.onclick = async () => {
         const target = pendingRemove; pendingRemove = null;
         if (!target) return;
         if (target.isPersona) unrequestFriend(target.username);
         else { try { await api('/api/friends/remove', { method: 'POST', body: JSON.stringify({ username: target.username }) }); } catch {} await loadServerFriends(true); }
+        friendsStale = true;
         renderFriendsUI();
       };
     }
@@ -430,6 +443,7 @@ async function renderFriendsUI() {
       reqEl.appendChild(row);
     }
   }
+  friendsStale = false; friendsRenderedScope = lbScope;
 }
 function showFriendsTab() {
   lbScope = 'friends';
@@ -439,7 +453,7 @@ function showFriendsTab() {
 $('tabFriends').onclick = showFriendsTab;
 $('lbFriendsTab').onclick = () => { lbScope = 'friends'; $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active'); renderFriendsUI(); };
 $('lbGlobalTab').onclick = () => { lbScope = 'global'; deleteMode = false; $('lbGlobalTab').classList.add('active'); $('lbFriendsTab').classList.remove('active'); renderFriendsUI(); };
-$('friendsPencil').onclick = () => { if (lbScope !== 'friends') return; deleteMode = !deleteMode; renderFriendsUI(); };
+$('friendsPencil').onclick = () => { if (lbScope !== 'friends') return; deleteMode = !deleteMode; friendsStale = true; renderFriendsUI(); };
 async function runFriendSearch() {
   // A leading @ is stripped: typing "@neo" searches for neo, so
   // the @ in a displayed handle never makes a search miss.
@@ -1492,6 +1506,11 @@ $('statWindow').addEventListener('click', e => { if (e.target === $('statWindow'
 // is hidden on the board screen, so Main Menu is the only way out
 // and the only place this needs to run.
 async function refreshLeaderboards() {
+  // A finished game changed the Elo and stats, so the cached
+  // profile is stale: the next Profile tap refetches it. The
+  // Friends list is invalidated the same way, via the forced
+  // friends refetch below.
+  profileData = null;
   try { const d = await api('/api/me'); me = d.user; } catch (err) { deadSession(err); return; }
   globalRows = null;
   await loadServerFriends(true);
@@ -1906,7 +1925,7 @@ function drawEloChart() {
   pts.forEach((v, i) => { const x = 10 + i * (cv.width - 20) / (pts.length - 1); const y = cv.height - 10 - ((v - min) / (max - min)) * (cv.height - 20); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
   ctx.stroke();
 }
-$('tabProfile').onclick = () => { blankProfileUI(); show('profileScreen'); renderProfileUI(); };
+$('tabProfile').onclick = () => { show('profileScreen'); if (!profileData) renderProfileUI(); };
 document.querySelectorAll('.stats-tab').forEach(b => b.onclick = () => { statsScope = b.dataset.scope; document.querySelectorAll('.stats-tab').forEach(x => x.classList.toggle('active', x === b)); renderStatsList(); });
 document.querySelectorAll('.chart-toggle').forEach(b => b.onclick = () => { chartRange = b.dataset.range; document.querySelectorAll('.chart-toggle').forEach(x => x.classList.toggle('active', x === b)); drawEloChart(); });
 $('gearBtn').onclick = async () => {
@@ -2050,6 +2069,7 @@ function renderPwReqs(listId, pw) {
 function wipeAccountScreens() {
   blankProfileUI();
   pendingRemove = null;
+  friendsStale = true; friendsRenderedScope = null;
   $('leaderboardList').innerHTML = '';
   $('friendRequests').innerHTML = '';
   $('friendSearchResults').innerHTML = '';

@@ -124,6 +124,7 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .person-add{background:#3a3f4b;color:#e8ecf1;border:2px solid #03eaff;border-radius:12px;padding:10px 16px;font-family:Comfortaa,sans-serif;font-size:14px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;width:180px;height:56px}
 .sent-text{line-height:1}
 .person-add.sent{border-color:#b3b2b1;color:#b3b2b1}
+.person-add:disabled{opacity:.6;cursor:default;border-color:#b3b2b1;color:#b3b2b1}
 .person-add svg{display:block}
 .drag-ghost{position:fixed;width:92px;height:92px;border-radius:8px;overflow:hidden;background:linear-gradient(180deg,#7df3ff 0%,#03eaff 50%,#00b8d2 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.65),inset 0 -2px 0 rgba(0,90,110,.35);color:#1a1d24;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;z-index:30;pointer-events:none;transform:translate(-50%,-60%)}
 
@@ -142,6 +143,7 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .search-icon{font-size:18px}
 .search-results{text-align:left}
 .search-result,.request-row{display:flex;align-items:center;gap:10px;background:#262a33;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left}
+.request-actions{margin-left:auto;display:flex;gap:6px}
 /* Leaderboard rows are a grid, not flex: rank | pfp | name | Elo |
 action, every column fixed-width except the name. The old flex row
 let the Elo sit wherever the name and the button ended, so Elos

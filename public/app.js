@@ -100,19 +100,53 @@ $('tabHome').onclick = () => show('homeScreen');
 // ---------- Friends tab ----------
 // The Global scope is real registered users, top by Elo, from GET
 // /api/leaderboard (guest rows excluded server-side). The Friends
-// scope lists the people you added from Global (the request list
-// in localStorage, resolved against the leaderboard) with a play
-// icon to challenge them. Friend requests are still UI-only
-// pending state until the friends backend lands: nothing is sent
-// anywhere, and a challenge to a persona is answered by the same
-// simulated accept/decline as a rematch request.
+// scope lists accepted friends with a play icon to challenge them.
+// Friend requests are real since v53 (GET/POST /api/friends):
+// sending one makes it appear at the top of the recipient's
+// Friends page, and accepting it makes you friends. Personas
+// have no account, so a request to one still lives only in
+// localStorage, exactly as before. A challenge to a persona is
+// answered by the same simulated accept/decline as a rematch
+// request.
 let lbScope = 'friends', deleteMode = false;
 let globalRows = null;
-// Friend-request buttons are UI-only until the friends backend
-// lands: requested usernames persist in localStorage so a row
-// stays Requested across loads, but nothing is sent anywhere.
-// Tapping Requested again unrequests: the toggle removes the name
-// and the button goes back to the add icon.
+// Server-owned friend state for the signed-in account: accepted
+// friends, incoming requests, outgoing requests. Cached per
+// username, so switching accounts never shows the old account's
+// friends or requests.
+let serverFriends = null, serverFriendsLoadedFor = null, friendMigrationDone = false;
+async function loadServerFriends(force) {
+  if (serverFriends && !force && serverFriendsLoadedFor === (me && me.username)) return serverFriends;
+  await ensureGlobalRows();
+  // One-time migration: requests made before v53 lived only in
+  // this device's localStorage. Real-player ones move to the
+  // server (so the other person finally sees them); a request to
+  // yourself — the @neo -> @ceo self-friend bug, caused by
+  // localStorage being shared by every account on one phone —
+  // is dropped, and persona requests stay local.
+  if (!friendMigrationDone) {
+    friendMigrationDone = true;
+    const stored = getFriendRequests(), keep = [];
+    for (const u of stored) {
+      const row = (globalRows || []).find(x => x.username === u);
+      if (row && !row.isPersona && u !== (me && me.username)) {
+        try { await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ username: u }) }); } catch {}
+      } else if (!row || row.isPersona) keep.push(u);
+    }
+    try { localStorage.setItem('duello_friend_requests', JSON.stringify(keep)); } catch {}
+  }
+  try { const d = await api('/api/friends'); serverFriends = d; serverFriendsLoadedFor = me && me.username; }
+  catch { serverFriends = { friends: [], incoming: [], outgoing: [] }; }
+  return serverFriends;
+}
+function isRealFriend(username) { return (serverFriends && serverFriends.friends || []).some(u => u.username === username); }
+function isRealRequested(username) { return (serverFriends && serverFriends.outgoing || []).some(u => u.username === username); }
+// Requests to a persona are local-only (personas have no account
+// to receive one): the username persists in localStorage so the
+// row stays Requested across loads. Tapping Requested again
+// unrequests: the toggle removes the name and the button goes
+// back to the add icon. Requests to a real player go to the
+// server instead — see loadServerFriends above.
 // The button is an SVG icon, not text or emoji: a person
 // silhouette with a plus for Add, and a sent paper airplane once
 // the request is sent. Both draw in currentColor at 24px inside
@@ -181,13 +215,27 @@ let modalPerson = null;
 function renderPersonAddBtn() {
   const btn = $('personAddBtn');
   if (!modalPerson) return;
-  const requested = getFriendRequests().includes(modalPerson.username);
-  btn.classList.toggle('sent', requested);
-  btn.innerHTML = requested ? friendSentHTML() : `${friendAddSVG()}<span>Add Friend</span>`;
-  btn.setAttribute('aria-label', requested ? `Cancel friend request to ${modalPerson.name}` : `Add ${modalPerson.name} as a friend`);
+  btn.disabled = false;
+  if (modalPerson.isPersona) {
+    const requested = getFriendRequests().includes(modalPerson.username);
+    btn.classList.toggle('sent', requested);
+    btn.innerHTML = requested ? friendSentHTML() : `${friendAddSVG()}<span>Add Friend</span>`;
+    btn.setAttribute('aria-label', requested ? `Cancel friend request to ${modalPerson.name}` : `Add ${modalPerson.name} as a friend`);
+  } else if (isRealFriend(modalPerson.username)) {
+    btn.classList.remove('sent');
+    btn.innerHTML = '<span>Friends</span>';
+    btn.disabled = true;
+    btn.setAttribute('aria-label', `${modalPerson.name} is your friend`);
+  } else {
+    const requested = isRealRequested(modalPerson.username);
+    btn.classList.toggle('sent', requested);
+    btn.innerHTML = requested ? friendSentHTML() : `${friendAddSVG()}<span>Add Friend</span>`;
+    btn.setAttribute('aria-label', requested ? `Cancel friend request to ${modalPerson.name}` : `Add ${modalPerson.name} as a friend`);
+  }
 }
-function openPersonModal(person) {
+async function openPersonModal(person) {
   modalPerson = person;
+  if (!person.isPersona) await loadServerFriends();
   const pfp = $('personPfp');
   pfp.innerHTML = person.photoData ? `<img src="${person.photoData}" alt="">` : silhouetteSVG(64);
   pfp.classList.toggle('no-photo', !person.photoData);
@@ -206,10 +254,18 @@ function closePersonModal() {
 }
 $('personCloseBtn').onclick = closePersonModal;
 $('personModal').addEventListener('click', e => { if (e.target === $('personModal')) closePersonModal(); });
-$('personAddBtn').onclick = () => {
-  if (!modalPerson) return;
-  if (getFriendRequests().includes(modalPerson.username)) unrequestFriend(modalPerson.username);
-  else markFriendRequested(modalPerson.username);
+$('personAddBtn').onclick = async () => {
+  if (!modalPerson || $('personAddBtn').disabled) return;
+  if (modalPerson.isPersona) {
+    if (getFriendRequests().includes(modalPerson.username)) unrequestFriend(modalPerson.username);
+    else markFriendRequested(modalPerson.username);
+  } else if (isRealRequested(modalPerson.username)) {
+    try { await api('/api/friends/remove', { method: 'POST', body: JSON.stringify({ username: modalPerson.username }) }); } catch {}
+    await loadServerFriends(true);
+  } else {
+    try { await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ username: modalPerson.username }) }); } catch {}
+    await loadServerFriends(true);
+  }
   renderPersonAddBtn();
 };
 function toLbRow(u) {
@@ -227,6 +283,7 @@ async function renderFriendsUI() {
   // position on both tabs instead of shifting when the pencil appears.
   $('friendsPencil').style.visibility = lbScope !== 'friends' ? 'hidden' : 'visible';
   await loadMe();
+  await loadServerFriends();
   let rows = [];
   if (lbScope === 'global') {
     const users = await ensureGlobalRows();
@@ -236,14 +293,15 @@ async function renderFriendsUI() {
     // window (opened by tapping the name) shows it.
     rows.forEach(r => { r.displayName = r.firstName || r.name; });
   } else {
-    // Friends are the people you added from Global: the request
-    // list in localStorage, resolved against the leaderboard rows.
-    // A stale request (a username from before a seed re-roll) just
-    // doesn't resolve and stays out of the list. Friends sort by
-    // Elo like Global; your own row can never appear here.
+    // Friends are accepted friends from the server, plus persona
+    // "friends" kept in localStorage. Your own row can never
+    // appear here — the server never returns you, and the filter
+    // below drops you even if a stale local entry names you.
     const users = await ensureGlobalRows();
     const byUsername = new Map(users.map(u => [u.username, u]));
-    rows = getFriendRequests().map(u => byUsername.get(u)).filter(Boolean).map(toLbRow).sort((a, b) => b.elo - a.elo);
+    const realRows = (serverFriends.friends || []).map(u => byUsername.get(u.username)).filter(Boolean);
+    const personaRows = getFriendRequests().map(u => byUsername.get(u)).filter(u => u && u.isPersona);
+    rows = [...realRows, ...personaRows].map(toLbRow).filter(r => !r.isYou).sort((a, b) => b.elo - a.elo);
   }
   const list = $('leaderboardList'); list.innerHTML = '';
   rows.forEach((r, i) => {
@@ -270,7 +328,20 @@ async function renderFriendsUI() {
     if (nameEl) nameEl.onclick = () => openPersonModal(r);
   });
   $('noFriendsCard').classList.toggle('hidden', !(lbScope === 'friends' && rows.length === 0));
-  $('friendRequests').innerHTML = '';
+  // Incoming friend requests sit at the top of the Friends page,
+  // above the list — that is how a request reaches the other
+  // person now that requests live on the server.
+  const reqEl = $('friendRequests'); reqEl.innerHTML = '';
+  if (lbScope === 'friends') {
+    for (const u of (serverFriends.incoming || [])) {
+      const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
+      const row = document.createElement('div'); row.className = 'request-row';
+      row.innerHTML = `<span class="lb-pfp${u.photoData ? '' : ' no-photo'}">${pfpHTML(u)}</span><span class="lb-identity"><div class="lb-name">${name}</div><div class="lb-user">@${u.username}</div></span><span class="request-actions"><button class="mini-btn" data-act="accept">Accept</button><button class="mini-btn grey" data-act="decline">Decline</button></span>`;
+      row.querySelector('[data-act="accept"]').onclick = async () => { try { await api('/api/friends/respond', { method: 'POST', body: JSON.stringify({ username: u.username, accept: true }) }); } catch {} await loadServerFriends(true); renderFriendsUI(); };
+      row.querySelector('[data-act="decline"]').onclick = async () => { try { await api('/api/friends/respond', { method: 'POST', body: JSON.stringify({ username: u.username, accept: false }) }); } catch {} await loadServerFriends(true); renderFriendsUI(); };
+      reqEl.appendChild(row);
+    }
+  }
 }
 function showFriendsTab() {
   lbScope = 'friends';
@@ -1599,6 +1670,15 @@ function numify(s) { return String(s).replace(/\d+/g, d => `<span class="num">${
 async function renderProfileUI() {
   // Sign-in is required: no token, or a rejected session, goes to auth.
   if (!token) { setAuthMode('signin'); show('authScreen'); return; }
+  // Blank the previous account's profile right away, before /api/me
+  // comes back: the old name, photo, Elo and stats used to sit
+  // there for a few seconds after switching accounts, because the
+  // screen only repainted once the fetch returned.
+  $('profilePfp').innerHTML = silhouetteSVG(44); $('profilePfp').classList.add('no-photo');
+  $('profileName').textContent = ''; $('profileUsername').textContent = ''; $('profileJoined').textContent = '';
+  $('profileElo').textContent = ''; $('profileEloHigh').textContent = '';
+  $('statsList').innerHTML = '';
+  const chartCv = $('eloChart'); if (chartCv) chartCv.getContext('2d').clearRect(0, 0, chartCv.width, chartCv.height);
   let d;
   try { d = await api('/api/me'); }
   catch (err) {
@@ -1615,17 +1695,18 @@ async function renderProfileUI() {
   $('profileEloHigh').textContent = u.eloHigh;
   renderStatsList(); drawEloChart();
 }
+function fmt1(v) { return (Number(v) || 0).toFixed(1); }
 function renderStatsList() {
   if (!profileData || !profileData.profileStats) return;
   const st = profileData.profileStats[statsScope] || profileData.profileStats.aggregate;
   const lines = [
     ['Average game score', st.avgGameScore], ['Highest game score', st.highestGameScore],
-    ['Average word score', st.avgWordScore], ['Highest word score', st.highestWord ? `${st.highestWord} (${st.highestWordScore} pts)` : '—'],
+    ['Average word score', fmt1(st.avgWordScore)], ['Highest word score', st.highestWord ? `${st.highestWord} (${st.highestWordScore} pts)` : '—'],
     ['50+ point words', st.wordsOver50], ['100+ point words', st.wordsOver100],
     ['Lifetime bingos', st.bingos],
     ['Longest word', st.longestWord ? `${st.longestWord} (${st.longestWordLen} letters)` : '—'],
     ['Games played', st.gamesPlayed], ['Lifetime record', st.record || '0W-0L'],
-    ['Optimal move %', st.optimalPct + '%'], ['Unique words played', st.uniqueWords],
+    ['Optimal move %', fmt1(st.optimalPct) + '%'], ['Unique words played', st.uniqueWords],
   ];
   $('statsList').innerHTML = lines.map(([k, v]) => `<div class="stat-line"><span>${k}</span><b>${numify(v)}</b></div>`).join('');
 }
@@ -1637,7 +1718,9 @@ function drawEloChart() {
   if (chartRange === '1m') hist = hist.filter(h => now - new Date(h.created_at).getTime() < 30 * 24 * 3600 * 1000);
   if (chartRange === '1y') hist = hist.filter(h => now - new Date(h.created_at).getTime() < 365 * 24 * 3600 * 1000);
   const pts = [1000, ...hist.map(h => h.elo_after)];
-  if (pts.length < 2) { ctx.fillStyle = '#b3b2b1'; ctx.font = '13px Comfortaa'; ctx.fillText('No Elo history yet — play a game.', 12, 30); return; }
+  // A brand-new account has no history yet: draw a flat line at the
+  // starting 1000 instead of a "no history" message.
+  if (pts.length < 2) pts.push(1000);
   const min = Math.min(...pts) - 20, max = Math.max(...pts) + 20;
   ctx.strokeStyle = '#03eaff'; ctx.lineWidth = 2; ctx.beginPath();
   pts.forEach((v, i) => { const x = 10 + i * (cv.width - 20) / (pts.length - 1); const y = cv.height - 10 - ((v - min) / (max - min)) * (cv.height - 20); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
@@ -1661,17 +1744,37 @@ $('gearBtn').onclick = async () => {
 };
 let editPhotoData;
 $('editPfpWrap').onclick = () => $('editPhotoInput').click();
+// Normal phone photos are several MB, far over the 750KB photo cap
+// as a raw data URL — so shrink the photo on the device first.
+// Pfps display at 36-64px, so 512px on the longest side is plenty;
+// JPEG at 0.82 lands well under the cap. Step down only if a very
+// wide/tall shot still doesn't fit; the "too large" error is now
+// a last resort, not the normal outcome.
+function shrinkPhoto(img, maxSide, quality) {
+  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+  const w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  cv.getContext('2d').drawImage(img, 0, 0, w, h);
+  return cv.toDataURL('image/jpeg', quality);
+}
 $('editPhotoInput').onchange = () => {
   const f = $('editPhotoInput').files && $('editPhotoInput').files[0];
   if (!f) return;
   const rd = new FileReader();
   rd.onload = () => {
-    const data = String(rd.result || '');
-    if (data.length > 750000) { $('editError').textContent = 'That photo is too large. Pick a smaller one.'; return; }
-    editPhotoData = data;
-    $('editPfp').innerHTML = `<img src="${data}" alt="">`; $('editPfp').classList.remove('no-photo');
-    $('editPhotoRemoveBtn').classList.remove('hidden');
-    $('editError').textContent = '';
+    const img = new Image();
+    img.onload = () => {
+      let data = shrinkPhoto(img, 512, 0.82);
+      if (data.length > 750000) data = shrinkPhoto(img, 384, 0.75);
+      if (data.length > 750000) data = shrinkPhoto(img, 256, 0.7);
+      if (data.length > 750000) { $('editError').textContent = 'That photo is too large. Pick a smaller one.'; return; }
+      editPhotoData = data;
+      $('editPfp').innerHTML = `<img src="${data}" alt="">`; $('editPfp').classList.remove('no-photo');
+      $('editPhotoRemoveBtn').classList.remove('hidden');
+      $('editError').textContent = '';
+    };
+    img.onerror = () => { $('editError').textContent = 'That photo could not be read. Try a different one.'; };
+    img.src = String(rd.result || '');
   };
   rd.readAsDataURL(f);
 };

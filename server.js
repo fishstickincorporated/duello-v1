@@ -141,6 +141,18 @@ async function initDb() {
   // define it, so add it idempotently for later slices. It is not used by
   // bot play itself.
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_data TEXT');
+  // Real friend requests (v53): one row per directed request, pending
+  // until accepted; accepted rows are the friendship. Personas are
+  // not in users, so they can never be a request target here.
+  await pool.query(`CREATE TABLE IF NOT EXISTS friend_requests (
+    id SERIAL PRIMARY KEY,
+    from_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    to_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (from_user_id, to_user_id),
+    CHECK (from_user_id <> to_user_id)
+  )`);
   await seedPersonas();
 }
 async function seedPersonas() {
@@ -281,8 +293,8 @@ async function profileStatsFor(userId) {
     // fully expired — games ended early (forfeit, stalls) are excluded.
     for (const g of gs) { if (skip(g)) continue; if (!(g.clocks && g.clocks.human <= 0)) continue; totalScore += (g.scores && g.scores.human) || 0; played++; }
     st.avgGameScore = played ? Math.round(totalScore / played) : 0;
-    st.avgWordScore = wordCount ? Math.round(wordScoreSum / wordCount) : 0;
-    st.optimalPct = st.totalMoves ? Math.round(st.optimalMoves / st.totalMoves * 100) : 0;
+    st.avgWordScore = wordCount ? Math.round(wordScoreSum / wordCount * 10) / 10 : 0;
+    st.optimalPct = st.totalMoves ? Math.round(st.optimalMoves / st.totalMoves * 1000) / 10 : 0;
     st.uniqueWords = uniq.size;
     st.record = `${st.wins}W-${st.losses}L` + (st.draws ? `-${st.draws}D` : '');
     return st;
@@ -1607,6 +1619,7 @@ const server = http.createServer(async (req, res) => {
       try {
         await client.query('BEGIN');
         await client.query('DELETE FROM sessions WHERE user_id=$1', [user.id]);
+        await client.query('DELETE FROM friend_requests WHERE from_user_id=$1 OR to_user_id=$1', [user.id]);
         await client.query('DELETE FROM games WHERE user_id=$1', [user.id]);
         await client.query('DELETE FROM elo_history WHERE user_id=$1', [user.id]);
         await client.query('DELETE FROM verification_codes WHERE email=$1', [user.email]);
@@ -1636,6 +1649,69 @@ const server = http.createServer(async (req, res) => {
       )
       SELECT * FROM ranked WHERE rank <= 25 OR (is_persona = 0 AND username = $1) ORDER BY elo DESC, created_at ASC`, [user.username]);
       return sendJson(res, 200, { users: r.rows.map(u => ({ id: u.id, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, photoData: u.photo_data || null, isPersona: u.is_persona === 1, rank: Number(u.rank) })) });
+    }
+    // ---------- Friends (real requests, v53) ----------
+    // Requests used to live only in the sender's localStorage, so a
+    // request never reached the other person's phone — and because
+    // localStorage is shared by every account on one device, a
+    // request to @ceo sent from @neo on the same phone showed up
+    // in @ceo's own Friends list as a friend: himself. Now the
+    // server owns requests: sending one makes it appear at the top
+    // of the recipient's Friends page, and your own row can never
+    // be a friend or a request (self-requests are rejected here).
+    function friendRow(u) { return { id: u.id, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, photoData: u.photo_data || null, isPersona: false }; }
+    if (pathname === '/api/friends' && req.method === 'GET') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const r = await q(`SELECT fr.*, u.* FROM friend_requests fr JOIN users u ON u.id = CASE WHEN fr.from_user_id=$1 THEN fr.to_user_id ELSE fr.from_user_id END WHERE fr.from_user_id=$1 OR fr.to_user_id=$1`, [user.id]);
+      const friends = [], incoming = [], outgoing = [];
+      for (const row of r.rows) {
+        const other = friendRow(row);
+        if (row.status === 'accepted') friends.push(other);
+        else if (row.to_user_id === user.id) incoming.push(other);
+        else outgoing.push(other);
+      }
+      return sendJson(res, 200, { friends, incoming, outgoing });
+    }
+    if (pathname === '/api/friends/request' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const target = await getUserByUsername(String(b.username || '').trim().toLowerCase());
+      if (!target) return sendJson(res, 400, { error: 'That player is not available.' });
+      if (target.id === user.id) return sendJson(res, 400, { error: 'You cannot add yourself as a friend.' });
+      const existing = (await q('SELECT * FROM friend_requests WHERE (from_user_id=$1 AND to_user_id=$2) OR (from_user_id=$2 AND to_user_id=$1)', [user.id, target.id])).rows[0];
+      if (existing) {
+        if (existing.status === 'accepted') return sendJson(res, 400, { error: 'You are already friends.' });
+        if (existing.from_user_id === user.id) return sendJson(res, 400, { error: 'Request already sent.' });
+        // They already asked you: their request becomes the friendship.
+        await q("UPDATE friend_requests SET status='accepted' WHERE id=$1", [existing.id]);
+        return sendJson(res, 200, { accepted: true });
+      }
+      await q('INSERT INTO friend_requests (from_user_id, to_user_id) VALUES ($1,$2)', [user.id, target.id]);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/friends/respond' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const sender = await getUserByUsername(String(b.username || '').trim().toLowerCase());
+      if (!sender) return sendJson(res, 400, { error: 'That player is not available.' });
+      const reqRow = (await q("SELECT * FROM friend_requests WHERE from_user_id=$1 AND to_user_id=$2 AND status='pending'", [sender.id, user.id])).rows[0];
+      if (!reqRow) return sendJson(res, 404, { error: 'No friend request from that player.' });
+      if (b.accept) await q("UPDATE friend_requests SET status='accepted' WHERE id=$1", [reqRow.id]);
+      else await q('DELETE FROM friend_requests WHERE id=$1', [reqRow.id]);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/friends/remove' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const other = await getUserByUsername(String(b.username || '').trim().toLowerCase());
+      if (!other) return sendJson(res, 400, { error: 'That player is not available.' });
+      // Cancels a request you sent, or removes an accepted friend.
+      await q('DELETE FROM friend_requests WHERE (from_user_id=$1 AND to_user_id=$2) OR (from_user_id=$2 AND to_user_id=$1)', [user.id, other.id]);
+      return sendJson(res, 200, { ok: true });
     }
     if (pathname === '/api/define' && req.method === 'GET') {
       return sendJson(res, 200, await getDefinition(url.searchParams.get('word') || ''));

@@ -23,12 +23,14 @@ Bot play only. Sign-in is required before entering the app since Nov 2, 2026: wi
   `POST /api/games`, `GET /api/games/:id`,
   `POST /api/games/:id/validate`, `/play`, `/pass`, `/forfeit`,
   `/shuffle`, `GET /api/define`, `GET /api/words`.
-- Out of scope, removed in this slice: friends backend and leaderboards,
+- Out of scope, removed in this slice: leaderboards,
   `/api/me/password` (password change), and any friends UI backend. A
   friends/global leaderboard tab UI was added Nov 2, 2026. Its mock
-  data was removed Nov 2, 2026: the Friends scope is empty until the
-  friends backend lands, and Global is real registered users, top by
-  Elo, from `GET /api/leaderboard` (guest rows excluded). Real accounts landed Nov 2, 2026: email/password
+  data was removed Nov 2, 2026: Global is real registered users, top by
+  Elo, from `GET /api/leaderboard` (guest rows excluded), and the
+  friends backend landed in part Nov 5, 2026 (v53: real friend
+  requests with accept/decline; real-player challenges still have
+  no delivery path). Real accounts landed Nov 2, 2026: email/password
   signup, sign-in, sign-out, `GET /api/me`, `POST /api/me/update`, and
   real profile stats from finished games. Email-verified signup landed
   Nov 2, 2026: `POST /api/auth/request-code` emails a 6-digit code via
@@ -380,6 +382,51 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   2px/2px, and the reserved height drops from 27px (2 lines)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
+
+## One decimal stats, flat new-account Elo line, photo shrink, real friend requests, no stale profile v53 (Nov 5, 2026, cache v53)
+
+- Stats: Average word score and Optimal move % now carry one
+  decimal place (server rounds to 0.1; client formats with
+  toFixed(1), e.g. 53.8%, 14.4). Average game score is
+  unchanged (still whole points).
+- Elo chart: a brand-new account no longer says "No Elo history
+  yet — play a game." With no history the chart draws a flat
+  line at the starting 1000 instead.
+- Photos: a normal phone photo no longer hits "That photo is too
+  large." The client now shrinks the photo on the device before
+  upload — 512px on the longest side, JPEG 0.82, stepping down
+  to 384px/0.75 then 256px/0.7 only if it still doesn't fit the
+  750KB cap. Pfps display at 36-64px, so 512px is plenty. The
+  server's 750KB cap stays as a backstop.
+- Friend requests are real now (this is the friends backend
+  arriving for requests only — real-player challenges still
+  have no delivery path). New table `friend_requests`
+  (from/to/status pending-or-accepted, self-requests rejected
+  by a CHECK), plus GET /api/friends (friends/incoming/
+  outgoing), POST /api/friends/request, /respond (accept/
+  decline), /remove (cancel a sent request or remove a friend).
+  Sending a request makes it appear at the top of the
+  recipient's Friends page with Accept/Decline buttons; the
+  profile-window button shows "sent" for an outgoing request
+  and a disabled "Friends" once accepted. Requests to a persona
+  stay local-only, as before — personas have no account.
+- Self-friend bug, root cause: requests used to live only in
+  the sender's localStorage, which is shared by every account
+  on one phone. @neo's request to @ceo therefore showed up in
+  @ceo's own Friends list as a friend: himself. The server
+  never returns you as a friend or request, the client filters
+  your own row out of the Friends list, and self-requests are
+  rejected server-side. Old localStorage requests migrate once
+  on load: real-player ones are re-sent to the server, a
+  request to yourself is dropped, persona ones stay local.
+- Profile after switching accounts: the old account used to
+  show on the profile tab for a few seconds because the screen
+  kept the previous account's painted name/photo/Elo/stats
+  until /api/me came back. renderProfileUI now blanks the
+  profile fields and clears the chart before the fetch, so
+  the tab opens empty and paints the new account when it
+  arrives. Sign-in/out already cleared the cached user object;
+  the stale part was the DOM, not the cache.
 
 ## Profile button really fixed, out-of-time recall, stat pfp tap v52 (Nov 5, 2026, cache v52)
 

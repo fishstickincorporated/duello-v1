@@ -383,6 +383,18 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Nobody is a friend until they accept; personas never are v64 (Nov 6, 2026, cache v64)
+
+- Requesting a persona used to put them straight on the
+  Friends list — the list was built from localStorage
+  requests, so no acceptance was ever needed. Now the
+  Friends list holds only server-accepted friends (plus
+  you): a request to a persona stays local "Requested" on
+  their profile button and nothing more, because fake
+  humans never accept. Real players were already
+  accept-only via the server. Pending persona requests no
+  longer count toward "No friends yet" either.
+
 ## Search SQL fixed: UNION wrapped in a subquery v63 (Nov 6, 2026, cache v63)
 
 - The @neo search miss, finally nailed by Jeff's screenshot:

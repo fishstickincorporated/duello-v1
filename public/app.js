@@ -342,23 +342,17 @@ async function renderFriendsUI() {
     // either direction). This list is separate from Global and
     // has no cap — it is NOT resolved through the top-25
     // leaderboard, or a friend below the top 25 would vanish
-    // from it. Real friends come straight from the server;
-    // persona "friends" come from localStorage, looked up on
-    // the leaderboard or, if they sit below the top 25, by
-    // search. You are on your own Friends list too, and ranks
+    // from it. Nobody is a friend until they accept — real
+    // players only arrive here via the server's accepted list,
+    // and personas never arrive at all: a request to a persona
+    // stays local "Requested" (the sent state on their profile
+    // button) and nothing more, because fake humans never
+    // accept. You are on your own Friends list too, and ranks
     // here start at 1 — your Global rank is a different number,
     // shown on your profile.
-    const users = await ensureGlobalRows();
-    const byUsername = new Map(users.map(u => [u.username, u]));
     const realRows = (serverFriends.friends || []).map(u => toLbRow(u));
-    const personaRows = [];
-    for (const u of getFriendRequests()) {
-      let found = byUsername.get(u);
-      if (!found) { try { const d = await api('/api/users/search?q=' + encodeURIComponent(u)); found = (d.users || []).find(x => x.username === u && x.isPersona); } catch {} }
-      if (found && found.isPersona) personaRows.push(toLbRow(found));
-    }
     const selfRow = me ? toLbRow({ id: me.id, username: me.username, firstName: me.firstName, lastName: me.lastName, elo: me.elo, photoData: me.photoData || null, isPersona: false }) : null;
-    rows = [...realRows, ...personaRows, ...(selfRow ? [selfRow] : [])].sort((a, b) => b.elo - a.elo);
+    rows = [...realRows, ...(selfRow ? [selfRow] : [])].sort((a, b) => b.elo - a.elo);
     rows.forEach((r, i) => { r.rank = i + 1; });
   }
   const list = $('leaderboardList'); list.innerHTML = '';

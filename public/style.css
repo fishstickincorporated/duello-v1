@@ -121,6 +121,8 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .person-user{color:#b3b2b1;font-size:14px;margin-top:2px}
 .person-elo{font-size:14px;margin:10px 0 14px}
 .person-elo span{font-family:Arial,Helvetica,sans-serif;font-weight:800;color:#03eaff}
+.person-rank{color:#b3b2b1;font-size:14px;margin-top:2px}
+.person-rank span{font-family:Arial,Helvetica,sans-serif;font-weight:800;color:#03eaff}
 .person-add{background:#3a3f4b;color:#e8ecf1;border:2px solid #03eaff;border-radius:12px;padding:10px 16px;font-family:Comfortaa,sans-serif;font-size:14px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;width:180px;height:56px}
 .sent-text{line-height:1}
 .person-add.sent{border-color:#b3b2b1;color:#b3b2b1}
@@ -163,7 +165,7 @@ same 52px column, right-aligned, on every row including your own
 .lb-row .lb-name{color:#03eaff;font-weight:800;font-size:18px}
 .lb-row .lb-user{color:#b3b2b1;font-size:14px}
 .lb-row .lb-elo{color:#03eaff;font-weight:800;font-size:18px;text-align:right;font-variant-numeric:tabular-nums;grid-column:5}
-.lb-play{background:none;border:0;color:#03eaff;cursor:pointer;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;justify-self:center}
+.lb-play{background:none;border:2px solid #03eaff;border-radius:50%;color:#03eaff;cursor:pointer;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;justify-self:center}
 .lb-play svg{display:block}
 .lb-action{width:36px;display:flex;align-items:center;justify-content:center;justify-self:center;grid-column:4}
 .lb-row .lb-pfp{grid-column:2}
@@ -184,6 +186,8 @@ same 52px column, right-aligned, on every row including your own
 .leaderboard-head{display:flex;align-items:center;justify-content:space-between;margin:22px 0 0}
 .leaderboard-label{font-weight:900;letter-spacing:1px;font-size:18px}
 .pencil{background:none;border:0;font-size:20px;cursor:pointer}
+.pencil.active{outline:2px solid #03eaff;border-radius:8px}
+.lb-delete{background:none;border:0;color:#ff1303;cursor:pointer;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;justify-self:center;font-size:24px;line-height:1;grid-column:4}
 .leaderboard-tabs{display:flex;gap:8px;margin:10px 0}
 .lb-tab{flex:1;padding:10px;border:0;border-radius:10px;background:#262a33;color:#e8ecf1;cursor:pointer;font-weight:800;font-size:18px}
 .lb-tab.active{background:#03eaff;color:#1a1d24}
@@ -237,7 +241,7 @@ same 52px column, right-aligned, on every row including your own
 .btn.blue-border{background:transparent;color:#03eaff;border:2px solid #03eaff;padding:12px;width:100%;font-size:17px;margin-top:10px}
 .mini-btn{background:#03eaff;color:#1a1d24;border:0;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px}
 .mini-btn.grey{background:#3a3f4b}
-.request-actions .mini-btn.grey{border:1px solid #03eaff}
+.request-actions .mini-btn.grey{border:1px solid #03eaff;background:transparent;color:#fff}
 .mini-btn:disabled{background:#3a3f4b;color:#b3b2b1;cursor:not-allowed}
 /* Drag / shuffle fixes (bug 2 + 4) */
 .cell{ touch-action:none }
@@ -296,7 +300,7 @@ itself clips anything left over. */
 .panel .col{overflow:hidden}
 .panel .name,.panel .elo,.panel .clock{width:100%;max-width:100%;box-sizing:border-box}
 .panel .name,.panel .elo,.panel .clock{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.stat-box .stat-val{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:400}
+.stat-box .stat-val{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:400;color:#03eaff}
 .stat-box .stat-label{font-weight:800}
 
 /* Numbers anywhere in the game are Arial/Helvetica; words and letters stay

@@ -383,6 +383,47 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Elo capitalised, blue stat values, 2 requests at a time, Play on friend profiles, working pencil, friends ranks from 1, Global Rank v55 (Nov 5, 2026, cache v55)
+
+- Elo is a word now: "Plays at your Elo." — it was the only
+  user-facing lowercase "elo" (Elo is named after Arpad Elo,
+  the chess rating's inventor). Other labels already read Elo.
+- Stat window: the values (Best word, Longest word, Optimal
+  moves) are Duello blue now; the labels stay white. Optimal
+  moves uses the same blue value style on its own line.
+- Friend requests: at most two show at a time; deciding one
+  (Accept or Decline) reveals the next.
+- Decline button: white letters on a transparent background
+  with just the thin blue border.
+- A friend's profile now shows Play instead of Add Friend /
+  Friends, and tapping it challenges them, same as the play
+  icon on the Friends list. (Real-player challenges still
+  have no delivery path, so a real friend sees the same
+  "can't accept yet" wait as the list's play icon; persona
+  friends accept half the time, as before.)
+- Friends-list play button: Duello blue oval (2px border,
+  50% radius) around the grey triangle.
+- Pencil works now: tapping it puts the Friends list in
+  delete mode (the pencil gets a blue outline), and each
+  friend row shows a red × that removes them — server-side
+  for real friends, local for personas. Your own row is
+  never removable. Switching to Global clears delete mode.
+- Friends leaderboard: you are on it now, and ranks start
+  at 1 — this list is separate from Global, with its own
+  ranking. It is also mutual and unlimited: an accepted
+  request puts each side on the other's list (the server
+  returns accepted rows in either direction), and the list
+  is no longer resolved through the top-25 leaderboard, so
+  a friend below the top 25 no longer vanishes from it
+  (that was also why low-Elo friends could disappear).
+  Persona friends below the top 25 are found by search.
+- Profile window: Global Rank sits below Elo, fetched from
+  new endpoint GET /api/users/rank?username= (counts
+  everyone ahead of the player across users + personas,
+  Elo desc then earliest created first — the leaderboard's
+  tie-break). The Friends rank and the Global rank are
+  different numbers and are never mixed up.
+
 ## Always-black point bubble, optimal moves on its own line, decline border, server search v54 (Nov 5, 2026, cache v54)
 
 - Point bubble: the score bubble at the corner of a played word

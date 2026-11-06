@@ -1668,6 +1668,23 @@ const server = http.createServer(async (req, res) => {
         ORDER BY elo DESC LIMIT 20`, [like]);
       return sendJson(res, 200, { users: r.rows.map(u => ({ id: u.id, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, photoData: u.photo_data || null, isPersona: u.is_persona === 1, rank: null })) });
     }
+    if (pathname === '/api/users/rank' && req.method === 'GET') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      // True Global rank for one player (the profile window shows
+      // it below Elo). The leaderboard only ships the top 25, so a
+      // player outside it has no rank client-side; count everyone
+      // ahead of them instead, with the leaderboard's tie-break
+      // (Elo desc, then earliest created first).
+      const username = (url.searchParams.get('username') || '').trim().toLowerCase();
+      const target = await getUserByUsername(username) || (await q('SELECT * FROM personas WHERE username=$1', [username])).rows[0];
+      if (!target) return sendJson(res, 404, { error: 'That player is not available.' });
+      const r = await q(`WITH allrows AS (
+        SELECT elo, created_at FROM users WHERE email NOT LIKE '%@guest.local'
+        UNION ALL SELECT elo, created_at FROM personas
+      ) SELECT COUNT(*)::int + 1 AS rank FROM allrows WHERE elo > $1 OR (elo = $1 AND created_at < $2)`, [target.elo, target.created_at]);
+      return sendJson(res, 200, { rank: r.rows[0].rank });
+    }
     // ---------- Friends (real requests, v53) ----------
     // Requests used to live only in the sender's localStorage, so a
     // request never reached the other person's phone — and because

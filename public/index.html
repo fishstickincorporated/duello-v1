@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=54"></head>
+<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=55"></head>
 <body><div id="bootError" style="display:none;position:fixed;top:12px;left:12px;right:12px;z-index:9999;background:#ffd166;color:#1a1d24;padding:12px;border-radius:10px;font-size:14px;line-height:1.4" onclick="this.style.display='none'"></div><div id="app">
   <noscript><p style="color:#e8ecf1;text-align:center;padding:40px 20px">Duello needs JavaScript enabled to run. Turn JavaScript on in your browser settings and reload.</p></noscript>
 
@@ -17,7 +17,7 @@
   <section id="botScreen" class="screen hidden">
     <img class="logo-img home-logo" src="/assets/logo.png" alt="DUELLO">
     <div class="bot-options">
-      <button class="bot-opt" id="competitiveBtn"><span class="sym white"><svg viewBox="0 0 24 24"><circle cx="12" cy="2.5" r="1.2" fill="#fff" stroke="none"/><path d="M12 4v2"/><rect x="3.5" y="9.5" width="2" height="4" rx="1" fill="#fff"/><rect x="18.5" y="9.5" width="2" height="4" rx="1" fill="#fff"/><rect x="5" y="6" width="14" height="13" rx="3" fill="#fff"/><rect x="8" y="10" width="2.5" height="2.5" fill="#3a3f4b" stroke="none"/><rect x="13.5" y="10" width="2.5" height="2.5" fill="#3a3f4b" stroke="none"/><rect x="10" y="14.5" width="4" height="1.5" fill="#3a3f4b" stroke="none"/></svg></span><span class="label-col"><span class="label">Competitive</span><span class="sub">Plays at your elo.</span></span><span class="chev">›</span></button>
+      <button class="bot-opt" id="competitiveBtn"><span class="sym white"><svg viewBox="0 0 24 24"><circle cx="12" cy="2.5" r="1.2" fill="#fff" stroke="none"/><path d="M12 4v2"/><rect x="3.5" y="9.5" width="2" height="4" rx="1" fill="#fff"/><rect x="18.5" y="9.5" width="2" height="4" rx="1" fill="#fff"/><rect x="5" y="6" width="14" height="13" rx="3" fill="#fff"/><rect x="8" y="10" width="2.5" height="2.5" fill="#3a3f4b" stroke="none"/><rect x="13.5" y="10" width="2.5" height="2.5" fill="#3a3f4b" stroke="none"/><rect x="10" y="14.5" width="4" height="1.5" fill="#3a3f4b" stroke="none"/></svg></span><span class="label-col"><span class="label">Competitive</span><span class="sub">Plays at your Elo.</span></span><span class="chev">›</span></button>
       <button class="bot-opt" id="fishstickBtn"><span class="sym white"><svg viewBox="0 0 24 24"><ellipse cx="10" cy="12" rx="7" ry="5" fill="#fff" stroke="none"/><path d="M16 12 L21 8 L20 12 L21 16 Z" fill="#fff" stroke="none"/><circle cx="7" cy="10.5" r="1.2" fill="#3a3f4b" stroke="none"/></svg></span><span class="label-col"><span class="label">Fishstick</span><span class="sub">The official Duello engine.</span></span><span class="chev">›</span></button>
     </div>
     <button class="back-pill" id="botBackBtn">← Back</button>
@@ -249,7 +249,7 @@
     <button class="tab-btn" id="tabFriends" aria-label="Friends"><svg viewBox="0 0 24 24" width="28" height="28"><circle cx="8" cy="8" r="3" fill="#b3b2b1"/><circle cx="16" cy="8" r="3" fill="#03eaff"/><path d="M3 20 C3 16 5 14 8 14 C11 14 13 16 13 20 Z" fill="#b3b2b1"/><path d="M11 20 C11 16 13 14 16 14 C19 14 21 16 21 20 Z" fill="#03eaff"/></svg></button>
     <button class="tab-btn" id="tabProfile" aria-label="Profile"><span id="tabProfileIcon"><svg viewBox="0 0 24 24" width="28" height="28"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#03eaff" opacity="0.85"/></svg></span></button>
   </nav>
-  <div id="personModal" class="person-modal hidden"><div class="person-card"><button class="person-close" id="personCloseBtn" aria-label="Close profile">×</button><span class="person-pfp" id="personPfp"></span><div class="person-name" id="personName"></div><div class="person-user" id="personUser"></div><div class="person-elo">Elo <span id="personElo"></span></div><button class="person-add" id="personAddBtn"></button></div></div>
+  <div id="personModal" class="person-modal hidden"><div class="person-card"><button class="person-close" id="personCloseBtn" aria-label="Close profile">×</button><span class="person-pfp" id="personPfp"></span><div class="person-name" id="personName"></div><div class="person-user" id="personUser"></div><div class="person-elo">Elo <span id="personElo"></span></div><div class="person-rank">Global Rank <span id="personRank"></span></div><button class="person-add" id="personAddBtn"></button></div></div>
 </div>
 <script>
 (function () {
@@ -267,4 +267,4 @@
   });
 })();
 </script>
-<script src="/app.js?v=54" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>
+<script src="/app.js?v=55" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>

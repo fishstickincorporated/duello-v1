@@ -212,20 +212,26 @@ function playActionHTML(r) {
 // re-renders the lists behind it so a toggled request shows up
 // everywhere at once.
 let modalPerson = null;
+function isModalFriend() {
+  if (!modalPerson) return false;
+  return modalPerson.isPersona ? getFriendRequests().includes(modalPerson.username) : isRealFriend(modalPerson.username);
+}
 function renderPersonAddBtn() {
   const btn = $('personAddBtn');
   if (!modalPerson) return;
   btn.disabled = false;
-  if (modalPerson.isPersona) {
+  // A friend's profile shows Play, not Add Friend / Friends:
+  // tapping it challenges them, same as the play icon on the
+  // Friends list.
+  if (isModalFriend()) {
+    btn.classList.remove('sent');
+    btn.innerHTML = '<span>Play</span>';
+    btn.setAttribute('aria-label', `Play ${modalPerson.name}`);
+  } else if (modalPerson.isPersona) {
     const requested = getFriendRequests().includes(modalPerson.username);
     btn.classList.toggle('sent', requested);
     btn.innerHTML = requested ? friendSentHTML() : `${friendAddSVG()}<span>Add Friend</span>`;
     btn.setAttribute('aria-label', requested ? `Cancel friend request to ${modalPerson.name}` : `Add ${modalPerson.name} as a friend`);
-  } else if (isRealFriend(modalPerson.username)) {
-    btn.classList.remove('sent');
-    btn.innerHTML = '<span>Friends</span>';
-    btn.disabled = true;
-    btn.setAttribute('aria-label', `${modalPerson.name} is your friend`);
   } else {
     const requested = isRealRequested(modalPerson.username);
     btn.classList.toggle('sent', requested);
@@ -242,6 +248,11 @@ async function openPersonModal(person) {
   $('personName').textContent = person.name;
   $('personUser').textContent = '@' + person.username;
   $('personElo').textContent = person.elo;
+  // Global Rank, below Elo. The row's own rank is the Friends
+  // rank on the Friends tab, so always ask the server for the
+  // true Global one; '—' until it answers.
+  $('personRank').textContent = '—';
+  api('/api/users/rank?username=' + encodeURIComponent(person.username)).then(d => { if (modalPerson && modalPerson.username === person.username) $('personRank').textContent = d.rank; }).catch(() => {});
   $('personAddBtn').style.display = person.isYou ? 'none' : '';
   renderPersonAddBtn();
   $('personModal').classList.remove('hidden');
@@ -256,6 +267,12 @@ $('personCloseBtn').onclick = closePersonModal;
 $('personModal').addEventListener('click', e => { if (e.target === $('personModal')) closePersonModal(); });
 $('personAddBtn').onclick = async () => {
   if (!modalPerson || $('personAddBtn').disabled) return;
+  if (isModalFriend()) {
+    const p = modalPerson;
+    closePersonModal();
+    startChallenge(p);
+    return;
+  }
   if (modalPerson.isPersona) {
     if (getFriendRequests().includes(modalPerson.username)) unrequestFriend(modalPerson.username);
     else markFriendRequested(modalPerson.username);
@@ -293,17 +310,32 @@ async function renderFriendsUI() {
     // window (opened by tapping the name) shows it.
     rows.forEach(r => { r.displayName = r.firstName || r.name; });
   } else {
-    // Friends are accepted friends from the server, plus persona
-    // "friends" kept in localStorage. Your own row can never
-    // appear here — the server never returns you, and the filter
-    // below drops you even if a stale local entry names you.
+    // Friends are mutual: an accepted request puts each side on
+    // the other's list (the server returns accepted rows in
+    // either direction). This list is separate from Global and
+    // has no cap — it is NOT resolved through the top-25
+    // leaderboard, or a friend below the top 25 would vanish
+    // from it. Real friends come straight from the server;
+    // persona "friends" come from localStorage, looked up on
+    // the leaderboard or, if they sit below the top 25, by
+    // search. You are on your own Friends list too, and ranks
+    // here start at 1 — your Global rank is a different number,
+    // shown on your profile.
     const users = await ensureGlobalRows();
     const byUsername = new Map(users.map(u => [u.username, u]));
-    const realRows = (serverFriends.friends || []).map(u => byUsername.get(u.username)).filter(Boolean);
-    const personaRows = getFriendRequests().map(u => byUsername.get(u)).filter(u => u && u.isPersona);
-    rows = [...realRows, ...personaRows].map(toLbRow).filter(r => !r.isYou).sort((a, b) => b.elo - a.elo);
+    const realRows = (serverFriends.friends || []).map(u => toLbRow(u));
+    const personaRows = [];
+    for (const u of getFriendRequests()) {
+      let found = byUsername.get(u);
+      if (!found) { try { const d = await api('/api/users/search?q=' + encodeURIComponent(u)); found = (d.users || []).find(x => x.username === u && x.isPersona); } catch {} }
+      if (found && found.isPersona) personaRows.push(toLbRow(found));
+    }
+    const selfRow = me ? toLbRow({ id: me.id, username: me.username, firstName: me.firstName, lastName: me.lastName, elo: me.elo, photoData: me.photoData || null, isPersona: false }) : null;
+    rows = [...realRows, ...personaRows, ...(selfRow ? [selfRow] : [])].sort((a, b) => b.elo - a.elo);
+    rows.forEach((r, i) => { r.rank = i + 1; });
   }
   const list = $('leaderboardList'); list.innerHTML = '';
+  $('friendsPencil').classList.toggle('active', deleteMode && lbScope === 'friends');
   rows.forEach((r, i) => {
     const row = document.createElement('div'); row.className = 'lb-row' + (r.isYou ? ' you' : '');
     // Grid row (see style.css): rank | pfp | name | action | Elo,
@@ -313,27 +345,46 @@ async function renderFriendsUI() {
     // action slot, so its Elo lines up too and your full name never
     // has to shrink for the badge.
     const isFriends = lbScope === 'friends';
-    row.innerHTML = lbRowHTML(r, isFriends ? playActionHTML(r) : youBadgeHTML(r));
-    list.appendChild(row);
     // Friends rows carry a play icon instead: tapping challenges
     // that friend. Global rows carry no friend button at all — the
     // only way to add someone is tapping their name and adding
-    // them from the profile window.
-    if (isFriends) {
-      const btn = row.querySelector('.lb-play');
-      if (btn) btn.onclick = () => startChallenge(r);
+    // them from the profile window. In delete mode the play icon
+    // becomes a red × that removes the friend; your own row is
+    // never removable.
+    let action;
+    if (!isFriends || r.isYou) action = youBadgeHTML(r);
+    else if (deleteMode) action = '<button class="lb-delete" aria-label="Remove friend">×</button>';
+    else action = playActionHTML(r);
+    row.innerHTML = lbRowHTML(r, action);
+    list.appendChild(row);
+    if (isFriends && !r.isYou) {
+      if (deleteMode) {
+        const btn = row.querySelector('.lb-delete');
+        if (btn) btn.onclick = async () => {
+          if (r.isPersona) unrequestFriend(r.username);
+          else { try { await api('/api/friends/remove', { method: 'POST', body: JSON.stringify({ username: r.username }) }); } catch {} await loadServerFriends(true); }
+          renderFriendsUI();
+        };
+      } else {
+        const btn = row.querySelector('.lb-play');
+        if (btn) btn.onclick = () => startChallenge(r);
+      }
     }
     // Tapping the name opens their profile window.
     const nameEl = row.querySelector('.lb-name');
     if (nameEl) nameEl.onclick = () => openPersonModal(r);
   });
-  $('noFriendsCard').classList.toggle('hidden', !(lbScope === 'friends' && rows.length === 0));
+  // "No friends yet" counts friends only — your own row is always
+  // on the Friends list, so an empty friends list still has you.
+  const friendCount = lbScope === 'friends' ? rows.filter(r => !r.isYou).length : 0;
+  $('noFriendsCard').classList.toggle('hidden', !(lbScope === 'friends' && friendCount === 0));
   // Incoming friend requests sit at the top of the Friends page,
   // above the list — that is how a request reaches the other
   // person now that requests live on the server.
   const reqEl = $('friendRequests'); reqEl.innerHTML = '';
   if (lbScope === 'friends') {
-    for (const u of (serverFriends.incoming || [])) {
+    // At most two requests at a time: deciding one reveals the next.
+    for (const u of (serverFriends.incoming || []).slice(0, 2)) {
       const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
       const row = document.createElement('div'); row.className = 'request-row';
       row.innerHTML = `<span class="lb-pfp${u.photoData ? '' : ' no-photo'}">${pfpHTML(u)}</span><span class="lb-identity"><div class="lb-name">${name}</div><div class="lb-user">@${u.username}</div></span><span class="request-actions"><button class="mini-btn" data-act="accept">Accept</button><button class="mini-btn grey" data-act="decline">Decline</button></span>`;
@@ -350,7 +401,7 @@ function showFriendsTab() {
 }
 $('tabFriends').onclick = showFriendsTab;
 $('lbFriendsTab').onclick = () => { lbScope = 'friends'; $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active'); renderFriendsUI(); };
-$('lbGlobalTab').onclick = () => { lbScope = 'global'; $('lbGlobalTab').classList.add('active'); $('lbFriendsTab').classList.remove('active'); renderFriendsUI(); };
+$('lbGlobalTab').onclick = () => { lbScope = 'global'; deleteMode = false; $('lbGlobalTab').classList.add('active'); $('lbFriendsTab').classList.remove('active'); renderFriendsUI(); };
 $('friendsPencil').onclick = () => { if (lbScope !== 'friends') return; deleteMode = !deleteMode; renderFriendsUI(); };
 async function runFriendSearch() {
   const q = $('friendSearch').value.trim().toLowerCase(); const el = $('friendSearchResults'); el.innerHTML = '';
@@ -1283,7 +1334,7 @@ function showStatWindow(stats) {
   const best = (x) => x.best ? `${x.best.word} (<span class="num">${x.best.score} pts</span>)` : '—';
   const longest = (x) => x.longest ? `${x.longest.word} (<span class="num">${x.longest.word.length} letters</span>)` : '—';
   const opt = (x) => `${x.optimal}/${x.total}`;
-  const box = (name, pfp, st, noPhoto) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}">${pfp}</span><span class="stat-box-name">${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span><br><span class="num">${opt(st)}</span></div></div>`;
+  const box = (name, pfp, st, noPhoto) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}">${pfp}</span><span class="stat-box-name">${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span><br><span class="stat-val num">${opt(st)}</span></div></div>`;
   const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
   // A persona with no photo gets the silhouette in the stat box and
   // the top pfp too (same reasoning as the scoreboard: a person

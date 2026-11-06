@@ -316,6 +316,13 @@ async function renderFriendsUI() {
   // LEADERBOARD label and everything below it sit at the exact same
   // position on both tabs instead of shifting when the pencil appears.
   $('friendsPencil').style.visibility = lbScope !== 'friends' ? 'hidden' : 'visible';
+  // Blank the list synchronously, before any fetch: the old
+  // account's rows used to sit visible for the whole refresh
+  // after switching accounts, because the list was only cleared
+  // once the new data came back.
+  $('leaderboardList').innerHTML = '';
+  $('friendRequests').innerHTML = '';
+  $('noFriendsCard').classList.add('hidden');
   await loadMe();
   await loadServerFriends();
   let rows = [];
@@ -440,11 +447,20 @@ async function runFriendSearch() {
   await loadMe();
   // Server search, not the top-25 leaderboard: a new account at
   // 1000 Elo is below the top 25 and was unfindable before.
-  let users = null;
+  let users = null, searchFallback = false;
   try { const d = await api('/api/users/search?q=' + encodeURIComponent(q)); users = d.users || []; }
   catch {
+    // Server search unreachable (offline, dead session): fall back
+    // to the top-25 leaderboard, but say so — a silent fallback
+    // makes a real account below the top 25 look unfindable.
+    searchFallback = true;
     const rows = await ensureGlobalRows();
     users = rows.filter(u => (`${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)));
+  }
+  if (searchFallback) {
+    const note = document.createElement('div'); note.className = 'small';
+    note.textContent = 'Search is offline right now — showing top players only.';
+    el.appendChild(note);
   }
   // At most the 5 most relevant results (the server already
   // ranks and caps at 5; this caps the fallback too).
@@ -1765,18 +1781,22 @@ function formatJoined(createdAt) {
 // Numbers render Arial/Helvetica while words stay Comfortaa: wrap digit
 // runs in .num spans (the .num rule already covers profile numbers).
 function numify(s) { return String(s).replace(/\d+/g, d => `<span class="num">${d}</span>`); }
-async function renderProfileUI() {
-  // Sign-in is required: no token, or a rejected session, goes to auth.
-  if (!token) { setAuthMode('signin'); show('authScreen'); return; }
-  // Blank the previous account's profile right away, before /api/me
-  // comes back: the old name, photo, Elo and stats used to sit
-  // there for a few seconds after switching accounts, because the
-  // screen only repainted once the fetch returned.
+// Blank the profile screen to a silhouette with no name, Elo or
+// stats. Called before the screen is shown (tab tap) as well as
+// at the start of renderProfileUI: the old account's name and
+// photo used to paint briefly after switching accounts, because
+// show() ran before the blanking did.
+function blankProfileUI() {
   $('profilePfp').innerHTML = silhouetteSVG(44); $('profilePfp').classList.add('no-photo');
   $('profileName').textContent = ''; $('profileUsername').textContent = ''; $('profileJoined').textContent = '';
   $('profileElo').textContent = ''; $('profileEloHigh').textContent = '';
   $('statsList').innerHTML = '';
   const chartCv = $('eloChart'); if (chartCv) chartCv.getContext('2d').clearRect(0, 0, chartCv.width, chartCv.height);
+}
+async function renderProfileUI() {
+  // Sign-in is required: no token, or a rejected session, goes to auth.
+  if (!token) { setAuthMode('signin'); show('authScreen'); return; }
+  blankProfileUI();
   let d;
   try { d = await api('/api/me'); }
   catch (err) {
@@ -1824,7 +1844,7 @@ function drawEloChart() {
   pts.forEach((v, i) => { const x = 10 + i * (cv.width - 20) / (pts.length - 1); const y = cv.height - 10 - ((v - min) / (max - min)) * (cv.height - 20); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
   ctx.stroke();
 }
-$('tabProfile').onclick = () => { show('profileScreen'); renderProfileUI(); };
+$('tabProfile').onclick = () => { blankProfileUI(); show('profileScreen'); renderProfileUI(); };
 document.querySelectorAll('.stats-tab').forEach(b => b.onclick = () => { statsScope = b.dataset.scope; document.querySelectorAll('.stats-tab').forEach(x => x.classList.toggle('active', x === b)); renderStatsList(); });
 document.querySelectorAll('.chart-toggle').forEach(b => b.onclick = () => { chartRange = b.dataset.range; document.querySelectorAll('.chart-toggle').forEach(x => x.classList.toggle('active', x === b)); drawEloChart(); });
 $('gearBtn').onclick = async () => {
@@ -1962,9 +1982,22 @@ function renderPwReqs(listId, pw) {
 [['suPassword', 'suPwReqs'], ['rpPassword', 'rpPwReqs'], ['editNewPassword', 'editPwReqs']].forEach(([inputId, listId]) => {
   const inp = $(inputId); if (inp) inp.addEventListener('input', () => renderPwReqs(listId, inp.value));
 });
+// Wipe every account-owned surface on sign-out (and account
+// delete): the old account's rows, requests, search results and
+// profile must never be what the next sign-in first sees.
+function wipeAccountScreens() {
+  blankProfileUI();
+  $('leaderboardList').innerHTML = '';
+  $('friendRequests').innerHTML = '';
+  $('friendSearchResults').innerHTML = '';
+  $('friendSearch').value = '';
+  $('noFriendsCard').classList.add('hidden');
+  $('removeFriendConfirm').classList.add('hidden');
+}
 $('profileSignOutBtn').onclick = async () => {
   try { await api('/api/signout', { method: 'POST' }); } catch {}
   token = ''; storeDel('duello_token'); me = null; profileData = null;
+  wipeAccountScreens();
   setAuthMode('signin'); show('authScreen');
 };
 $('editDeleteBtn').onclick = () => {
@@ -1979,6 +2012,7 @@ $('editDeleteConfirmBtn').onclick = async () => {
     await api('/api/me/delete', { method: 'POST' });
   } catch (err) { $('editDeleteError').textContent = err.message || 'Could not delete account.'; return; }
   token = ''; storeDel('duello_token'); me = null; profileData = null; game = null;
+  wipeAccountScreens();
   $('editDeleteConfirm').classList.add('hidden');
   setAuthMode('signin'); show('authScreen');
 };

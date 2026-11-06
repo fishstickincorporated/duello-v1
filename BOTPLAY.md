@@ -383,6 +383,28 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## No stale account flash on switch; search fallback says so v60 (Nov 6, 2026, cache v60)
+
+- Switching accounts no longer flashes the other account:
+  the Friends list and requests blank synchronously at the
+  start of every refresh (they used to sit visible until
+  the new data came back), the Profile tab blanks before
+  the screen is shown (show() used to run first, painting
+  the old name/pfp for a frame), and sign-out / account
+  delete now wipes the Friends list, requests, search
+  results and profile DOM, so the next sign-in starts
+  from empty screens.
+- If server search is unreachable, the fallback to the
+  top-25 leaderboard now says so in the results ("Search
+  is offline right now — showing top players only.")
+  instead of silently showing top players, which made a
+  real account below the top 25 look unfindable.
+- The flash was stale DOM, not stale auth: the search API
+  always uses the live token. Whether it explains the
+  @neo search miss is still open — retest from @ceo
+  after reloading, and check the username on @neo's
+  Profile tab if it still misses.
+
 ## Remove confirm, @-proof search, no rank in search results v59 (Nov 5, 2026, cache v59)
 
 - Removing a friend now asks first: tapping the red × in

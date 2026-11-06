@@ -1666,11 +1666,20 @@ const server = http.createServer(async (req, res) => {
       // Most relevant first: exact username, username starting
       // with the query, name starting with it, then the rest by
       // Elo. Only the top 5 ever come back.
-      const r = await q(`SELECT id, username, first_name, last_name, elo, photo_data, 0 AS is_persona FROM users
+      // The UNION must be wrapped in a subquery: Postgres only
+      // allows output columns in a UNION's own ORDER BY, so the
+      // relevance CASE (which references the $2 parameter) threw
+      // "invalid UNION/INTERSECT/EXCEPT ORDER BY clause" and the
+      // search always 500'd — every "success" so far was the
+      // top-25 fallback. Ordering outside the subquery, the
+      // parameter is fine.
+      const r = await q(`SELECT * FROM (
+        SELECT id, username, first_name, last_name, elo, photo_data, 0 AS is_persona FROM users
         WHERE email NOT LIKE '%@guest.local' AND (LOWER(username) LIKE $1 OR LOWER(first_name || ' ' || last_name) LIKE $1)
         UNION ALL
         SELECT id, username, first_name, last_name, elo, photo_url AS photo_data, 1 AS is_persona FROM personas
         WHERE LOWER(username) LIKE $1 OR LOWER(first_name || ' ' || last_name) LIKE $1
+      ) s
         ORDER BY CASE WHEN LOWER(username) = $2 THEN 0 WHEN LOWER(username) LIKE $2 || '%' THEN 1 WHEN LOWER(first_name || ' ' || last_name) LIKE $2 || '%' THEN 2 ELSE 3 END, elo DESC LIMIT 5`, [like, qstr]);
       return sendJson(res, 200, { users: r.rows.map(u => ({ id: u.id, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, photoData: u.photo_data || null, isPersona: u.is_persona === 1, rank: null })) });
     }

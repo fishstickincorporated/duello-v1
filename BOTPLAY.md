@@ -383,6 +383,22 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Search SQL fixed: UNION wrapped in a subquery v63 (Nov 6, 2026, cache v63)
+
+- The @neo search miss, finally nailed by Jeff's screenshot:
+  the search endpoint always 500'd with "invalid
+  UNION/INTERSECT/EXCEPT ORDER BY clause" — Postgres only
+  allows output columns in a UNION's own ORDER BY, and the
+  relevance CASE referenced the $2 parameter. Every
+  "success" so far was the top-25 fallback (that's how
+  neo→ceo seemed to work: @ceo sits in the top 25). The
+  UNION is now wrapped in a subquery with the ORDER BY
+  outside it, where the parameter is fine. No local
+  Postgres to test against; the wrapped form is the
+  standard valid shape.
+- Jeff (Nov 6, 2026): stop sending the botplay link after
+  update reports — no link in update messages at all now.
+
 ## Dead session caught everywhere, fallback names the failure v62 (Nov 6, 2026, cache v62)
 
 - v61's fix had a hole: loadMe() short-circuits once `me`

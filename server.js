@@ -723,15 +723,31 @@ function pickPersonaMove(moves, elo) {
   return pool[Math.floor(Math.random() * Math.min(k, pool.length))];
 }
 function personaThinkMs(game) {
-  // Slow-human timing: a uniform 7-33 seconds per move, averaging
-  // 20 seconds. The one exception is the final move: once the
-  // persona clock is under 20 seconds, they always get exactly one
-  // more move, played with 1-8 seconds left on their clock. After
-  // that move the pending flag is spent (see runBotTurn), so later
-  // turns use the normal 7-33s think and the clock runs out
-  // mid-think, which the out-of-time skip handles.
+  // The one exception is the final move: once the persona clock is
+  // under 20 seconds, they always get exactly one more move, played
+  // with 1-8 seconds left on their clock. After that move the pending
+  // flag is spent (see runBotTurn), so later turns use the normal
+  // think and the clock runs out mid-think, which the out-of-time
+  // skip handles.
   if (game.personaFinalMovePending) return Math.max(500, game.clocks.bot - (1000 + Math.floor(Math.random() * 7000)));
-  return 7000 + Math.floor(Math.random() * 26000);
+  // Short placeholder only: the real think is set from the move
+  // itself once scheduleBotMove picks it (see
+  // personaThinkMsForMove), so a weak filler is spotted in seconds
+  // and a big play takes a long think. The client polls at this
+  // placeholder and re-polls at the revised time, so a slow solve
+  // can only ever play the move early, never late.
+  return 5000;
+}
+function personaThinkMsForMove(score, clockMs) {
+  // Think time tracks the move: a 2-point filler is spotted in a few
+  // seconds, a 40-point play takes a good long think. Base 3s plus
+  // ~0.45s per point, capped at 30s total, with a few seconds of
+  // jitter so it reads as typical, not mechanical. Never think past
+  // the clock: a long think on a short clock would forfeit the move
+  // outright, so the think is capped at 1s inside the remaining time.
+  const think = Math.min(30000, 3000 + Math.min(25000, Math.max(0, score) * 450) + Math.floor(Math.random() * 3000));
+  if (Number.isFinite(clockMs) && clockMs > 0) return Math.max(500, Math.min(think, clockMs - 1000));
+  return think;
 }
 function pickCompetitiveMove(moves, elo) {
   if (!moves.length) return null;
@@ -1127,8 +1143,8 @@ async function advanceBotTurnIfReady(game, user) {
   // (network time later), so a poll at tap+think would otherwise miss and
   // need a second poll. Within tolerance the move runs.
   const thinkSpan = until - game.turnStartedAt;
-  // Tolerance is capped: half of a 33s persona think would let an
-  // early poll play the move at ~17s. 2500ms matches the old
+  // Tolerance is capped: half of a 30s persona think would let an
+  // early poll play the move at ~15s. 2500ms matches the old
   // tolerance exactly for 5s thinks and 1000ms for 2s thinks.
   const tol = Math.max(500, Math.min(thinkSpan / 2, 2500));
   if (Date.now() < until - tol) return false;
@@ -1177,14 +1193,24 @@ function scheduleBotMove(game) {
       if (!g2 || g2.status !== 'active' || g2.turn !== 'bot' || g2.pendingBotMove) return;
       if ((g2.lastBot ? JSON.stringify(g2.lastBot) : '') !== beforeLastBot) return;
       g2.pendingBotMove = { move, bestScore };
+      // Personas think in proportion to the move they are about to
+      // play (see personaThinkMsForMove). The opening think was only
+      // a short placeholder, so the client re-polls at the revised
+      // time. The final move keeps its clock-based timing (it must
+      // land with 1-8s left), so it is never revised here.
+      if (g2.botType === 'persona' && !g2.personaFinalMovePending) {
+        g2.botThinkMs = personaThinkMsForMove(move.score, g2.clocks.bot);
+        g2.botThinkUntil = g2.turnStartedAt + g2.botThinkMs;
+      }
       await saveGameRow(g2);
     } catch {}
   }, 500);
 }
 // Bot think is 5s normally, but only 2s once the human clock is at 0:
 // with no human moves to wait for, the bot-only stretch should move fast.
-// Personas ignore that shortcut: they always take their slow-human
-// 7-33s think (see personaThinkMs), even in a bot-only stretch.
+// Personas ignore that shortcut: their think tracks the move they are
+// about to play (see personaThinkMsForMove), so a filler is quick and
+// a big play is slow, even in a bot-only stretch.
 function botThinkMsFor(game) {
   if (game.botType === 'persona') return personaThinkMs(game);
   return game.clocks.human <= 0 ? 2000 : 5000;

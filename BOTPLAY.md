@@ -383,11 +383,45 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
-## Real-player challenges v76 (Nov 6, 2026, cache v76) — PUSH PENDING
+## Opponent timeout, persona think, profile fonts + rank v77 (Nov 7, 2026, cache v77)
 
-- Push approval timed out before Jeff tapped it (Nov 6, 2026):
-  the code is built and tested but NOT live yet; the live
-  version is still v75. Re-push only when he says go.
+- Opponent ran out of time and the turn never came: tickClocks only
+  fetched when the human clock (or both clocks) hit 0, so on the
+  opponent's turn the flip waited for the next scheduled poll — up
+  to a 30s persona think. Now the clock tick fetches at once when
+  the opponent's clock hits 0 (handleHumanTimeout renamed
+  handleTimeoutFetch, same fetch, used for both clocks), so the
+  server flips the turn within ~1s. The server flip itself was
+  already correct (GET while-loop); the client just never asked.
+- Personas now think in proportion to the move: personaThinkMs
+  returns a short 5s placeholder, and scheduleBotMove revises the
+  think from the picked move's score (personaThinkMsForMove) once
+  the solver has it — a 2-point filler like IT thinks ~4-7s, a
+  10-pointer ~8-11s, a 20-pointer ~12-15s, a 40-pointer ~21-24s,
+  capped at 30s, with a few seconds of jitter. The think is also
+  capped at 1s inside the remaining clock, so a long think can
+  never forfeit the move. The final move (clock under 20s) keeps
+  its clock-based timing and is never revised. Tested with a vm
+  harness against the real server code: 8 checks, all pass
+  (placeholder 5000ms, final move leaves 1-8s, think rises with
+  score, 30s cap, clock caps).
+- Profile stats numbers are Comfortaa now: `.stats-list .num`
+  overrides the Arial numbers rule, scoped to the stats list only.
+  Every other number (clocks, scores, leaderboard Elos, Elo row,
+  Joined line) stays Arial.
+- Global Rank is above the chart on the profile tab: the Elo row
+  now reads Elo / All-time high / Global Rank left to right
+  (middle cell centred, last cell right-aligned). The rank is
+  shown from the v75 rankCache at once when cached, else fetched
+  once from /api/users/rank and cached, like the profile modal.
+
+## Real-player challenges v76 (Nov 6, 2026, cache v76)
+
+- Pushed live Nov 6, 2026 (commit 41e2ac32; verified both
+  domains, served app.js + style.css byte-match local,
+  liveChallengeId present in served JS). First push attempt's
+  approval timed out before Jeff tapped it; re-pushed on his
+  explicit "Push" and approved.
 
 - The friends backend now delivers real challenges: tapping
   Play on a friend's profile (or Play Again after a real game)

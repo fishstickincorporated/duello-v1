@@ -1017,7 +1017,7 @@ let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastA
 let countdownInterval = null, countdownActive = false;
 let clockHoldUntil = 0;
 function canPlaceTiles() { return !!game && game.status === 'active' && game.clocks.turn === 'human' && !playInFlight && !countdownActive; }
-async function handleHumanTimeout() {
+async function handleTimeoutFetch() {
   if (!game || game.status !== 'active' || timeoutFetching) return;
   timeoutFetching = true; timeoutLastAttempt = Date.now();
   try {
@@ -1052,15 +1052,20 @@ function tickClocks() {
   if (Date.now() >= runoffUntil) $('clockBot').textContent = fmtClock(b);
   // Human clock hit 0: do not leave the game sitting on a dead turn.
   // Fetching flips the server to the bot turn, which then loops on its own.
-  if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) { $('status').textContent = 'Out of time, opponent plays on.'; $('shuffleBtn').disabled = true; if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleHumanTimeout(); }
+  if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) { $('status').textContent = 'Out of time, opponent plays on.'; $('shuffleBtn').disabled = true; if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch(); }
+  // Opponent clock hit 0: fetch at once instead of waiting for the
+  // next scheduled poll. A persona's think can run 30s, so the board
+  // sat on 0:00 with the turn never coming. The fetch flips the
+  // server to my turn (or finishes the game if my clock is 0 too).
+  if (game.status === 'active' && game.clocks.turn === 'bot' && b <= 0 && !timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch();
   // Both clocks at 0: the game is over, end it at once. The old code
   // only fetched on the human's turn, so when the second clock ran
-  // out during the bot's think (up to 33s for a persona) the board
+  // out during the bot's think (up to 30s for a persona) the board
   // sat on 0:00 / 0:00 with nothing happening until the next poll.
   // A fetch settles the clocks server-side and finishes the game,
   // so the stat window comes up within ~1s of the second clock
   // hitting 0, whichever turn it is.
-  if (game.status === 'active' && h <= 0 && b <= 0 && !timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleHumanTimeout();
+  if (game.status === 'active' && h <= 0 && b <= 0 && !timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch();
   botWatchdog();
 }
 setInterval(tickClocks, 100);
@@ -1124,7 +1129,7 @@ async function pollBotTurn() {
       return;
     }
     if (next.status === 'active') {
-      if (next.clocks.human <= 0) handleHumanTimeout();
+      if (next.clocks.human <= 0) handleTimeoutFetch();
       else await loadMe();
     }
   } catch {
@@ -2050,7 +2055,7 @@ function numify(s) { return String(s).replace(/\d+/g, d => `<span class="num">${
 function blankProfileUI() {
   $('profilePfp').innerHTML = silhouetteSVG(44); $('profilePfp').classList.add('no-photo');
   $('profileName').textContent = ''; $('profileUsername').textContent = ''; $('profileJoined').textContent = '';
-  $('profileElo').textContent = ''; $('profileEloHigh').textContent = '';
+  $('profileElo').textContent = ''; $('profileEloHigh').textContent = ''; $('profileGlobalRank').textContent = '';
   $('statsList').innerHTML = '';
   const chartCv = $('eloChart'); if (chartCv) chartCv.getContext('2d').clearRect(0, 0, chartCv.width, chartCv.height);
 }
@@ -2072,6 +2077,15 @@ async function renderProfileUI() {
   $('profileJoined').innerHTML = 'Joined ' + numify(formatJoined(u.createdAt));
   $('profileElo').textContent = u.elo;
   $('profileEloHigh').textContent = u.eloHigh;
+  // Global Rank sits above the chart with Elo and All-time high.
+  // Show the cached rank at once when it is there (v75 cache), else
+  // fetch it once and cache it, like the profile modal does.
+  const cachedRank = rankCache.get(u.username);
+  if (cachedRank != null) $('profileGlobalRank').textContent = cachedRank;
+  else {
+    $('profileGlobalRank').textContent = '—';
+    api('/api/users/rank?username=' + encodeURIComponent(u.username)).then(d => { rankCache.set(u.username, d.rank); if (profileData && profileData.user && profileData.user.username === u.username) $('profileGlobalRank').textContent = d.rank; }).catch(() => {});
+  }
   renderStatsList(); drawEloChart();
 }
 function fmt1(v) { return (Number(v) || 0).toFixed(1); }

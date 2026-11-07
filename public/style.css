@@ -218,6 +218,7 @@ same 52px column, right-aligned, on every row including your own
 .elo-box{background:#262a33;border-radius:16px;padding:16px;margin:8px 0 16px;text-align:left}
 .elo-row{display:flex;gap:12px}
 .elo-row>div{flex:1}
+.elo-row>div:nth-child(2){text-align:center}
 .elo-row>div:last-child{text-align:right}
 .elo-label{color:#b3b2b1;font-size:13px}
 .elo-big{font-size:24px;font-weight:900;font-family:Arial, Helvetica, sans-serif}
@@ -321,3 +322,6 @@ itself clips anything left over. */
 /* Numbers anywhere in the game are Arial/Helvetica; words and letters stay
    Comfortaa. Tile point values already use Arial inside their SVG. */
 .num,.game-score,.clock,.elo,.elo-move,.stat-score,.play-bubble,.countdown-num,.lastplay .pts{font-family:Arial, Helvetica, sans-serif}
+/* The one exception: the numbers in the profile stats list are Comfortaa
+   (the .num spans numify wraps digits in). Every other number stays Arial. */
+.stats-list .num{font-family:"Comfortaa",sans-serif}

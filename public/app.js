@@ -1150,9 +1150,23 @@ function botWatchdog() {
   if (botTimer) return;
   if (Date.now() - lastBotPollAt > 7000) { botTurnTapTime = 0; beginBotTurn(); }
 }
+// One source for the "waiting" status, so it never flips between the
+// opponent's name and the generic line: beginBotTurn, updateStatus and
+// doPlay each used to write their own copy, and every render overwrote
+// the named one with the generic one. Named opponents (a persona's or
+// real player's first name, Fishstick) keep their name; the Competitive
+// Bot has no name, so it keeps the generic line.
+function waitingStatus() {
+  if (!game) return 'Waiting for your opponent.';
+  if (game.clocks.human <= 0) return 'Out of time, opponent plays on.';
+  if (game.botType === 'fishstick') return 'Waiting for Fishstick.';
+  if (game.botType === 'persona' && game.persona) return `Waiting for ${game.persona.firstName}.`;
+  if (game.botType === 'human' && game.opponent) return `Waiting for ${game.opponent.firstName}.`;
+  return 'Waiting for your opponent.';
+}
 function beginBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
-  $('status').textContent = game.clocks.human <= 0 ? 'Out of time, opponent plays on.' : (game.botType === 'persona' && game.persona ? `Waiting for ${game.persona.firstName}.` : game.botType === 'human' && game.opponent ? `Waiting for ${game.opponent.firstName}.` : 'Waiting for your opponent.');
+  $('status').textContent = waitingStatus();
   if (botTimer) clearTimeout(botTimer);
   // A real opponent has no think time: poll at once, then every 2s
   // (see pollBotTurn), instead of waiting out a bot think that
@@ -1320,7 +1334,7 @@ function invalidWordsStatus(w) {
 async function updateStatus() {
   if (!game) return;
   if (game.status === 'finished') { $('status').textContent = sentence(game.reason || 'Game over'); return; }
-  if (game.clocks.turn !== 'human') { $('status').textContent = game.clocks.human <= 0 ? 'Out of time, opponent plays on.' : 'Waiting for your opponent.'; setPlayState('off'); return; }
+  if (game.clocks.turn !== 'human') { $('status').textContent = waitingStatus(); setPlayState('off'); return; }
   if (!pending.length) { $('status').textContent = game.isFirst ? 'First word must fit inside the glowing 6×6.' : 'Your move.'; setPlayState('off'); lastValidate = null; lastValidatePlacements = null; return; }
   if (localWords) {
     const v = localValidate(game.board, pending, game.isFirst, localWords, game.premiums || {});
@@ -1554,7 +1568,7 @@ async function doPlay() {
   playInFlight = true;
   renderGame();
   $('playBtn').disabled = true; $('playBtn').classList.remove('validating', 'play-valid', 'play-invalid');
-  $('status').textContent = botHasTime ? 'Waiting for your opponent.' : 'Your move.'; tickClocks();
+  $('status').textContent = botHasTime ? waitingStatus() : 'Your move.'; tickClocks();
   try {
     botTurnTapTime = tapAt;
     game = await api(`/api/games/${game.id}/play`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })), clientElapsedMs }) });

@@ -383,11 +383,26 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
-## Persona skill matches Elo, think back to 7-33s v78 (Nov 7, 2026, cache v78) — PUSH PENDING
+## Waiting status keeps the opponent's name v79 (Nov 8, 2026, cache v79)
 
-- Push approval timed out before Jeff tapped it (Nov 7, 2026):
-  the code is built and tested but NOT live yet; the live version
-  is still v77. Re-push only when he says go.
+- The status flipped between "Waiting for {name}." and "Waiting
+  for your opponent.": beginBotTurn wrote the named version, but
+  updateStatus (every render) and doPlay (after every tap) each
+  wrote their own generic copy, overwriting it. One helper,
+  waitingStatus(), is now the only source, used by all three:
+  a persona's or real player's first name, Fishstick by name, and
+  the Competitive Bot keeps the generic line (it has no name).
+  "Out of time, opponent plays on." still wins when the human clock
+  is at 0. Verified with a 6-case check (persona, real player,
+  Fishstick, Competitive Bot, human clock at 0, persona with no
+  name) — all pass.
+
+## Persona skill matches Elo, think back to 7-33s v78 (Nov 7, 2026, cache v78)
+
+- Pushed live Nov 8, 2026 (commit 19f2e657; verified both
+  domains, served app.js + style.css byte-match local). First push
+  attempt's approval timed out before Jeff tapped it; re-pushed on
+  his explicit "Push" and approved.
 
 - Personas were too good: the old pick tiers (top 5 / top 3 / best
   among common words) all sat within the top few moves, so every

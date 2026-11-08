@@ -383,7 +383,46 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Persona skill matches Elo, think back to 7-33s v78 (Nov 7, 2026, cache v78) — PUSH PENDING
+
+- Push approval timed out before Jeff tapped it (Nov 7, 2026):
+  the code is built and tested but NOT live yet; the live version
+  is still v77. Re-push only when he says go.
+
+- Personas were too good: the old pick tiers (top 5 / top 3 / best
+  among common words) all sat within the top few moves, so every
+  persona played near-optimally and Elo barely mattered.
+  pickPersonaMove now reaches deeper into the pool at low Elo, so
+  the Elo on the profile actually predicts how strong the moves
+  are: 800 Elo reaches the top half, 1000 the top quarter, 1200
+  the top few, uniform pick within the reach. Measured on a
+  realistic steep score distribution (best 40): an 800 picks
+  ~20pts on average, a 1000 ~27, a 1070 ~30, a 1200 ~38.5 — and an
+  800 sometimes plays a genuinely weak word (~40% of picks at or
+  under 15pts), while a 1200 never does. Competitive Bot and
+  Fishstick are untouched; this is personas only.
+- Think time is back to the 7-33s envelope averaging ~20s, now
+  correlated with move strength instead of uniform random (this
+  supersedes v77's 3s + 0.45s/point curve, which made weak moves
+  too fast and strong ones not slow enough): the easiest play comes
+  after ~7s, the hardest after ~33s, a mid-strength play ~20-22s.
+  Strength is measured against the best common-word move the
+  persona would consider, so the full range gets used. The 5s
+  placeholder think and the final-move clock timing are unchanged,
+  and the think is still capped at 1s inside the remaining clock.
+  Tested with a vm harness against the real server code: 16
+  checks, all pass (placeholder 5000ms, final move leaves 1-8s,
+  think 33s/20-22s/9-11s/7-9s by strength, clock cap, pick
+  gradient by Elo, 1200 never weak, empty moves null). The harness
+  also caught a floating-point edge at exactly 1200 Elo (reach
+  0.050000000000000044 pushed the pool depth from 2 to 3); the
+  reach is now rounded to three decimals.
+
 ## Opponent timeout, persona think, profile fonts + rank v77 (Nov 7, 2026, cache v77)
+
+- Pushed live Nov 7, 2026 (commit b6148591; verified both
+  domains, served app.js + style.css byte-match local,
+  handleTimeoutFetch and profileGlobalRank present in served JS).
 
 - Opponent ran out of time and the turn never came: tickClocks only
   fetched when the human clock (or both clocks) hit 0, so on the

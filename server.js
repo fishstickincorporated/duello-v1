@@ -710,16 +710,27 @@ const COMMON_WORDS = new Set([
 function pickPersonaMove(moves, elo) {
   // Extreme common-word bias: if any move's main word is an everyday
   // word, the persona plays one of those, never an obscure word, no
-  // matter how much more it scores. Among common words, lower Elo
-  // plays sloppier: the pick is random among the top 5 by score at
-  // 900 or below, top 3 up to 1050, and the best common word above
-  // that, so the 800-1200 spread still shows in results. With no
-  // common move available, the pool is all moves and the same
-  // Elo-tier pick applies (a 1200 persona still plays its best).
+  // matter how much more it scores. Among common words, the Elo
+  // sets how deep into the pool the persona reaches, so the Elo on
+  // the profile actually predicts how strong the moves are: a
+  // low-Elo persona plays like a low-Elo player, picking a genuinely
+  // weaker move, not just the 5th-best of the best. The reach is the
+  // fraction of the pool the pick can come from — 800 Elo reaches the
+  // top half, 1000 the top quarter, 1200 the top few — and within the
+  // reach the pick is uniform, so a low-Elo persona still sometimes
+  // finds a good word. The old 5/3/1 tiers all sat within the top
+  // few moves, so every persona played near-optimally and Elo barely
+  // mattered — that is why they felt too good. With no common move
+  // available, the pool is all moves and the same Elo reach applies
+  // (a 1200 persona still plays its best).
   if (!moves.length) return null;
   const common = moves.filter(m => m.mainWord && COMMON_WORDS.has(m.mainWord));
   const pool = (common.length ? common : moves).slice().sort((a, b) => b.score - a.score);
-  const k = elo <= 900 ? 5 : elo <= 1050 ? 3 : 1;
+  // Reach is rounded to three decimals so a floating-point hair above
+  // a round number (0.050000000000000044 at exactly 1200 Elo) cannot
+  // push the pool depth up by a whole move.
+  const reach = Math.round(Math.max(0.05, Math.min(0.5, 0.5 - (elo - 800) * 0.001125)) * 1000) / 1000;
+  const k = Math.max(1, Math.ceil(pool.length * reach));
   return pool[Math.floor(Math.random() * Math.min(k, pool.length))];
 }
 function personaThinkMs(game) {
@@ -738,14 +749,17 @@ function personaThinkMs(game) {
   // can only ever play the move early, never late.
   return 5000;
 }
-function personaThinkMsForMove(score, clockMs) {
-  // Think time tracks the move: a 2-point filler is spotted in a few
-  // seconds, a 40-point play takes a good long think. Base 3s plus
-  // ~0.45s per point, capped at 30s total, with a few seconds of
-  // jitter so it reads as typical, not mechanical. Never think past
-  // the clock: a long think on a short clock would forfeit the move
-  // outright, so the think is capped at 1s inside the remaining time.
-  const think = Math.min(30000, 3000 + Math.min(25000, Math.max(0, score) * 450) + Math.floor(Math.random() * 3000));
+function personaThinkMsForMove(score, bestScore, clockMs) {
+  // Think time tracks the move: the easiest play comes after ~7s,
+  // the hardest after ~33s, averaging ~20s. Strength is measured
+  // against the best move the persona would actually consider (the
+  // best common-word move — passed in as bestScore), so a near-best
+  // play takes a long think and a filler is quick, and the full
+  // 7-33s range gets used. A couple of seconds of jitter keeps it
+  // from feeling mechanical. Never think past the clock: a long
+  // think on a short clock would forfeit the move outright.
+  const frac = bestScore > 0 ? Math.max(0, Math.min(1, score / bestScore)) : 0;
+  const think = Math.min(33000, 7000 + frac * 26000 + Math.floor(Math.random() * 2000));
   if (Number.isFinite(clockMs) && clockMs > 0) return Math.max(500, Math.min(think, clockMs - 1000));
   return think;
 }
@@ -1143,8 +1157,8 @@ async function advanceBotTurnIfReady(game, user) {
   // (network time later), so a poll at tap+think would otherwise miss and
   // need a second poll. Within tolerance the move runs.
   const thinkSpan = until - game.turnStartedAt;
-  // Tolerance is capped: half of a 30s persona think would let an
-  // early poll play the move at ~15s. 2500ms matches the old
+  // Tolerance is capped: half of a 33s persona think would let an
+  // early poll play the move at ~17s. 2500ms matches the old
   // tolerance exactly for 5s thinks and 1000ms for 2s thinks.
   const tol = Math.max(500, Math.min(thinkSpan / 2, 2500));
   if (Date.now() < until - tol) return false;
@@ -1194,12 +1208,20 @@ function scheduleBotMove(game) {
       if ((g2.lastBot ? JSON.stringify(g2.lastBot) : '') !== beforeLastBot) return;
       g2.pendingBotMove = { move, bestScore };
       // Personas think in proportion to the move they are about to
-      // play (see personaThinkMsForMove). The opening think was only
-      // a short placeholder, so the client re-polls at the revised
+      // play (see personaThinkMsForMove): easiest after ~7s, hardest
+      // after ~33s, averaging ~20s. The opening think was only a
+      // short placeholder, so the client re-polls at the revised
       // time. The final move keeps its clock-based timing (it must
       // land with 1-8s left), so it is never revised here.
       if (g2.botType === 'persona' && !g2.personaFinalMovePending) {
-        g2.botThinkMs = personaThinkMsForMove(move.score, g2.clocks.bot);
+        // Best move the persona would actually consider (best
+        // common-word move), so the think spans the full 7-33s range
+        // for the moves they play. moves is sorted by score, so the
+        // first common move is the best common move; with no common
+        // move available the true best is the denominator instead.
+        const commonMoves = moves.filter(m => m.mainWord && COMMON_WORDS.has(m.mainWord));
+        const bestCommon = commonMoves.length ? commonMoves[0].score : bestScore;
+        g2.botThinkMs = personaThinkMsForMove(move.score, bestCommon, g2.clocks.bot);
         g2.botThinkUntil = g2.turnStartedAt + g2.botThinkMs;
       }
       await saveGameRow(g2);

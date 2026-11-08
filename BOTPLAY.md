@@ -417,6 +417,41 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   real fix for instant moves is server push (SSE/WebSocket),
   offered as a next step, not built.
 
+## Challenge window on any tab, Play Again sends a request, stale-fetch kick-back fix v82 (Nov 8, 2026, cache v82)
+
+- A challenge now pops up as a window wherever you are (Home,
+  Profile, Bots, Global), not only on the Friends page. The 5s
+  incoming-challenge poll runs on every screen (it used to wait
+  for the Friends page); one fetch per cycle serves both the
+  Friends-page rows and the window. Accept joins the game (and
+  withdraws any outgoing challenge you are waiting on, so its
+  accept can never strand you in a second game); Decline ends it;
+  × dismisses it (it stays on the Friends page but never pops up
+  again). One window at a time; a second challenger waits until
+  the first is answered. If the shown challenge is no longer
+  pending (challenger cancelled), the window closes on its own.
+  While you are in a game the window waits: showStatWindow
+  checks again at game end, so it pops up at once instead of on
+  the next poll.
+- Play Again after a real game now sends a challenge request from
+  the stat window too: both Play Again buttons share one
+  playAgain() that challenges the same opponent for human games.
+  The stat window's button used to call startGame directly, which
+  the server rejects for real games — so it silently did nothing.
+- The move-kicked-back glitch is back, and v81's fix missed the
+  real hole: its playInFlight check only catches a stale fetch
+  when the Play is still in flight, but the Play POST is usually
+  faster than a slow GET, so a fetch sent before a Play that
+  returns after the reply still overwrote the board with the
+  pre-play snapshot. Every game-state read (poll, timeout fetch)
+  is now stamped with a sequence number, and a response is only
+  applied if no newer state has been applied since it was sent; a
+  Play / Pass / Forfeit reply, and entering a game, invalidates
+  every fetch sent before it. Vm harness on the real app.js:
+  17/17 checks pass (stale pre-Play poll dropped, fresh poll
+  applies, overlapping polls resolve to the later one, modal
+  gates).
+
 ## Game screen stays phone-width on desktop v80 (Nov 8, 2026, cache v80)
 
 - Pushed live Nov 8, 2026 (commit 8028de1c; verified both

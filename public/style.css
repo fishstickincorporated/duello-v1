@@ -112,6 +112,11 @@ present again; a flex-shared cell previously squeezed them to half width. */
 /* Person profile window: tapping a name anywhere (Global, search,
    stat window) opens this over the current screen. */
 .person-modal{position:fixed;inset:0;background:rgba(5,7,10,.78);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}
+/* Challenge window: same overlay/card as the profile window, with
+   Accept / Decline big enough to tap in a modal. */
+.challenge-actions{display:flex;gap:10px;justify-content:center;margin-top:16px}
+.challenge-actions .mini-btn{padding:10px 18px;font-size:15px}
+.challenge-actions .mini-btn.grey{border:1px solid #03eaff;background:transparent;color:#fff}
 .person-card{position:relative;background:#262a33;border:2px solid #e8ecf1;border-radius:16px;padding:24px 20px 20px;width:100%;max-width:320px;text-align:center}
 .person-close{position:absolute;top:6px;right:10px;background:none;border:0;color:#e8ecf1;font-size:24px;line-height:1;cursor:pointer;padding:4px}
 .person-pfp{display:inline-flex;width:64px;height:64px;border-radius:50%;overflow:hidden;background:#3a3f4b;align-items:center;justify-content:center}

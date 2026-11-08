@@ -483,12 +483,16 @@ async function renderFriendsUI() {
 // Incoming real-player challenges, rendered into the top of the
 // Friends page (above the friend requests). Accept creates the
 // game on the server and joins it; Decline ends the challenge.
-async function renderIncomingChallenges() {
+// One fetch serves both the Friends-page rows and the challenge
+// window, so the poll does not hit the server twice per cycle.
+async function fetchIncomingChallenges() {
+  try { const d = await api('/api/challenges/incoming'); return d.challenges || []; }
+  catch (err) { if (deadSession(err)) return null; return []; }
+}
+async function renderIncomingChallenges(list) {
   const el = $('challengeRequests');
-  if (!el) return;
-  let list = [];
-  try { const d = await api('/api/challenges/incoming'); list = d.challenges || []; }
-  catch (err) { if (deadSession(err)) return; return; }
+  if (!el) return [];
+  if (list === undefined) { list = await fetchIncomingChallenges(); if (list === null) return []; }
   el.innerHTML = '';
   for (const c of list) {
     const u = c.from;
@@ -508,19 +512,86 @@ async function renderIncomingChallenges() {
     };
     el.appendChild(row);
   }
+  return list;
 }
-// Challenges arrive while the Friends page is open, so poll for
-// them every 5 seconds while it is visible — no push notification
-// exists, and a 60-second challenge cannot wait for the next
-// manual refresh. Runs once, guarded by screen and token.
+// A challenge pops up as a window wherever you are — Home, Profile,
+// Bots, Global — not only on the Friends page. The poll below runs
+// on every screen (it used to wait for the Friends page), and this
+// shows the first pending challenge that has not been dismissed.
+// One window at a time; a second challenger waits until the first
+// is answered. If the shown challenge is no longer pending (the
+// challenger cancelled it), the window closes on its own.
+let challengeModalChallenge = null;
+const dismissedChallenges = new Set();
+function maybeShowChallengeModal(list) {
+  if (challengeModalChallenge && !list.some(x => x.id === challengeModalChallenge.id)) hideChallengeModal();
+  if (challengeModalChallenge) return;
+  const c = (list || []).find(x => !dismissedChallenges.has(x.id));
+  if (!c) return;
+  // In a game the window waits until the game ends: showStatWindow
+  // calls the check again, so it pops up at once instead of on the
+  // next poll. A dismissed (×) challenge stays on the Friends page
+  // but never pops up again.
+  if (game && game.status === 'active') return;
+  showChallengeModal(c);
+}
+function showChallengeModal(c) {
+  challengeModalChallenge = c;
+  const u = c.from;
+  const name = shortName({ firstName: u.firstName, lastName: u.lastName, name: '', username: u.username });
+  $('challengePfp').innerHTML = pfpHTML(u);
+  $('challengePfp').classList.toggle('no-photo', !u.photoData);
+  $('challengeName').textContent = name + ' challenged you';
+  $('challengeUser').textContent = '@' + u.username;
+  $('challengeModal').classList.remove('hidden');
+}
+function hideChallengeModal() {
+  challengeModalChallenge = null;
+  $('challengeModal').classList.add('hidden');
+}
+$('challengeAcceptBtn').onclick = async () => {
+  const c = challengeModalChallenge; if (!c) return;
+  hideChallengeModal();
+  // Accepting withdraws any outgoing challenge I am waiting on, so
+  // its accept can never strand me in a second game.
+  cancelSearch();
+  try {
+    const d = await api(`/api/challenges/${c.id}/respond`, { method: 'POST', body: JSON.stringify({ accept: true }) });
+    if (d.gameId) { joinChallengeGame(d.gameId); return; }
+  } catch {}
+  checkIncomingChallenges();
+};
+$('challengeDeclineBtn').onclick = async () => {
+  const c = challengeModalChallenge; if (!c) return;
+  hideChallengeModal();
+  try { await api(`/api/challenges/${c.id}/respond`, { method: 'POST', body: JSON.stringify({ accept: false }) }); } catch {}
+  checkIncomingChallenges();
+};
+$('challengeCloseBtn').onclick = () => {
+  const c = challengeModalChallenge;
+  if (c) dismissedChallenges.add(c.id);
+  hideChallengeModal();
+};
+$('challengeModal').addEventListener('click', e => { if (e.target === $('challengeModal')) $('challengeCloseBtn').onclick(); });
+// Challenges arrive while any screen is open, so poll for them every
+// 5 seconds wherever you are — no push notification exists, and a
+// 60-second challenge cannot wait for the next manual refresh. Runs
+// once, guarded by token. The Friends rows and the window share one
+// fetch per cycle.
 let challengePollTimer = null;
 function startChallengePoll() {
   if (challengePollTimer) return;
   challengePollTimer = setInterval(() => {
-    if (!$('friendsScreen') || $('friendsScreen').classList.contains('hidden')) return;
     if (!token) return;
-    renderIncomingChallenges();
+    checkIncomingChallenges();
   }, 5000);
+}
+async function checkIncomingChallenges() {
+  if (!token) return;
+  const list = await fetchIncomingChallenges();
+  if (list === null) return;
+  renderIncomingChallenges(list);
+  maybeShowChallengeModal(list);
 }
 startChallengePoll();
 function showFriendsTab() {
@@ -740,6 +811,9 @@ async function joinChallengeGame(gameId) {
 // rack hidden until the countdown ends. startGame (bot games)
 // and joinChallengeGame (real games) both land here.
 function enterGameScreen() {
+  // A fetch from a previous game may still be in flight: invalidate
+  // it, so its response cannot overwrite this game with old state.
+  gameAppliedSeq = gameFetchSeq;
   // Display 4:00 during the countdown, not the server's create-round-trip
   // value (3:59): the clocks only start when the countdown ends (see /start).
   game.clocks.human = 240000; game.clocks.bot = 240000;
@@ -1021,13 +1095,16 @@ async function handleTimeoutFetch() {
   if (!game || game.status !== 'active' || timeoutFetching || playInFlight) return;
   timeoutFetching = true; timeoutLastAttempt = Date.now();
   try {
+    const mySeq = ++gameFetchSeq;
     const next = await api(`/api/games/${game.id}`);
     // Same stale-snapshot rule as pollBotTurn: a fetch that was in
     // flight when a Play tap happened must not overwrite the
     // post-play state if it lands after the play reply. The tick
-    // retries the timeout fetch once the flight is over.
+    // retries the timeout fetch once the flight is over. The sequence
+    // check catches it when the play has already finished.
     if (playInFlight) return;
-    game = next; gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
+    if (mySeq <= gameAppliedSeq) return;
+    game = next; gameAppliedSeq = mySeq; gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
     if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
   } catch {} finally { timeoutFetching = false; }
 }
@@ -1105,6 +1182,17 @@ function animateHumanRunoff(fromMs, toMs) {
   }, 20);
 }
 let lastBotPollAt = 0;
+// Stale-fetch guard: every read of the game state (poll, timeout
+// fetch) is stamped with a sequence number, and a response is only
+// applied if no newer state has been applied since it was sent. The
+// v81 playInFlight check only caught a stale fetch when the Play was
+// still in flight — but the Play POST is usually faster than a slow
+// GET, so a fetch sent before a Play that returned after the reply
+// still overwrote the board with a pre-play snapshot and put the
+// played tiles back in the rack. A Play / Pass / Forfeit reply, and
+// entering a game, invalidates every fetch sent before it, so only
+// fetches sent after that state can apply.
+let gameFetchSeq = 0, gameAppliedSeq = 0;
 async function pollBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot' || playInFlight) return;
   lastBotPollAt = Date.now(); botTimer = null;
@@ -1115,16 +1203,20 @@ async function pollBotTurn() {
     const fromMs = game.clocks.turn === 'bot' ? Math.max(0, game.clocks.bot - (Date.now() - gameFetchAt)) : game.clocks.bot;
     const prevBot = game.lastBot ? JSON.stringify(game.lastBot) : '';
     const prevBotScore = game.scores ? game.scores.bot : 0;
+    const mySeq = ++gameFetchSeq;
     const next = await api(`/api/games/${game.id}`);
     // A poll that started before a Play tap must not overwrite the
     // post-play state: if a play went in flight while this GET was
     // out, its pre-play snapshot arriving after the play reply would
     // put the played tiles back in the rack and hide the move. The
     // play reply sets the state itself (and beginBotTurn re-polls),
-    // so a stale response is simply dropped here.
+    // so a stale response is simply dropped here. The sequence check
+    // below is the one that catches it when the play has already
+    // finished by the time this returns.
     if (playInFlight) return;
+    if (mySeq <= gameAppliedSeq) return;
     const botMoved = (next.lastBot ? JSON.stringify(next.lastBot) : '') !== prevBot || (next.scores && next.scores.bot !== prevBotScore);
-    game = next; gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
+    game = next; gameAppliedSeq = mySeq; gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
     // Animate the runoff whenever the bot actually played, even if the
     // server already flipped to the NEXT bot turn (human clock at 0) —
     // the old code returned early in that case and the runoff never ran.
@@ -1508,10 +1600,10 @@ $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => {
   const prevHuman = game.clocks.human, prevFetchAt = gameFetchAt;
   game.clocks.human = Math.max(0, game.clocks.human - clientElapsedMs); game.clocks.turn = 'bot'; gameFetchAt = tapAt; renderGame(); tickClocks();
   const fromHuman = game.clocks.human;
-  try { botTurnTapTime = tapAt; game = await api(`/api/games/${game.id}/pass`, { method: 'POST', body: JSON.stringify({ clientElapsedMs }) }); gameFetchAt = tapAt; pending = []; renderGame(); animateHumanRunoff(fromHuman, game.clocks.human); beginBotTurn(); }
+  try { botTurnTapTime = tapAt; game = await api(`/api/games/${game.id}/pass`, { method: 'POST', body: JSON.stringify({ clientElapsedMs }) }); gameAppliedSeq = gameFetchSeq; gameFetchAt = tapAt; pending = []; renderGame(); animateHumanRunoff(fromHuman, game.clocks.human); beginBotTurn(); }
   catch { game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt; renderGame(); }
 }, '-30s');
-$('forfeitBtn').onclick = armButton($('forfeitBtn'), 'Forfeit', async () => { game = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' }); gameFetchAt = Date.now(); pending = []; renderGame(); }, 'you lose');
+$('forfeitBtn').onclick = armButton($('forfeitBtn'), 'Forfeit', async () => { game = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' }); gameAppliedSeq = gameFetchSeq; gameFetchAt = Date.now(); pending = []; renderGame(); }, 'you lose');
 async function doPlay() {
   // Unstick first, and clear the drag's click-suppression flag: after a
   // drag, suppressNextClick stayed true until an empty cell was tapped,
@@ -1584,6 +1676,10 @@ async function doPlay() {
   try {
     botTurnTapTime = tapAt;
     game = await api(`/api/games/${game.id}/play`, { method: 'POST', body: JSON.stringify({ placements: pending.map(p => ({ row: p.row, col: p.col, letter: p.letter })), clientElapsedMs }) });
+    // This reply is the newest state: invalidate every fetch sent
+    // before it, so a slow pre-play GET landing after the reply can
+    // no longer overwrite the board with the pre-play snapshot.
+    gameAppliedSeq = gameFetchSeq;
     // Keep the bot clock ticking from the tap, not from the reply:
     // gameFetchAt stays at tapAt, so the bot display does not jump
     // back up by the POST duration when the reply lands.
@@ -1700,6 +1796,10 @@ function showStatWindow(stats) {
     const oppBoxPfp = boxes[1] && boxes[1].querySelector('.stat-box-head .pfp');
     if (oppBoxPfp) { oppBoxPfp.style.cursor = 'pointer'; oppBoxPfp.onclick = () => openPersonModal(oppPerson); }
   }
+  // A challenge that arrived during the game waited until it ended:
+  // check now so its window pops up at once instead of on the next
+  // 5-second poll.
+  checkIncomingChallenges();
 }
 $('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) { clearStatDelay(); $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); } });
 // Leaving the board screen refreshes the leaderboard data in the
@@ -1721,15 +1821,18 @@ async function refreshLeaderboards() {
 }
 function goHome() { clearStatDelay(); $('statWindow').classList.add('hidden'); show('homeScreen'); refreshLeaderboards(); }
 $('mainMenuBtn').onclick = goHome; $('statMainMenu').onclick = goHome;
-$('playAgainBtn').onclick = () => {
+function playAgain() {
   $('statWindow').classList.add('hidden');
   if (currentBot === 'persona') requestRematch();
   // Play Again against a real player is another challenge to the
-  // same opponent: they accept it like the first one.
+  // same opponent: they accept it like the first one. (The stat
+  // window's button used to call startGame directly, which the
+  // server rejects for real games — so it silently did nothing.)
   else if (currentBot === 'human' && game && game.opponent) startChallenge({ name: [game.opponent.firstName, game.opponent.lastName].filter(Boolean).join(' ') || 'Player', username: game.opponent.username, elo: game.botElo, photoData: game.opponent.photoData || null, isPersona: false });
   else startGame(currentBot, currentPersonaId);
-};
-$('statPlayAgain').onclick = () => { $('statWindow').classList.add('hidden'); if (currentBot === 'persona') requestRematch(); else startGame(currentBot, currentPersonaId); };
+}
+$('playAgainBtn').onclick = playAgain;
+$('statPlayAgain').onclick = playAgain;
 $('gameStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
 const defCache = new Map();
 function hideDefinition() { const pop = $('defPopover'); if (pop) pop.classList.add('hidden'); }
@@ -2290,6 +2393,7 @@ function wipeAccountScreens() {
   blankProfileUI();
   pendingRemove = null;
   friendsStale = true; friendsRenderedScope = null;
+  hideChallengeModal(); dismissedChallenges.clear();
   $('leaderboardList').innerHTML = '';
   $('friendRequests').innerHTML = '';
   $('challengeRequests').innerHTML = '';

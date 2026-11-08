@@ -266,8 +266,14 @@ same 52px column, right-aligned, on every row including your own
 .rack.shuffling .tile{ animation:shuffle-pop 100ms ease-in-out }
 @keyframes shuffle-pop{ 0%{ transform:translateY(0) scale(1) } 50%{ transform:translateY(-8px) scale(1.06) rotate(2deg) } 100%{ transform:translateY(0) scale(1) } }
 
-/* Game screen: full viewport width, only a few px buffer at the edges */
-#gameScreen{max-width:none;width:100%;padding:4px 10px 12px}
+/* Game screen: same 390px phone width as every other screen, so the
+   board stays phone-sized on a computer instead of stretching to the
+   full viewport. It used to override the cap with max-width:none,
+   which made the board huge and weird on desktop. The overlays
+   (stat window, definition popover, drag ghost) are position:fixed
+   and already phone-width, so the cap only affects the board, rack,
+   controls and scoreboard. */
+#gameScreen{padding:4px 10px 12px}
 #gameScreen .board,#gameScreen .rack,#gameScreen .controls,#gameScreen #endButtons{width:100%}
 
 html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}

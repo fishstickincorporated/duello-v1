@@ -383,7 +383,26 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Game screen stays phone-width on desktop v80 (Nov 8, 2026, cache v80)
+
+- The game screen overrode the app's 390px cap with
+  max-width:none, so on a computer the board stretched to the full
+  viewport and looked huge and weird, while the profile, home and
+  leaderboard tabs (all capped at 390px) were fine. The override
+  is gone: #gameScreen now inherits .screen's max-width:390px and
+  margin:0 auto, keeping its own tighter padding. On a phone
+  nothing changes (the viewport is already at most 390px wide);
+  on a computer the board, rack, controls and scoreboard sit in a
+  centred 390px column, exactly like the other screens. The
+  overlays (stat window, definition popover, drag ghost) are
+  position:fixed and already phone-width, so the cap does not
+  touch them.
+
 ## Waiting status keeps the opponent's name v79 (Nov 8, 2026, cache v79)
+
+- Pushed live Nov 8, 2026 (commit 97e84d0f; verified both
+  domains, served app.js + style.css byte-match local,
+  waitingStatus present in served JS).
 
 - The status flipped between "Waiting for {name}." and "Waiting
   for your opponent.": beginBotTurn wrote the named version, but

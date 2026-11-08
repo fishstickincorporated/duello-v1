@@ -75,6 +75,10 @@ async function api(path, opts = {}) {
   return j;
 }
 function show(id) {
+  // Leaving the board closes the live game stream (a new game opens
+  // its own in enterGameScreen); the stat window is an overlay on
+  // the game screen, so it never closes the stream.
+  if (id !== 'gameScreen') closeGameStream();
   // Leaving a matchmaking screen abandons it: a searching or
   // rematch timer must never start a game after the user walked
   // away (tab tap, back navigation) — the timers check their flags,
@@ -823,7 +827,7 @@ function enterGameScreen() {
   // the rack as empty slots (not full letters) from the very first frame.
   countdownActive = true;
   ensureLocalWords();
-  show('gameScreen'); $('gameScreen').classList.add('counting'); renderGame(); startCountdown();
+  show('gameScreen'); $('gameScreen').classList.add('counting'); renderGame(); openGameStream(); startCountdown();
 }
 $('searchCancelBtn').onclick = () => {
   const wasChallenge = searchMode === 'challenge';
@@ -1193,6 +1197,32 @@ let lastBotPollAt = 0;
 // entering a game, invalidates every fetch sent before it, so only
 // fetches sent after that state can apply.
 let gameFetchSeq = 0, gameAppliedSeq = 0;
+// Live updates for real-player games (SSE): the server pushes every new
+// game state the instant it is saved, so a move appears on the
+// opponent's phone with no poll wait at all. The 1s poll keeps running
+// as the fallback (and drives nothing new) — if the stream drops, the
+// game just behaves like v82. Bot games never open a stream: their
+// polls are what advance the bot. EventSource reconnects on its own
+// after a drop, and the server sends the current state on (re)connect.
+let gameStream = null, gameStreamGameId = null;
+function openGameStream() {
+  if (!game || game.botType !== 'human' || !token) return;
+  if (gameStream && gameStreamGameId === game.id) return;
+  closeGameStream();
+  const es = new EventSource(`/api/games/${game.id}/stream?token=${encodeURIComponent(token)}`);
+  gameStream = es; gameStreamGameId = game.id;
+  es.addEventListener('game', (ev) => {
+    let state; try { state = JSON.parse(ev.data); } catch { return; }
+    if (!game || state.id !== game.id) return;
+    // This state is newer than any fetch sent: invalidate every
+    // in-flight GET so a stale poll response can never overwrite it.
+    gameAppliedSeq = gameFetchSeq;
+    game = state; gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
+  });
+  // No onerror handling: EventSource reconnects on its own, and the
+  // 1s poll covers any gap while it does.
+}
+function closeGameStream() { if (gameStream) { try { gameStream.close(); } catch {} gameStream = null; gameStreamGameId = null; } }
 async function pollBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot' || playInFlight) return;
   lastBotPollAt = Date.now(); botTimer = null;

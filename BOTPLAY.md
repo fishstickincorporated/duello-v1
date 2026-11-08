@@ -417,8 +417,47 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   real fix for instant moves is server push (SSE/WebSocket),
   offered as a next step, not built.
 
+## Live 1v1 updates over SSE — no poll lag v83 (Nov 8, 2026, cache v83)
+
+- Real 1v1 moves now arrive the instant they are played. The server
+  pushes every saved game state to the other player's phone over a
+  Server-Sent Events stream (GET /api/games/:id/stream?token=...),
+  instead of the opponent learning about it on their next 1s poll.
+  The 1s poll keeps running as the fallback, so if the stream drops
+  the game just behaves like v82; the stream reconnects on its own
+  and re-syncs on (re)connect because the current state is sent at
+  once, with a 25s heartbeat keeping the connection alive.
+- Server: one broadcast hook inside saveGameRow, so every mutation
+  (play, pass, forfeit, timeout flip, finish) pushes — each
+  subscriber gets its own serializeGame view (sides flipped per
+  viewer, stats attached on finish). A broadcast can never fail a
+  save: every subscriber write is guarded. The stream is auth-gated
+  (token in the query, since EventSource cannot send a header;
+  guests rejected, non-participants 404) and human-games only (bot
+  games are driven by the client's polls, so they never stream).
+- Client: the stream opens when entering a human game and closes on
+  leaving the board (the stat window is an overlay, so it stays
+  open through the finish). An incoming state invalidates every
+  in-flight GET via the v82 sequence, so a stale poll response can
+  never overwrite a streamed move; renderGame then shows the stat
+  window itself when the streamed state is finished.
+- Verified end to end before pushing. Client vm test on the real
+  app.js (stub EventSource + fake server, 9/9): stream opens with
+  the game id + token, a streamed move applies at once and kills a
+  stale in-flight GET, the stream closes on leaving, bot games
+  never open one, and the 1s poll still fires alongside it. Server
+  vm test on the real server.js (fake pg, real HTTP, 12/12): NEO
+  subscribes and gets the initial flipped state, Jeff's real /play
+  arrives over the stream with the tiles, flipped turn, and score,
+  within 1s of the play reply; no token is 401, a bot-game stream
+  is 400. Both harnesses saved at
+  workspace/goals/duello-1v1-word-game/hidden_files/duello-sse-client-test.js
+  and duello-sse-server-test.js.
+
 ## Challenge window on any tab, Play Again sends a request, stale-fetch kick-back fix v82 (Nov 8, 2026, cache v82)
 
+- Pushed live Nov 8, 2026 (commit eae0efad, verified both
+  domains, served app.js + style.css byte-match local).
 - A challenge now pops up as a window wherever you are (Home,
   Profile, Bots, Global), not only on the Friends page. The 5s
   incoming-challenge poll runs on every screen (it used to wait

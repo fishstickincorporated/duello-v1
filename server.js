@@ -881,12 +881,33 @@ function serializeGame(game, user) {
     player: { firstName: user.first_name, username: user.username, elo: user.elo },
   };
 }
+// Live game streams (SSE): gameId -> Set of {res, user}. Every save of a
+// game row pushes the fresh serialized state to that game's subscribers,
+// so the other player in a real 1v1 sees a move the instant it lands
+// instead of on their next poll. Bot games have no subscribers (their
+// client never opens a stream), so those broadcasts are no-ops. A
+// broadcast must never fail a save: each subscriber write is guarded.
+const gameSubscribers = new Map();
+function broadcastGame(game) {
+  try {
+    const subs = gameSubscribers.get(game.id);
+    if (!subs || subs.size === 0) return;
+    for (const sub of [...subs]) {
+      try {
+        const out = serializeGame(game, sub.user);
+        if (game.status === 'finished') { const { isOpp } = gameSides(game, sub.user); out.stats = gameStatsPayload(game, isOpp); }
+        sub.res.write(`event: game\ndata: ${JSON.stringify(out)}\n\n`);
+      } catch {}
+    }
+  } catch {}
+}
 async function saveGameRow(game) {
   const copy = { ...game, board: stripBoard(game.board) };
   delete copy.id;
   const json = JSON.stringify(copy);
   if (game.id) await q('UPDATE games SET state=$1::jsonb, updated_at=now() WHERE id=$2', [json, game.id]);
   else { const r = await q('INSERT INTO games (user_id, bot_type, bot_elo, opponent_id, state) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [game.userId, game.botType, game.botElo, game.opponentId || null, json]); game.id = Number(r.rows[0].id); }
+  broadcastGame(game);
 }
 function loadGameRow(row) {
   const g = typeof row.state === 'string' ? JSON.parse(row.state) : row.state;
@@ -2057,6 +2078,43 @@ const server = http.createServer(async (req, res) => {
       const out = serializeGame(game, user);
       if (game.status === 'finished') out.stats = gameStatsPayload(game);
       return sendJson(res, 200, out);
+    }
+    // Live updates for real-player games (SSE): EventSource cannot send
+    // an Authorization header, so the session token travels as a query
+    // param (same origin, same token the client already stores). The
+    // client re-syncs on (re)connect because the current state is sent
+    // at once; a 25s heartbeat comment keeps the connection alive
+    // through proxies. Only human games stream — bot games are driven
+    // by the client's polls (the GET handler advances the bot).
+    const streamMatch = pathname.match(/^\/api\/games\/(\d+)\/stream$/);
+    if (streamMatch && req.method === 'GET') {
+      try {
+        const token = url.searchParams.get('token') || '';
+        let user = null;
+        if (token) {
+          const s = await q('SELECT * FROM sessions WHERE token=$1', [token]);
+          if (s.rows[0]) user = await getUserById(s.rows[0].user_id);
+        }
+        if (!user || isGuestUser(user)) return sendJson(res, 401, { error: 'Not signed in.' });
+        const game = await loadGameForUser(user, streamMatch[1]);
+        if (!game) return sendJson(res, 404, { error: 'Game not found.' });
+        if (game.botType !== 'human') return sendJson(res, 400, { error: 'Live updates are for real-player games.' });
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        const sub = { res, user };
+        if (!gameSubscribers.has(game.id)) gameSubscribers.set(game.id, new Set());
+        gameSubscribers.get(game.id).add(sub);
+        const out = serializeGame(game, user);
+        if (game.status === 'finished') { const { isOpp } = gameSides(game, user); out.stats = gameStatsPayload(game, isOpp); }
+        res.write(`event: game\ndata: ${JSON.stringify(out)}\n\n`);
+        const hb = setInterval(() => { try { res.write(': heartbeat\n\n'); } catch {} }, 25000);
+        req.on('close', () => { clearInterval(hb); const s = gameSubscribers.get(game.id); if (s) { s.delete(sub); if (s.size === 0) gameSubscribers.delete(game.id); } });
+        return;
+      } catch (e) {
+        // Headers may already be sent (mid-stream): never answer a
+        // stream error with a JSON body.
+        try { if (!res.headersSent) sendJson(res, 500, { error: 'Server error.' }); else res.end(); } catch {}
+        return;
+      }
     }
     const gameMatch = pathname.match(/^\/api\/games\/(\d+)(?:\/(validate|play|pass|forfeit|shuffle|start))?$/);
     if (gameMatch) {

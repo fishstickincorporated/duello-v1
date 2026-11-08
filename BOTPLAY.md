@@ -383,7 +383,46 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   to 14px (1 line), so the board sits closer and still never
   jumps when the first play lands.
 
+## Play-vs-poll race fix + faster 1v1 poll v81 (Nov 8, 2026, cache v81)
+
+- First real 1v1 (Jeff vs NEO): a couple of Play taps returned all
+  the tiles without making the move. Root cause was a race, not a
+  rejected play. The Play tap flips the turn to the opponent
+  optimistically, and the 100ms clock tick's watchdog saw a bot
+  turn with no poll for 7s+ (it counts from the last poll of the
+  previous opponent turn, so any think over 7s qualifies) and
+  started a poll mid-flight; a poll whose GET landed after the
+  Play reply overwrote the post-play state with a pre-play
+  snapshot, so the move vanished and the tiles came back to the
+  rack. The Play POST itself had succeeded server-side.
+- Fix, client-only: pollBotTurn and handleTimeoutFetch now refuse
+  to start while a play is in flight, and a response that lands
+  during a flight is dropped instead of applied (the play reply
+  sets the state, and doPlay's success re-polls). The watchdog
+  also skips while a play is in flight. beginBotTurn is
+  deliberately NOT guarded: doPlay calls it on success while
+  playInFlight is still set (the finally clears it after), and
+  its setTimeout(0) poll fires after the flag clears.
+- Verified by a Node simulation against the real app.js (stub DOM
+  + fake server, saved at
+  workspace/goals/duello-1v1-word-game/hidden_files/play-race-test-v81.js):
+  10/10 pass — the watchdog fires during the flight but no GET
+  goes out, a slow pre-play GET resolving after the reply is
+  dropped, the move lands, client matches server, and the poll
+  loop stays alive.
+- 1v1 lag: the opponent's client polled every 2s, so a move
+  appeared up to ~2s late and the opponent's clock ticked on
+  stale state, then jumped back up when the poll corrected it.
+  Human-game poll is now every 1s (bot games unchanged). The
+  real fix for instant moves is server push (SSE/WebSocket),
+  offered as a next step, not built.
+
 ## Game screen stays phone-width on desktop v80 (Nov 8, 2026, cache v80)
+
+- Pushed live Nov 8, 2026 (commit 8028de1c; verified both
+  domains, served app.js + style.css byte-match local). The only
+  remaining "max-width:none" in the served CSS is inside the new
+  comment explaining the removal.
 
 - The game screen overrode the app's 390px cap with
   max-width:none, so on a computer the board stretched to the full

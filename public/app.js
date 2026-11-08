@@ -1018,10 +1018,15 @@ let countdownInterval = null, countdownActive = false;
 let clockHoldUntil = 0;
 function canPlaceTiles() { return !!game && game.status === 'active' && game.clocks.turn === 'human' && !playInFlight && !countdownActive; }
 async function handleTimeoutFetch() {
-  if (!game || game.status !== 'active' || timeoutFetching) return;
+  if (!game || game.status !== 'active' || timeoutFetching || playInFlight) return;
   timeoutFetching = true; timeoutLastAttempt = Date.now();
   try {
     const next = await api(`/api/games/${game.id}`);
+    // Same stale-snapshot rule as pollBotTurn: a fetch that was in
+    // flight when a Play tap happened must not overwrite the
+    // post-play state if it lands after the play reply. The tick
+    // retries the timeout fetch once the flight is over.
+    if (playInFlight) return;
     game = next; gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
     if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
   } catch {} finally { timeoutFetching = false; }
@@ -1101,7 +1106,7 @@ function animateHumanRunoff(fromMs, toMs) {
 }
 let lastBotPollAt = 0;
 async function pollBotTurn() {
-  if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
+  if (!game || game.status !== 'active' || game.clocks.turn !== 'bot' || playInFlight) return;
   lastBotPollAt = Date.now(); botTimer = null;
   try {
     // Runoff start from the game state, not from the displayed text:
@@ -1111,6 +1116,13 @@ async function pollBotTurn() {
     const prevBot = game.lastBot ? JSON.stringify(game.lastBot) : '';
     const prevBotScore = game.scores ? game.scores.bot : 0;
     const next = await api(`/api/games/${game.id}`);
+    // A poll that started before a Play tap must not overwrite the
+    // post-play state: if a play went in flight while this GET was
+    // out, its pre-play snapshot arriving after the play reply would
+    // put the played tiles back in the rack and hide the move. The
+    // play reply sets the state itself (and beginBotTurn re-polls),
+    // so a stale response is simply dropped here.
+    if (playInFlight) return;
     const botMoved = (next.lastBot ? JSON.stringify(next.lastBot) : '') !== prevBot || (next.scores && next.scores.bot !== prevBotScore);
     game = next; gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
     // Animate the runoff whenever the bot actually played, even if the
@@ -1120,10 +1132,10 @@ async function pollBotTurn() {
     if (next.clocks.turn === 'bot' && next.status === 'active') {
       // Relative remaining time from the server, never the server's absolute
       // clock: comparing Render time to phone time added a spurious ~2s poll.
-      // A real opponent takes their time: poll every 2s instead of the
+      // A real opponent takes their time: poll every 1s instead of the
       // bot's think-driven cadence (botThinkRemainingMs is null for
       // human games, which would otherwise fall to 500ms).
-      const delay = game.botType === 'human' ? 2000 : (next.botThinkRemainingMs != null ? Math.max(200, next.botThinkRemainingMs) : 500);
+      const delay = game.botType === 'human' ? 1000 : (next.botThinkRemainingMs != null ? Math.max(200, next.botThinkRemainingMs) : 500);
       if (botTimer) clearTimeout(botTimer);
       botTimer = setTimeout(pollBotTurn, delay);
       return;
@@ -1146,7 +1158,7 @@ async function pollBotTurn() {
 // no poll has run in the last 7s (timer lost, poll died, page restored
 // from background), restart the bot turn instead of staying stuck.
 function botWatchdog() {
-  if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
+  if (!game || game.status !== 'active' || game.clocks.turn !== 'bot' || playInFlight) return;
   if (botTimer) return;
   if (Date.now() - lastBotPollAt > 7000) { botTurnTapTime = 0; beginBotTurn(); }
 }

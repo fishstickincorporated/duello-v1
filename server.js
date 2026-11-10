@@ -319,7 +319,9 @@ async function profileStatsFor(userId) {
     let totalScore = 0, played = 0;
     // Average game score counts only games where the player's own clock
     // fully expired — games ended early (forfeit, stalls) are excluded.
-    for (const g of gs) { if (skip(g)) continue; const mySide = (g.userId === userId) ? 'human' : 'bot'; if (!(g.clocks && g.clocks[mySide] <= 0)) continue; totalScore += (g.scores && g.scores[mySide]) || 0; played++; }
+    // A forfeit is excluded even when the clock had already expired:
+    // it counts as a game played, but never toward the average.
+    for (const g of gs) { if (skip(g)) continue; if (g.reason === 'By forfeit') continue; const mySide = (g.userId === userId) ? 'human' : 'bot'; if (!(g.clocks && g.clocks[mySide] <= 0)) continue; totalScore += (g.scores && g.scores[mySide]) || 0; played++; }
     st.avgGameScore = played ? Math.round(totalScore / played) : 0;
     st.avgWordScore = wordCount ? Math.round(wordScoreSum / wordCount * 10) / 10 : 0;
     st.optimalPct = st.totalMoves ? Math.round(st.optimalMoves / st.totalMoves * 1000) / 10 : 0;
@@ -791,7 +793,7 @@ function newGame(user, botType, persona, opponent) {
   const board = emptyBoard();
   board.__premiums = premiums; // solver reads premiums from here; stripped on save/serialize
   const game = {
-    userId: user.id, botType, botElo,
+    userId: user.id, botType, botElo, version: 1,
     persona: persona ? { id: persona.id, username: persona.username, firstName: persona.first_name, lastName: persona.last_name, photoData: persona.photo_url } : null,
     // Real-player games: the recipient is the 'bot' side of the
     // stored state (their rack, score, clock, and moves all live
@@ -910,13 +912,28 @@ function broadcastGame(game) {
     }
   } catch {}
 }
-async function saveGameRow(game) {
-  const copy = { ...game, board: stripBoard(game.board) };
+async function saveGameRow(game, opts = {}) {
+  // Optimistic concurrency: every save bumps `version`, and a guarded
+  // save only lands if the row still holds the version this request
+  // loaded. A poll GET that loaded before a play must never save its
+  // stale snapshot over the play — the play appeared on both screens
+  // for a second, then the stale GET's save pulled it back. Guarded
+  // callers (the GET settle) get `false` on a conflict and return the
+  // fresh row instead; unguarded callers (a play, a pass, a forfeit)
+  // always land, because the move itself is the newer fact.
+  const prevVersion = game.version || 0;
+  const copy = { ...game, board: stripBoard(game.board), version: prevVersion + 1 };
   delete copy.id;
   const json = JSON.stringify(copy);
-  if (game.id) await q('UPDATE games SET state=$1::jsonb, updated_at=now() WHERE id=$2', [json, game.id]);
-  else { const r = await q('INSERT INTO games (user_id, bot_type, bot_elo, opponent_id, state) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [game.userId, game.botType, game.botElo, game.opponentId || null, json]); game.id = Number(r.rows[0].id); }
+  if (game.id) {
+    const cond = opts.guarded ? " AND COALESCE((state->>'version')::int, 0)=$3" : '';
+    const params = opts.guarded ? [json, game.id, prevVersion] : [json, game.id];
+    const r = await q(`UPDATE games SET state=$1::jsonb, updated_at=now() WHERE id=$2${cond}`, params);
+    if (opts.guarded && r.rowCount === 0) return false;
+    game.version = prevVersion + 1;
+  } else { const r = await q('INSERT INTO games (user_id, bot_type, bot_elo, opponent_id, state) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [game.userId, game.botType, game.botElo, game.opponentId || null, json]); game.id = Number(r.rows[0].id); game.version = prevVersion + 1; }
   broadcastGame(game);
+  return true;
 }
 function loadGameRow(row) {
   const g = typeof row.state === 'string' ? JSON.parse(row.state) : row.state;
@@ -1045,22 +1062,21 @@ function applyMove(game, side, move, bestScoreBefore) {
     }
     game.humanRack = refillRack(rack, usedIndices);
   } else {
+    // Same in-place refill as the human side: remove the used letters
+    // by index and refill the exact vacated slots, so unplayed tiles
+    // never move. The old code spliced the played letters out and
+    // appended new ones at the end, which shifted every unplayed tile
+    // left after every play — and the floor fix then swapped one of
+    // the survivors out. This side is the recipient's rack in a real
+    // 1v1, so it was Jeff's rack moving after every one of his plays.
     const rack = game.botRack.slice();
+    const usedIndices = [];
+    const remaining = rack.slice();
     for (const p of move.placements) {
-      const idx = rack.indexOf(p.letter);
-      if (idx >= 0) rack.splice(idx, 1);
+      const idx = remaining.indexOf(p.letter);
+      if (idx >= 0) { usedIndices.push(idx); remaining[idx] = null; }
     }
-    const counts = {};
-    for (const l of rack) counts[l] = (counts[l] || 0) + 1;
-    while (rack.length < 6) { const l = drawCapped(counts, 'any'); rack.push(l); counts[l] = (counts[l] || 0) + 1; }
-    // Bot rack is hidden, but keep the same floor so the bot is never
-    // stranded with no vowels or no consonants to play with.
-    let bv = rack.filter(c => VOWELS.has(c)).length, bc = rack.length - bv;
-    for (let i = 0; i < rack.length && (bv < 2 || bc < 2); i++) {
-      if (bv < 2 && !VOWELS.has(rack[i])) { const l = drawCapped(counts, 'vowel'); counts[rack[i]]--; rack[i] = l; counts[l] = (counts[l] || 0) + 1; bv++; bc--; }
-      else if (bc < 2 && VOWELS.has(rack[i])) { const l = drawCapped(counts, 'consonant'); counts[rack[i]]--; rack[i] = l; counts[l] = (counts[l] || 0) + 1; bc++; bv--; }
-    }
-    game.botRack = rack;
+    game.botRack = refillRack(rack, usedIndices);
   }
   game.scores[side] += move.score;
   game.lastCells = move.highlightCells;
@@ -2184,7 +2200,19 @@ const server = http.createServer(async (req, res) => {
             applyBotNoMovePass(game);
             await finishIfNeeded(game, user);
           }
-          await saveGameRow(game);
+          // Guarded: this GET loaded before a play may have landed, and
+          // its settle work (which runs findMoves and takes seconds on a
+          // busy board) must never save that stale snapshot over the
+          // play. On a conflict the fresh row — which already has the
+          // play — is what gets returned instead.
+          if (!(await saveGameRow(game, { guarded: true }))) {
+            const fresh = await loadGameForUser(user, gameMatch[1]);
+            if (fresh) {
+              const outFresh = serializeGame(fresh, user);
+              if (fresh.status === 'finished') outFresh.stats = gameStatsPayload(fresh, isOpp);
+              return sendJson(res, 200, outFresh);
+            }
+          }
         }
         const out = serializeGame(game, user);
         if (game.status === 'finished') out.stats = gameStatsPayload(game, isOpp);

@@ -500,7 +500,7 @@ async function renderIncomingChallenges(list) {
   el.innerHTML = '';
   for (const c of list) {
     const u = c.from;
-    const name = shortName({ firstName: u.firstName, lastName: u.lastName, name: '', username: u.username });
+    const name = u.firstName || u.username;
     const row = document.createElement('div'); row.className = 'request-row';
     row.innerHTML = `<span class="lb-pfp${u.photoData ? '' : ' no-photo'}">${pfpHTML(u)}</span><span class="lb-identity"><div class="lb-name">${name} challenged you</div><div class="lb-user">@${u.username}</div></span><span class="request-actions"><button class="mini-btn" data-act="accept">Accept</button><button class="mini-btn grey" data-act="decline">Decline</button></span>`;
     row.querySelector('[data-act="accept"]').onclick = async () => {
@@ -541,7 +541,7 @@ function maybeShowChallengeModal(list) {
 function showChallengeModal(c) {
   challengeModalChallenge = c;
   const u = c.from;
-  const name = shortName({ firstName: u.firstName, lastName: u.lastName, name: '', username: u.username });
+  const name = u.firstName || u.username;
   $('challengePfp').innerHTML = pfpHTML(u);
   $('challengePfp').classList.toggle('no-photo', !u.photoData);
   $('challengeName').textContent = name + ' challenged you';

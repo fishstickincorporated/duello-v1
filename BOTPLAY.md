@@ -454,6 +454,50 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   workspace/goals/duello-1v1-word-game/hidden_files/duello-sse-client-test.js
   and duello-sse-server-test.js.
 
+## Played word pulled back, rack refill in place, first-name challenge, forfeit average v86 (Nov 9, 2026, cache v86)
+
+- A played word appeared on both screens for a second, then was
+  pulled back: a poll GET that loaded before a play could save its
+  stale snapshot over the play. The GET's settle work runs findMoves
+  (seconds on a busy board), so it loads, waits, then saves the
+  pre-play state — clobbering the play and broadcasting the revert
+  to both phones. Fix is optimistic concurrency: every save bumps a
+  `version` on the game state, and the GET's settle save is guarded
+  (`UPDATE ... WHERE id=$2 AND COALESCE((state->>'version')::int,
+  0)=$3`) — on a conflict it returns the freshly loaded row
+  instead, so the play survives. Plays, passes and forfeits save
+  unguarded (the move itself is the newer fact). Old games without a
+  version migrate on first save (COALESCE treats missing as 0).
+  Proven in the vm: two loads of one game, first guarded save
+  lands, second is rejected; a stale save after a play is rejected
+  (duello-v86-server-test.js 11/11).
+
+- The rack did not refill in place for the recipient: applyMove's
+  bot-side branch spliced the played letters out and appended new
+  ones, shifting every unplayed tile left after every play (and the
+  vowel/consonant floor fix then swapped one of the survivors out).
+  That side is the recipient's rack in a real 1v1, so it was Jeff's
+  rack moving after every one of his plays. Both sides now use
+  refillRack on the exact vacated indices — unplayed tiles never
+  move. Verified in the same server test (rack [A,B,C,N,E,F] after
+  playing D from [A,B,C,D,E,F]).
+
+- The challenge invitation reads "[first name] challenged you" now
+  — no last initial — in the window and on the Friends page row
+  (both used shortName, which gives "Neo S."). Falls back to the
+  username when there is no first name. Client vm test 5/5
+  (duello-v86-client-test.js).
+
+- A forfeit counts as a game played but never toward the average
+  game score: the average already excluded games ended early, but
+  it let a forfeit in when the forfeiter's clock had already hit 0.
+  The average loop now skips `reason === 'By forfeit'` outright;
+  gamesPlayed and the loss still count. Server vm test
+  (duello-v86-server-test.js R8/R9).
+
+- Regressions all still passing: v85 client, SSE client/server,
+  SSE echo, countdown server, and the end-to-end playtest (13/13).
+
 ## Hard challenge modal, SSE echo no longer returns placed tiles, synced 5s countdown v85 (Nov 9, 2026, cache v85)
 
 - The challenge window is a hard modal now: the × is gone and

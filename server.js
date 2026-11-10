@@ -66,7 +66,7 @@ try { DEFS = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'definitions.json'),
 // chunk files because a single 5.8 MB definitions file cannot be pushed
 // through the GitHub MCP tool (413). Chunks override the base file, so
 // placeholder entries in the base file are replaced by real definitions.
-for (const extraFile of ['definitions-extra-a.json', 'definitions-extra-b.json', 'definitions-extra-c.json']) {
+for (const extraFile of ['definitions-extra-a.json', 'definitions-extra-b.json', 'definitions-extra-c.json', 'definitions-extra-d.json', 'definitions-extra-e.json', 'definitions-extra-f.json', 'definitions-extra-g.json']) {
   try { Object.assign(DEFS, JSON.parse(fs.readFileSync(path.join(DATA_DIR, extraFile), 'utf8'))); } catch (e) { /* chunk absent, ignore */ }
 }
 const LETTER_VALUES = { A:1,B:4,C:4,D:3,E:1,F:5,G:3,H:4,I:1,J:9,K:6,L:2,M:4,N:2,O:1,P:4,Q:10,R:1,S:1,T:1,U:2,V:6,W:5,X:8,Y:5,Z:9 };
@@ -879,6 +879,15 @@ function serializeGame(game, user) {
     eloAfterBot: isOpponent ? game.eloAfterHuman : game.eloAfterBot,
     isFirst: boardIsEmpty(game.board),
     player: { firstName: user.first_name, username: user.username, elo: user.elo },
+    // The shared countdown (real-player games): how long until the
+    // 5-second countdown ends, as a RELATIVE remaining time computed
+    // here on the server clock — the client must never compare a
+    // Render server timestamp to the phone clock (that skew added a
+    // phantom second to bot thinks in v78). Null until both players
+    // have loaded the game; started tells a late joiner the countdown
+    // is already over and the clocks are running.
+    countdownRemainingMs: game.countdownEndsAt ? Math.max(0, game.countdownEndsAt - now) : null,
+    started: !!game.started,
   };
 }
 // Live game streams (SSE): gameId -> Set of {res, user}. Every save of a
@@ -2129,6 +2138,23 @@ const server = http.createServer(async (req, res) => {
       const { isOpp, mySide, oppSide } = gameSides(game, user);
       const myRack = () => game[mySide === 'human' ? 'humanRack' : 'botRack'];
       if (req.method === 'GET' && !action) {
+        // The shared 5-second countdown: a real-player game starts its
+        // countdown only once BOTH players have loaded it, so both
+        // phones count down to the same instant. Each player's first
+        // GET checks them in; the second check-in stamps
+        // countdownEndsAt and the save broadcasts it to both (the 1s
+        // poll covers a dropped stream). Runs even for fresh games,
+        // which the settle block below skips.
+        if (game.botType === 'human' && game.status === 'active' && !game.started && !game.countdownEndsAt) {
+          game.checkedIn = game.checkedIn || {};
+          if (!game.checkedIn[user.id]) {
+            game.checkedIn[user.id] = true;
+            if (game.checkedIn[game.userId] && game.checkedIn[game.opponentId]) {
+              game.countdownEndsAt = Date.now() + 5000;
+            }
+            await saveGameRow(game);
+          }
+        }
         // Fresh games: do not settle or advance anything before /start.
         if (game.status === 'active' && !isFreshGame(game)) {
           // A real opponent moves on their own phone: never run the

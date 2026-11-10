@@ -454,6 +454,100 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   workspace/goals/duello-1v1-word-game/hidden_files/duello-sse-client-test.js
   and duello-sse-server-test.js.
 
+## Hard challenge modal, SSE echo no longer returns placed tiles, synced 5s countdown v85 (Nov 9, 2026, cache v85)
+
+- The challenge window is a hard modal now: the × is gone and
+  tapping outside it does nothing — the only way out is Accept or
+  Decline (or the challenger cancelling, which still closes it on
+  its own). The profile window keeps its own ×; only the
+  invitation is forced. `dismissedChallenges` is removed.
+
+- The v83 SSE echo was returning placed tiles: the deferred-optimal
+  save re-broadcasts the state seconds after a play (and a reconnect
+  re-sends the current state), and the stream handler wiped `pending`
+  on every event — so a word placed after a play came back to the
+  rack a few seconds later. The handler now skips pushes while a
+  Play is in flight, ignores an echo of the state it already has
+  (same board, scores, turn, status, rack, countdown, started),
+  and only returns placed tiles when the game is over or it is no
+  longer the player's turn (a timeout flip, a pass). Reproduced in
+  the vm first (the echo cleared pending), then fixed: 6/6 in
+  duello-sse-echo-test.js.
+
+- The 5-second countdown is synced for both players in a real 1v1:
+  each player's first GET of a fresh human game checks them in, and
+  the second check-in stamps `countdownEndsAt` (now + 5s) and
+  broadcasts it, so both phones count down to the same instant.
+  The client receives it as a RELATIVE `countdownRemainingMs`
+  (server-computed, like botThinkRemainingMs) — no phone/server
+  clock comparison, per the v78 skew lesson. While waiting, the
+  overlay reads "Waiting for {firstName}…"; if the other player
+  never loads in, the countdown starts on its own after 15s; a
+  late join (game already started) skips the countdown entirely.
+  Bot games keep the old local 5-second countdown at once. Server
+  vm test 9/9, client vm test 12/12 (duello-countdown-server-test.js,
+  duello-v85-client-test.js). The stream handler's echo check also
+  compares countdownRemainingMs/started, so the waiting player
+  actually learns the countdown started.
+
+- Includes v84 (still unpushed): real bundled definitions for
+  23,478 words, shuffle always available, Forfeit becomes Exit
+  when out of time.
+
+## Shuffle always available, Forfeit becomes Exit when out of time v84 (Nov 8, 2026, cache v84)
+
+- Push PENDING: first push attempt Nov 8, 2026 — approval timed
+  out, action NOT performed, live stays v83. Re-push only on
+  Jeff's explicit go.
+
+- Shuffle is available at all times during the game now: the
+  button used to grey out for the whole Play round-trip (and when
+  out of time), which felt like seconds. It is never disabled
+  during the game any more. While a Play is in flight the rack has
+  blank slots, so a server shuffle would be rejected for not
+  matching the server rack — the tap instead shuffles only the
+  letters still in the rack, locally, keeping the blanks where
+  they are; the Play reply refills the rack and takes over from
+  there. Otherwise it posts the shuffled rack as before.
+- After your time expires the Forfeit button reads "Exit". The
+  opponent plays on, but you can leave without waiting: tapping
+  Exit still forfeits on the server (you lose, Elo moves), it just
+  skips the stat window and goes straight to the main menu. The
+  two-tap arm ("SURE? you lose") still applies, and the label
+  resets to "Exit" (not "Forfeit") if the arm times out while out
+  of time. Forfeiting with time left is unchanged (stat window
+  still shows).
+- The definition popover now carries a small Wiktionary
+  (CC BY-SA) credit line, since the definitions (bundled and live)
+  come from Wiktionary.
+- Real definitions for the words that showed "A valid Duello
+  word.": the Kaikki Wiktionary dump (534 MB gz) was filtered to
+  just the 25,532 uncovered words — 23,478 gained a bundled
+  definition (22,925 direct, 553 more via stemming of the new
+  ones), in new chunks definitions-extra-d/e/f/g (each under
+  0.7 MB) added to the server's chunk list. Bundled definitions
+  went from 61,879 to 84,577; 2,054 words remain uncovered (no
+  published gloss in Wiktionary, e.g. JADITIC, PLISKIE, ZINKIFY —
+  those honestly keep the fallback). Morphological glosses were
+  resolved to the core word's definition at build time, per Jeff's
+  rule. Verified independently: 26/27 previously-failing spot
+  checks now resolve, chunks are valid with 0 bad entries, and
+  the subagent's own verify script passed 49/52 (the 3 failures
+  are the no-gloss words above). The dump file was deleted after
+  the build. Follow-up (not in v84): the server's runtime
+  coreWordFromDef regex misses some Kaikki gloss shapes ("simple
+  past and past participle of X", "third-person singular simple
+  present indicative of X", "present participle and gerund of X",
+  "comparative/superlative form of X", "alternative/obsolete/
+  archaic spelling of X", ~6,100 of them) — the build script
+  resolved those at build time, so the stored chunks are clean,
+  but a live-fetched gloss in one of those shapes would still
+  show as-is instead of resolving to the core word.
+- Vm harness on the real app.js: 21/21 checks pass (shuffle
+  during a Play flight is local-only with blanks kept, normal and
+  out-of-time shuffles post, Exit records the loss with no stat
+  window and lands on home, a normal forfeit still shows stats).
+
 ## Challenge window on any tab, Play Again sends a request, stale-fetch kick-back fix v82 (Nov 8, 2026, cache v82)
 
 - Pushed live Nov 8, 2026 (commit eae0efad, verified both

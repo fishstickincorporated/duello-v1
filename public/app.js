@@ -521,21 +521,20 @@ async function renderIncomingChallenges(list) {
 // A challenge pops up as a window wherever you are — Home, Profile,
 // Bots, Global — not only on the Friends page. The poll below runs
 // on every screen (it used to wait for the Friends page), and this
-// shows the first pending challenge that has not been dismissed.
-// One window at a time; a second challenger waits until the first
-// is answered. If the shown challenge is no longer pending (the
-// challenger cancelled it), the window closes on its own.
+// shows the first pending challenge. One window at a time; a second
+// challenger waits until the first is answered. If the shown challenge
+// is no longer pending (the challenger cancelled it), the window
+// closes on its own. The window is a hard modal: there is no × and no
+// backdrop tap to get out of it — the player must Accept or Decline.
 let challengeModalChallenge = null;
-const dismissedChallenges = new Set();
 function maybeShowChallengeModal(list) {
   if (challengeModalChallenge && !list.some(x => x.id === challengeModalChallenge.id)) hideChallengeModal();
   if (challengeModalChallenge) return;
-  const c = (list || []).find(x => !dismissedChallenges.has(x.id));
+  const c = (list || [])[0];
   if (!c) return;
   // In a game the window waits until the game ends: showStatWindow
   // calls the check again, so it pops up at once instead of on the
-  // next poll. A dismissed (×) challenge stays on the Friends page
-  // but never pops up again.
+  // next poll.
   if (game && game.status === 'active') return;
   showChallengeModal(c);
 }
@@ -571,12 +570,9 @@ $('challengeDeclineBtn').onclick = async () => {
   try { await api(`/api/challenges/${c.id}/respond`, { method: 'POST', body: JSON.stringify({ accept: false }) }); } catch {}
   checkIncomingChallenges();
 };
-$('challengeCloseBtn').onclick = () => {
-  const c = challengeModalChallenge;
-  if (c) dismissedChallenges.add(c.id);
-  hideChallengeModal();
-};
-$('challengeModal').addEventListener('click', e => { if (e.target === $('challengeModal')) $('challengeCloseBtn').onclick(); });
+// No × button and no backdrop tap: the only way out of the window is
+// Accept or Decline (or the challenger cancelling, which closes it
+// on its own via maybeShowChallengeModal).
 // Challenges arrive while any screen is open, so poll for them every
 // 5 seconds wherever you are — no push notification exists, and a
 // 60-second challenge cannot wait for the next manual refresh. Runs
@@ -814,6 +810,17 @@ async function joinChallengeGame(gameId) {
 // The shared game start: clocks pinned during the countdown,
 // rack hidden until the countdown ends. startGame (bot games)
 // and joinChallengeGame (real games) both land here.
+//
+// Real-player games count down TOGETHER: the server stamps the
+// shared end once both players have loaded the game (see the GET
+// check-in in server.js), and each phone counts down to that one
+// instant — the old code counted 5 seconds from each phone's own
+// entry, so one player could be moving while the other still saw
+// the countdown. While waiting for the shared time the overlay
+// says so; if the other player never loads in, the countdown starts
+// on its own after 15 seconds rather than hanging forever. A game
+// that is already started (a late join) skips the countdown entirely.
+let waitingForSync = false, syncFallbackTimer = null;
 function enterGameScreen() {
   // A fetch from a previous game may still be in flight: invalidate
   // it, so its response cannot overwrite this game with old state.
@@ -827,7 +834,38 @@ function enterGameScreen() {
   // the rack as empty slots (not full letters) from the very first frame.
   countdownActive = true;
   ensureLocalWords();
-  show('gameScreen'); $('gameScreen').classList.add('counting'); renderGame(); openGameStream(); startCountdown();
+  show('gameScreen'); $('gameScreen').classList.add('counting'); renderGame(); openGameStream();
+  if (game.botType === 'human' && game.started) {
+    // Late join: the clocks are already running — no countdown.
+    countdownActive = false;
+    $('gameScreen').classList.remove('counting');
+    $('countdownOverlay').classList.add('hidden');
+    clockHoldUntil = Date.now() + 1000;
+    renderGame();
+    if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
+    return;
+  }
+  if (game.botType === 'human') {
+    // Wait for the shared countdown. If this phone already has it
+    // (the join reply carried it), the tick watcher starts it at
+    // once; otherwise the overlay waits and the stream or the next
+    // poll delivers it.
+    waitingForSync = true;
+    const opp = (game.opponent && game.opponent.firstName) || 'your opponent';
+    const num = $('countdownNum');
+    num.classList.add('waiting');
+    num.textContent = `Waiting for ${opp}…`;
+    $('countdownOverlay').classList.remove('hidden');
+    if (syncFallbackTimer) clearTimeout(syncFallbackTimer);
+    syncFallbackTimer = setTimeout(() => {
+      syncFallbackTimer = null;
+      if (!waitingForSync) return;
+      waitingForSync = false;
+      startCountdown(Date.now() + 5000);
+    }, 15000);
+    return;
+  }
+  startCountdown(Date.now() + 5000);
 }
 $('searchCancelBtn').onclick = () => {
   const wasChallenge = searchMode === 'challenge';
@@ -902,20 +940,31 @@ async function endCountdown() {
     if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
   } catch { countdownActive = false; $('gameScreen').classList.remove('counting'); clockHoldUntil = Date.now() + 1000; botTurnTapTime = 0; beginBotTurn(); }
 }
-function startCountdown() {
+function startCountdown(targetMs) {
   if (countdownInterval) clearInterval(countdownInterval);
+  if (syncFallbackTimer) { clearTimeout(syncFallbackTimer); syncFallbackTimer = null; }
+  waitingForSync = false;
   countdownActive = true;
   $('gameScreen').classList.add('counting');
   // Re-render so the rack is blank slots (and controls disabled) during
   // the wait, even if an earlier render drew letters before the flag set.
   cleanupStuckDrag(); renderGame();
   const ov = $('countdownOverlay'); ov.classList.remove('hidden');
-  let n = 5; $('countdownNum').textContent = String(n);
-  countdownInterval = setInterval(() => {
-    n--;
+  const num = $('countdownNum');
+  num.classList.remove('waiting');
+  // One countdown loop driven by an absolute local target, so a shared
+  // server end and a local 5-second countdown run the same way. The
+  // 200ms tick keeps the displayed number aligned to the target
+  // instead of drifting a second per render.
+  let shown = null;
+  const tick = () => {
+    const n = Math.ceil((targetMs - Date.now()) / 1000);
     if (n <= 0) { clearInterval(countdownInterval); countdownInterval = null; endCountdown(); return; }
-    $('countdownNum').textContent = String(n);
-  }, 1000);
+    if (n !== shown) { shown = n; num.textContent = String(n); }
+  };
+  num.textContent = String(Math.max(1, Math.ceil((targetMs - Date.now()) / 1000)));
+  shown = Number(num.textContent);
+  countdownInterval = setInterval(tick, 200);
 }
 function boardCell(r, c) { return game.board[r][c]; }
 // One SVG tile template for every letter: face, letter, and value are drawn
@@ -935,6 +984,24 @@ function tileSVG(letter) {
   const val = ({ A: 1, B: 4, C: 4, D: 3, E: 1, F: 5, G: 3, H: 4, I: 1, J: 9, K: 6, L: 2, M: 4, N: 2, O: 1, P: 4, Q: 10, R: 1, S: 1, T: 1, U: 2, V: 6, W: 5, X: 8, Y: 5, Z: 9 })[letter];
   const gid = 'tg' + (tileSVG.n = (tileSVG.n || 0) + 1);
   return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#7df3ff"/><stop offset="50%" stop-color="#03eaff"/><stop offset="100%" stop-color="#00b8d2"/></linearGradient></defs><rect x="0.5" y="0.5" width="99" height="99" rx="9" fill="url(#${gid})" stroke="rgba(0,90,110,0.4)"/><path d="${TILE_LETTER_PATHS[letter]}" fill="#1a1d24" stroke="#1a1d24" stroke-width="3" stroke-linejoin="round" paint-order="stroke"/><path d="${TILE_VALUE_PATHS[String(val)]}" fill="#1a1d24" stroke="#1a1d24" stroke-width="1" stroke-linejoin="round" paint-order="stroke"/></svg>`;
+}
+// Out of time = human clock at 0 (displayed, i.e. elapsed-adjusted on
+// your turn), whatever the turn field currently says: after timeout the
+// turn flips to the bot, but the human clock is still 0.
+function humanOutOfTime() {
+  if (!game || game.status !== 'active') return false;
+  const humanRemaining = Math.max(0, game.clocks.turn === 'human' ? game.clocks.human - (Date.now() - gameFetchAt) : game.clocks.human);
+  return humanRemaining <= 0;
+}
+// After your time expires the Forfeit button reads "Exit" instead:
+// the opponent plays on, but you can leave without waiting. Never
+// overwrites the armed "SURE?" confirm, and only writes when the
+// label actually changes, so it is cheap to call every tick.
+function updateForfeitLabel() {
+  const btn = $('forfeitBtn');
+  if (!btn || armed[btn.id]) return;
+  const label = humanOutOfTime() ? 'Exit' : 'Forfeit';
+  if (btn.textContent !== label) btn.textContent = label;
 }
 function renderGame() {
   if (!game) return;
@@ -1051,19 +1118,22 @@ function renderGame() {
   // Recall only when a tile is actually placed; Pass only on your turn.
   // Both are greyed (disabled) otherwise, instead of tappable-but-dead.
   const yourTurn = game.status === 'active' && game.clocks.turn === 'human' && !playInFlight;
-  // Out of time = human clock at 0 (displayed, i.e. elapsed-adjusted on
-  // your turn), whatever the turn field currently says: after timeout the
-  // turn flips to the bot, but the human clock is still 0.
-  const humanRemaining = game.status === 'active' ? Math.max(0, game.clocks.turn === 'human' ? game.clocks.human - (Date.now() - gameFetchAt) : game.clocks.human) : Infinity;
-  const outOfTime = game.status === 'active' && humanRemaining <= 0;
+  const outOfTime = humanOutOfTime();
   $('recallBtn').disabled = countdownActive || !(yourTurn && pending.length > 0);
   // No passing in a one-sided stretch: when the opponent's clock is
   // at 0, the human plays on alone and cannot pass. Disabled also
   // drops the blue highlight (see .controls button:disabled), so the
   // button reads as truly unavailable, not just unresponsive.
   $('passBtn').disabled = countdownActive || !yourTurn || game.clocks.bot <= 0 || outOfTime;
-  $('shuffleBtn').disabled = countdownActive || playInFlight || optimisticPlay || outOfTime;
+  // Shuffle is available at all times during the game, including
+  // while a Play is in flight and when out of time: the button used
+  // to grey out for the whole Play round-trip, which felt like seconds.
+  // The click handler below does a local-only shuffle while a Play is
+  // in flight (the rack has blank slots then, so a server shuffle
+  // would be rejected), and a server shuffle otherwise.
+  $('shuffleBtn').disabled = false;
   $('forfeitBtn').disabled = countdownActive;
+  updateForfeitLabel();
   document.querySelector('.controls').classList.toggle('hidden', finished);
   $('endButtons').classList.toggle('hidden', !finished);
   $('gameDim').classList.toggle('dimmed', finished && !$('statWindow').classList.contains('hidden'));
@@ -1114,6 +1184,16 @@ async function handleTimeoutFetch() {
 }
 function tickClocks() {
   if (!game) return;
+  // Synced countdown (real-player games): the shared end can arrive
+  // on the stream or on a poll, and the 100ms tick notices either
+  // within a tenth of a second. The remaining time is relative
+  // (server-computed), so no phone/server clock comparison is made.
+  if (waitingForSync && game.countdownRemainingMs != null) {
+    waitingForSync = false;
+    if (syncFallbackTimer) { clearTimeout(syncFallbackTimer); syncFallbackTimer = null; }
+    startCountdown(Date.now() + game.countdownRemainingMs);
+    return;
+  }
   // Game-start hold: both timers sit on 4:00 for a full second before
   // ticking to 3:59. With floor display, 4:00 would otherwise drop to
   // 3:59 within ~100ms of starting. This is display-only: the underlying
@@ -1138,7 +1218,7 @@ function tickClocks() {
   if (Date.now() >= runoffUntil) $('clockBot').textContent = fmtClock(b);
   // Human clock hit 0: do not leave the game sitting on a dead turn.
   // Fetching flips the server to the bot turn, which then loops on its own.
-  if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) { $('status').textContent = 'Out of time, opponent plays on.'; $('shuffleBtn').disabled = true; if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch(); }
+  if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) { $('status').textContent = 'Out of time, opponent plays on.'; updateForfeitLabel(); if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch(); }
   // Opponent clock hit 0: fetch at once instead of waiting for the
   // next scheduled poll. A persona's think can run 30s, so the board
   // sat on 0:00 with the turn never coming. The fetch flips the
@@ -1214,10 +1294,37 @@ function openGameStream() {
   es.addEventListener('game', (ev) => {
     let state; try { state = JSON.parse(ev.data); } catch { return; }
     if (!game || state.id !== game.id) return;
+    // A play reply settles the state itself; a push landing mid-flight
+    // must not touch it.
+    if (playInFlight) return;
+    // An echo of the state I already have — the deferred-optimal
+    // re-broadcast seconds after a play, or the re-sync on reconnect —
+    // carries nothing new and must not wipe tiles I have placed since.
+    // Only a state that actually changes the game is applied.
+    const sameBoard = JSON.stringify(state.board) === JSON.stringify(game.board);
+    const sameScores = state.scores.human === game.scores.human && state.scores.bot === game.scores.bot;
+    const sameTurn = state.clocks.turn === game.clocks.turn;
+    const sameStatus = state.status === game.status;
+    const sameRack = JSON.stringify(state.humanRack) === JSON.stringify(game.humanRack);
+    // The shared countdown is a change too: a check-in broadcast
+    // carries nothing else new (same board, scores, turn, rack), so
+    // without this the waiting player would never learn the countdown
+    // had started. A fresh remaining value is always a real change —
+    // the value only moves when the countdown is stamped or the game
+    // starts, never on a routine save.
+    const sameCountdown = (state.countdownRemainingMs ?? null) === (game.countdownRemainingMs ?? null);
+    const sameStarted = !!state.started === !!game.started;
+    if (sameBoard && sameScores && sameTurn && sameStatus && sameRack && sameCountdown && sameStarted) return;
     // This state is newer than any fetch sent: invalidate every
     // in-flight GET so a stale poll response can never overwrite it.
     gameAppliedSeq = gameFetchSeq;
-    game = state; gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
+    game = state; gameFetchAt = Date.now();
+    // Placed tiles only go back when the game is over or it is no longer
+    // my turn (a timeout flip, a pass). A move by the opponent flips the
+    // turn TO me, and my own play's echo leaves the turn with them — in
+    // neither case is anything placed to lose.
+    if (state.status !== 'active' || state.clocks.turn !== 'human') { pending = []; selectedRack = null; }
+    renderGame();
   });
   // No onerror handling: EventSource reconnects on its own, and the
   // 1s poll covers any gap while it does.
@@ -1567,13 +1674,23 @@ let shuffling = false;
 $('shuffleBtn').onclick = async () => {
   cleanupStuckDrag();
   if (!game || shuffling) return;
-  if (game.status === 'active') {
-    const hr = Math.max(0, game.clocks.turn === 'human' ? game.clocks.human - (Date.now() - gameFetchAt) : game.clocks.human);
-    if (hr <= 0) return;
+  // Works on the player's turn AND on the opponent's turn, and when
+  // out of time: the rack is the player's own rack, the shuffle
+  // endpoint does not require it to be your turn, and the greyed
+  // opponent-turn rack is opacity-only (not disabled).
+  // While a Play is in flight the rack has blank slots (played tiles,
+  // refilled by the reply), so a server shuffle would be rejected for
+  // not matching the server rack: shuffle only the letters still in
+  // the rack, locally, keeping the blanks where they are. The reply
+  // refills the rack and takes over from there.
+  if (optimisticPlay) {
+    const letters = game.humanRack.filter(l => l);
+    for (let i = letters.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [letters[i], letters[j]] = [letters[j], letters[i]]; }
+    let k = 0;
+    game.humanRack = game.humanRack.map(l => (l ? letters[k++] : null));
+    renderGame();
+    return;
   }
-  // Works on the player's turn AND on the opponent's turn: the rack is the
-  // player's own rack, the shuffle endpoint does not require it to be your
-  // turn, and the greyed opponent-turn rack is opacity-only (not disabled).
   const rack = [...game.humanRack];
   for (let i = rack.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rack[i], rack[j]] = [rack[j], rack[i]]; }
   const rackEl = $('rack');
@@ -1619,9 +1736,12 @@ $('shuffleBtn').onclick = async () => {
   shuffling = false;
 };
 function armButton(btn, label, fn, penalty) {
+  // The label may be a function (the Forfeit button reads "Exit" once
+  // your time expires), so resolve it at each use instead of at wiring.
+  const getLabel = () => (typeof label === 'function' ? label() : label);
   return async () => {
-    if (!armed[btn.id]) { armed[btn.id] = true; btn.classList.add('armed-red'); btn.innerHTML = 'SURE?<span class="penalty">' + penalty + '</span>'; setTimeout(() => { armed[btn.id] = false; btn.classList.remove('armed-red'); btn.textContent = label; }, 3000); return; }
-    armed[btn.id] = false; btn.classList.remove('armed-red'); btn.textContent = label; await fn();
+    if (!armed[btn.id]) { armed[btn.id] = true; btn.classList.add('armed-red'); btn.innerHTML = 'SURE?<span class="penalty">' + penalty + '</span>'; setTimeout(() => { armed[btn.id] = false; btn.classList.remove('armed-red'); btn.textContent = getLabel(); }, 3000); return; }
+    armed[btn.id] = false; btn.classList.remove('armed-red'); btn.textContent = getLabel(); await fn();
   };
 }
 $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => {
@@ -1633,7 +1753,20 @@ $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => {
   try { botTurnTapTime = tapAt; game = await api(`/api/games/${game.id}/pass`, { method: 'POST', body: JSON.stringify({ clientElapsedMs }) }); gameAppliedSeq = gameFetchSeq; gameFetchAt = tapAt; pending = []; renderGame(); animateHumanRunoff(fromHuman, game.clocks.human); beginBotTurn(); }
   catch { game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt; renderGame(); }
 }, '-30s');
-$('forfeitBtn').onclick = armButton($('forfeitBtn'), 'Forfeit', async () => { game = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' }); gameAppliedSeq = gameFetchSeq; gameFetchAt = Date.now(); pending = []; renderGame(); }, 'you lose');
+$('forfeitBtn').onclick = armButton($('forfeitBtn'), () => humanOutOfTime() ? 'Exit' : 'Forfeit', async () => {
+  const wasOutOfTime = humanOutOfTime();
+  game = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' }); gameAppliedSeq = gameFetchSeq; gameFetchAt = Date.now(); pending = [];
+  if (wasOutOfTime) {
+    // Exit: the loss and Elo move are recorded server-side, but there
+    // is no stat window — leave straight to the main menu. Marking the
+    // stats as shown for this game stops renderGame from popping the
+    // window on the finished game.
+    statShownGameId = game.id;
+    goHome();
+  } else {
+    renderGame();
+  }
+}, 'you lose');
 async function doPlay() {
   // Unstick first, and clear the drag's click-suppression flag: after a
   // drag, suppressNextClick stayed true until an empty cell was tapped,
@@ -1906,7 +2039,7 @@ async function showDefinition(r, c) {
   // whole popover feel delayed. No auto-hide any more: it stays until
   // the X or a tap elsewhere.
   const pop = $('defPopover');
-  pop.innerHTML = `<button class="def-close" aria-label="Close definition">×</button><div class="def-body">${words.map(w => `<div data-def-word="${w}">${w} — Loading…</div>`).join('')}</div>`;
+  pop.innerHTML = `<button class="def-close" aria-label="Close definition">×</button><div class="def-body">${words.map(w => `<div data-def-word="${w}">${w} — Loading…</div>`).join('')}</div><div class="def-credit">Definitions via Wiktionary (CC BY-SA)</div>`;
   pop.querySelector('.def-close').onclick = hideDefinition;
   pop.classList.remove('hidden');
   await Promise.all(words.map(async (w) => {
@@ -2423,7 +2556,7 @@ function wipeAccountScreens() {
   blankProfileUI();
   pendingRemove = null;
   friendsStale = true; friendsRenderedScope = null;
-  hideChallengeModal(); dismissedChallenges.clear();
+  hideChallengeModal();
   $('leaderboardList').innerHTML = '';
   $('friendRequests').innerHTML = '';
   $('challengeRequests').innerHTML = '';

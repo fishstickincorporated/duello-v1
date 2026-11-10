@@ -454,6 +454,23 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   workspace/goals/duello-1v1-word-game/hidden_files/duello-sse-client-test.js
   and duello-sse-server-test.js.
 
+## Rematch accept closes the old stat window v87 (Nov 9, 2026, cache v87)
+
+- After a game ended, @ceo challenged @neo to a rematch; @neo
+  accepted, but the countdown started over the last game's stat
+  window. The stat window is a top-level overlay, not part of any
+  screen, so show('gameScreen') left it up — and the countdown
+  overlay (z-index 15) sits above it (z-index 10), so the numbers
+  counted down over the old stats. The challenger's side was fine
+  (Play Again hides the window first); the recipient's Accept path
+  went straight to enterGameScreen, which never hid it.
+  enterGameScreen — the one shared entry for every game start —
+  now hides the stat window and lifts the board dim, so accepting
+  looks like the start of any game. Client vm test 7/7
+  (duello-v87-client-test.js: human rematch + bot Play Again).
+  Regressions all still passing (v85/v86 client, SSE client, SSE
+  echo, countdown server, v86 server, e2e playtest).
+
 ## Played word pulled back, rack refill in place, first-name challenge, forfeit average v86 (Nov 9, 2026, cache v86)
 
 - A played word appeared on both screens for a second, then was

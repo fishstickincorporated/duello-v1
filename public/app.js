@@ -830,6 +830,15 @@ function enterGameScreen() {
   game.clocks.human = 240000; game.clocks.bot = 240000;
   gameFetchAt = Date.now(); pending = []; selectedRack = null; armed = {};
   clearStatDelay(); statShownGameId = null;
+  // A rematch accepted from the stat window (or a challenge that
+  // arrived while it was open) must start clean: the stat window is
+  // a top-level overlay, not part of any screen, so show('gameScreen')
+  // leaves it up — and the countdown overlay (z-index 15) then
+  // counts down over the last game's stats (z-index 10). Hide it
+  // here, the one shared entry for every game start, and lift the
+  // board dim with it.
+  $('statWindow').classList.add('hidden');
+  $('gameDim').classList.remove('dimmed');
   // Set the countdown flag BEFORE the first render, so that render draws
   // the rack as empty slots (not full letters) from the very first frame.
   countdownActive = true;

@@ -454,6 +454,29 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   workspace/goals/duello-1v1-word-game/hidden_files/duello-sse-client-test.js
   and duello-sse-server-test.js.
 
+## Definition popover: no citation, tap-to-dismiss v89 (Nov 11, 2026, cache v89)
+
+- Citation: the popover no longer carries the "Definitions via
+  Wiktionary (CC BY-SA)" line. The Wiktionary-derived definitions
+  still need a credit under their licence, so the line moved to the
+  bottom of the profile edit (gear) screen, out of the way.
+- Tap behaviour (reverses the same-tap rule from the original
+  definition work): when the popover is open, the first tap
+  anywhere else — including on another played word — only hides
+  it. A second tap on a word opens that word's definition. The
+  tile's pointerdown now returns early while the popover is open
+  and sets `defJustOpened` when it opens one, so the document
+  pointerdown listener (which hides the popover on any outside
+  tap) skips the single event that just opened it instead of
+  hiding it at once. Taps on the rack / empty cells still hide
+  the popover and place/select as before.
+- Tests: client vm 8/8 (duello-v89-client-test.js: open on tap,
+  no citation in the popover, first tap on another word only
+  hides, second tap opens it, tap elsewhere hides, credit on the
+  settings screen). Regressions all still passing (v85/v86/v87/
+  v88 client, SSE client/server, SSE echo, countdown server, v86/
+  v88 server, e2e playtest 13/13).
+
 ## TestFlight API + safe-area v88 (Nov 11, 2026, cache v88)
 
 - The iOS shell serves the app from capacitor://localhost, so the

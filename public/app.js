@@ -1103,7 +1103,15 @@ function renderGame() {
       const t = document.createElement('div'); t.className = 'tile' + (pend ? ' pending' : '');
       t.innerHTML = tileSVG(letter);
       if (pend) enablePlacedDrag(t, pend);
-      else t.addEventListener('pointerdown', () => showDefinition(r, c));
+      else t.addEventListener('pointerdown', () => {
+        // If a definition is already open, this tap only dismisses it —
+        // it does not open this word's definition. The document
+        // pointerdown listener below hides the popover, and a second
+        // tap on the word opens its definition.
+        if (!$('defPopover').classList.contains('hidden')) return;
+        defJustOpened = true;
+        showDefinition(r, c);
+      });
       cell.appendChild(t);
     } else {
       cell.onclick = () => { if (suppressNextClick) { suppressNextClick = false; return; } if (selectedRack !== null) placeTile(r, c); };
@@ -2014,21 +2022,16 @@ $('statPlayAgain').onclick = playAgain;
 $('gameStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
 const defCache = new Map();
 function hideDefinition() { const pop = $('defPopover'); if (pop) pop.classList.add('hidden'); }
-// Tapping anywhere else returns to the normal board view. The listener
-// is on pointerdown (before click), so a tap on another board tile first
-// closes this popover and then that tile's click opens its own, and a
-// tap on a rack / empty cell closes it and still places / selects.
+// The first tap anywhere else only hides the definition — including a
+// tap on another played word. A second tap on a word opens that word's
+// definition. The tile's own pointerdown opens the definition in the
+// same tap, so it sets defJustOpened and this listener skips that one
+// event instead of hiding what was just opened.
+let defJustOpened = false;
 document.addEventListener('pointerdown', e => {
   const pop = $('defPopover');
   if (!pop || pop.classList.contains('hidden') || pop.contains(e.target)) return;
-  // A tap on a board word tile opens that word's definition in the same
-  // tap (its pointerdown handler runs first, on the way up to here), so
-  // do not hide the popover here — hiding it first was why the next tap
-  // only closed the window and never opened the new definition. Pending
-  // tiles are excluded: they drag/recall, they do not open definitions,
-  // so taps on them still close the window as before.
-  const tile = e.target.closest ? e.target.closest('#board .tile') : null;
-  if (tile && !tile.classList.contains('pending')) return;
+  if (defJustOpened) { defJustOpened = false; return; }
   hideDefinition();
 });
 async function showDefinition(r, c) {
@@ -2054,7 +2057,7 @@ async function showDefinition(r, c) {
   // whole popover feel delayed. No auto-hide any more: it stays until
   // the X or a tap elsewhere.
   const pop = $('defPopover');
-  pop.innerHTML = `<button class="def-close" aria-label="Close definition">×</button><div class="def-body">${words.map(w => `<div data-def-word="${w}">${w} — Loading…</div>`).join('')}</div><div class="def-credit">Definitions via Wiktionary (CC BY-SA)</div>`;
+  pop.innerHTML = `<button class="def-close" aria-label="Close definition">×</button><div class="def-body">${words.map(w => `<div data-def-word="${w}">${w} — Loading…</div>`).join('')}</div>`;
   pop.querySelector('.def-close').onclick = hideDefinition;
   pop.classList.remove('hidden');
   await Promise.all(words.map(async (w) => {

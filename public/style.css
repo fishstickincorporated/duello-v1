@@ -1,5 +1,5 @@
 *{box-sizing:border-box} body{margin:0;background:#1a1d24;color:#e8ecf1;font-family:"Comfortaa",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-.screen{max-width:390px;margin:0 auto;padding:28px 16px 40px;text-align:center}
+.screen{max-width:390px;margin:0 auto;padding:calc(28px + env(safe-area-inset-top)) 16px 40px;text-align:center}
 .hidden{display:none!important}
 .logo{font-size:56px;font-weight:900;letter-spacing:3px;color:#03eaff;line-height:1;margin:12px 0 4px}
 .logo.small-logo{font-size:36px}
@@ -137,12 +137,12 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .drag-ghost{position:fixed;width:92px;height:92px;border-radius:8px;overflow:hidden;background:linear-gradient(180deg,#7df3ff 0%,#03eaff 50%,#00b8d2 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.65),inset 0 -2px 0 rgba(0,90,110,.35);color:#1a1d24;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;z-index:30;pointer-events:none;transform:translate(-50%,-60%)}
 
 /* Bottom tabs: main menu only, no text under icons */
-.tab-bar{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:390px;display:flex;justify-content:space-around;align-items:center;background:#1a1d24;border-top:1px solid #2a2f3a;padding:10px 0 14px;z-index:40}
+.tab-bar{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:390px;display:flex;justify-content:space-around;align-items:center;background:#1a1d24;border-top:1px solid #2a2f3a;padding:10px 0 calc(14px + env(safe-area-inset-bottom));z-index:40}
 .tab-btn{background:none;border:0;cursor:pointer;padding:6px 18px;border-radius:12px}
 .tab-btn.active{background:#262a33;outline:2px solid #03eaff}
 .tab-btn svg,.tab-btn img{display:block;width:28px;height:28px}
 .tab-btn img{border-radius:50%;object-fit:cover}
-.screen{padding-bottom:90px}
+.screen{padding-bottom:calc(90px + env(safe-area-inset-bottom))}
 .hint{color:#b3b2b1;font-size:13px;margin:2px 0 8px;text-align:left}
 /* Friends tab: no logo, search with padding above */
 .search-wrap{display:flex;align-items:center;gap:8px;background:#262a33;border:1px solid #333;border-radius:12px;padding:4px 10px;margin-top:18px}

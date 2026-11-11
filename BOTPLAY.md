@@ -454,6 +454,36 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   workspace/goals/duello-1v1-word-game/hidden_files/duello-sse-client-test.js
   and duello-sse-server-test.js.
 
+## TestFlight API + safe-area v88 (Nov 11, 2026, cache v88)
+
+- The iOS shell serves the app from capacitor://localhost, so the
+  two web assumptions broke: relative /api/... resolves against
+  the local file, and the browser blocks the cross-origin API
+  calls without CORS headers. Fix, both sides:
+  (1) Client: a single `API_BASE` — 'https://duellogame.com'
+  when `window.Capacitor` is present, empty on the web — prefixes
+  every API call: the `api()` helper (all fetch calls), the
+  EventSource stream URL, and the /api/words fetch.
+  (2) Server: CORS headers (`Access-Control-Allow-Origin: *`,
+  Allow-Headers Authorization/Content-Type, Allow-Methods
+  GET/POST/OPTIONS) on every JSON response via sendJson, on the
+  SSE stream and the /api/words responses, plus an OPTIONS
+  preflight branch answering 204. Auth is a Bearer token (no
+  cookies), so the wildcard origin is safe. Web behaviour is
+  unchanged (same-origin requests ignore the headers).
+- Safe-area: `viewport-fit=cover` on the viewport meta, and the
+  insets wired in — screen top padding gains
+  env(safe-area-inset-top) (clears the notch/Dynamic Island), the
+  tab bar's bottom padding and the screen's bottom clearance gain
+  env(safe-area-inset-bottom) (clears the home indicator). On
+  desktop env() is 0, so the layout is byte-identical there.
+- Tests: server vm 8/8 (duello-v88-server-test.js: preflight,
+  ACAO on JSON/words/SSE, web unchanged), client vm 4/4 in both
+  modes (duello-v88-client-test.js: shell run uses absolute URLs,
+  web run stays relative). Regressions all still passing (v85/v86/
+  v87 client, SSE client/server, SSE echo, countdown server, v86
+  server, e2e playtest 13/13).
+
 ## Rematch accept closes the old stat window v87 (Nov 9, 2026, cache v87)
 
 - After a game ended, @ceo challenged @neo to a rematch; @neo

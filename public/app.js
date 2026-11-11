@@ -68,8 +68,14 @@ const fmtClock = ms => { ms = Math.max(0, Math.ceil(ms / 1000) * 1000); if (ms =
 // ahead of the real remaining time, and the bot runoff (parsed back
 // from that displayed text) started a second high, i.e. it jumped UP
 // before animating down 15s to the 20s mark. Floor matches the real time.
+// The iOS shell (TestFlight) serves the app from capacitor://localhost,
+// so a relative /api/... would resolve against the local file and fail.
+// In the shell, every API call (fetch and the EventSource stream) goes
+// to the live server instead. On the web the base is empty, so nothing
+// changes there. Capacitor exposes window.Capacitor in the shell.
+const API_BASE = (typeof window !== 'undefined' && window.Capacitor) ? 'https://duellogame.com' : '';
 async function api(path, opts = {}) {
-  const r = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
+  const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(j.error || 'Request failed'); if (j.invalidWords) e.invalidWords = j.invalidWords; throw e; }
   return j;
@@ -1298,7 +1304,7 @@ function openGameStream() {
   if (!game || game.botType !== 'human' || !token) return;
   if (gameStream && gameStreamGameId === game.id) return;
   closeGameStream();
-  const es = new EventSource(`/api/games/${game.id}/stream?token=${encodeURIComponent(token)}`);
+  const es = new EventSource(API_BASE + `/api/games/${game.id}/stream?token=${encodeURIComponent(token)}`);
   gameStream = es; gameStreamGameId = game.id;
   es.addEventListener('game', (ev) => {
     let state; try { state = JSON.parse(ev.data); } catch { return; }
@@ -1448,7 +1454,7 @@ let localWords = null, localWordsPromise = null;
 function ensureLocalWords() {
   if (localWords) return Promise.resolve(localWords);
   if (!localWordsPromise) {
-    localWordsPromise = fetch('/api/words').then(r => { if (!r.ok) throw new Error('words'); return r.text(); }).then(txt => {
+    localWordsPromise = fetch(API_BASE + '/api/words').then(r => { if (!r.ok) throw new Error('words'); return r.text(); }).then(txt => {
       const set = new Set();
       for (const line of txt.split('\n')) { const w = line.trim().toUpperCase(); if (w) set.add(w); }
       localWords = set; return set;

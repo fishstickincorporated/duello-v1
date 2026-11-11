@@ -1527,9 +1527,14 @@ async function getDefinition(word) {
 }
 
 // ---------- HTTP API ----------
+// CORS for the iOS shell: the TestFlight app is served from
+// capacitor://localhost, so its API calls are cross-origin and the
+// browser would block them without these headers. Auth is a Bearer
+// token (no cookies), so a wildcard origin is safe here.
+const CORS_HEADERS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 function sendJson(res, code, obj) {
   const body = JSON.stringify(obj);
-  res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+  res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), ...CORS_HEADERS });
   res.end(body);
 }
 function readBody(req) {
@@ -1571,6 +1576,12 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
     const pathname = url.pathname;
+    // CORS for the iOS shell: the TestFlight app is served from
+    // capacitor://localhost, so its API calls are cross-origin and the
+    // browser would block them without these headers. Auth is a Bearer
+    // token (no cookies), so a wildcard origin is safe here. The
+    // preflight (OPTIONS) answers with the same headers.
+    if (req.method === 'OPTIONS') { res.writeHead(204, CORS_HEADERS); return res.end(); }
     // Static files
     if (req.method === 'GET' && (pathname === '/' || pathname === '/privacy.html' || pathname.startsWith('/app.js') || pathname.startsWith('/style.css') || pathname.startsWith('/favicon') || pathname.startsWith('/assets/'))) {
       const file = pathname === '/' ? 'index.html' : pathname.slice(1);
@@ -1589,8 +1600,8 @@ const server = http.createServer(async (req, res) => {
       const wordsFile = path.join(DATA_DIR, 'words.txt');
       const st = fs.statSync(wordsFile);
       const etag = '"' + st.size + '-' + Math.floor(st.mtimeMs) + '"';
-      if (req.headers['if-none-match'] === etag) { res.writeHead(304); return res.end(); }
-      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600', 'ETag': etag });
+      if (req.headers['if-none-match'] === etag) { res.writeHead(304, { 'Access-Control-Allow-Origin': '*' }); return res.end(); }
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600', 'ETag': etag, 'Access-Control-Allow-Origin': '*' });
       return fs.createReadStream(wordsFile).pipe(res);
     }
     if (pathname === '/api/auth/request-code' && req.method === 'POST') {
@@ -2124,7 +2135,7 @@ const server = http.createServer(async (req, res) => {
         const game = await loadGameForUser(user, streamMatch[1]);
         if (!game) return sendJson(res, 404, { error: 'Game not found.' });
         if (game.botType !== 'human') return sendJson(res, 400, { error: 'Live updates are for real-player games.' });
-        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no', 'Access-Control-Allow-Origin': '*' });
         const sub = { res, user };
         if (!gameSubscribers.has(game.id)) gameSubscribers.set(game.id, new Set());
         gameSubscribers.get(game.id).add(sub);
@@ -2392,7 +2403,7 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.writeHead(404, { 'Content-Type': 'application/json', ...CORS_HEADERS });
     res.end(JSON.stringify({ error: 'Not found' }));
   } catch (e) {
     console.error(e);

@@ -454,6 +454,52 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   workspace/goals/duello-1v1-word-game/hidden_files/duello-sse-client-test.js
   and duello-sse-server-test.js.
 
+## Persona think + skill, definition popover position v90 (Nov 11, 2026, cache v90)
+
+- Diagnosis first: the think/skill correlation was NOT broken — the
+  solver sorts by score, so the best-common denominator was correct
+  as coded. What made personas feel bad was the pool: the extreme
+  common-word bias meant even a 1135 only ever played everyday
+  words, and a 33s think meant "near the best everyday word", not
+  "near the best play on the board". So a long think could produce a
+  move that looked weak.
+- Pool: everyday words plus the very best plays on the board — how
+  many of those best plays a persona can even consider grows with
+  Elo (none at 800, one more per ~75 Elo above 900, up to 5). A
+  low-Elo persona still only knows everyday words; a high-Elo one
+  finds the big plays too. The Elo reach applies to the combined
+  pool as before.
+- Think: now measured against the best play on the board, so a
+  33s think genuinely means a near-best play and a 7s think a
+  filler.
+- First move: a persona's first move of the game is quick — 5-11s,
+  averaging 8s — instead of a full 7-33s think.
+- Floor: a persona never moves in under 3 seconds, even at the
+  end. Both think functions floor at 3000ms (final move and the
+  clock-capped think), and advanceBotTurnIfReady gates the turn
+  itself (turn start recovered from botThinkUntil - botThinkMs,
+  since turnStartedAt drifts on every settleClock), so the poll
+  tolerance cannot play a short think early either. If the clock
+  cannot hold 3s, the move is skipped — the clock ran out.
+- Definition popover: it was `position:fixed; bottom:120px`, which
+  put it over the last board row on a phone (Jeff's screenshot:
+  the Y tile half-hidden behind it). showDefinition now anchors
+  its top 6px below the board's bottom edge (measured live), so
+  the board stays fully visible; it may cover the status line and
+  the top of the rack while open, and the next tap dismisses it.
+  hideDefinition clears the inline position.
+- Tests: server vm 13/13 (duello-v90-server-test.js: 800 plays
+  everyday words only, 1200 reaches the best plays, 1000 still
+  plays everyday words and sometimes finds the best, think 33s /
+  20s / 7s by move strength, 3s floor on a short clock and on the
+  final move, the turn gate blocks a move before 3s and lets it
+  play after, first move over HTTP 5-11s), client vm 6/6
+  (duello-v90-client-test.js: popover opens below the board, the
+  fixed offset is cleared, hide clears the position, v89 tap
+  rules still hold). Regressions all still passing (v85/v86/v87/
+  v88/v89 client, SSE client/server, SSE echo, countdown server,
+  v86/v88 server, e2e playtest 13/13).
+
 ## Definition popover: no citation, tap-to-dismiss v89 (Nov 11, 2026, cache v89)
 
 - Citation: the popover no longer carries the "Definitions via

@@ -2021,7 +2021,7 @@ $('playAgainBtn').onclick = playAgain;
 $('statPlayAgain').onclick = playAgain;
 $('gameStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
 const defCache = new Map();
-function hideDefinition() { const pop = $('defPopover'); if (pop) pop.classList.add('hidden'); }
+function hideDefinition() { const pop = $('defPopover'); if (pop) { pop.classList.add('hidden'); pop.style.top = ''; pop.style.bottom = ''; } }
 // The first tap anywhere else only hides the definition — including a
 // tap on another played word. A second tap on a word opens that word's
 // definition. The tile's own pointerdown opens the definition in the
@@ -2060,6 +2060,16 @@ async function showDefinition(r, c) {
   pop.innerHTML = `<button class="def-close" aria-label="Close definition">×</button><div class="def-body">${words.map(w => `<div data-def-word="${w}">${w} — Loading…</div>`).join('')}</div>`;
   pop.querySelector('.def-close').onclick = hideDefinition;
   pop.classList.remove('hidden');
+  // The popover must never cover a board tile: anchor its top just
+  // below the board instead of the fixed bottom offset, which put it
+  // over the last row on a phone. It may cover the status line and
+  // the top of the rack while it is open — the board stays fully
+  // visible, and the next tap dismisses it.
+  const boardEl = document.getElementById('board');
+  if (boardEl && boardEl.getBoundingClientRect) {
+    pop.style.bottom = 'auto';
+    pop.style.top = (boardEl.getBoundingClientRect().bottom + 6) + 'px';
+  }
   await Promise.all(words.map(async (w) => {
     try {
       let d = defCache.get(w);

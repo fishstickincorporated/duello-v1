@@ -454,6 +454,28 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   workspace/goals/duello-1v1-word-game/hidden_files/duello-sse-client-test.js
   and duello-sse-server-test.js.
 
+## Short one-sentence definitions v91 (Nov 11, 2026, cache v91)
+
+- The bundled definitions were already short (median 44 chars,
+  max 140, essentially one phrase each) — the long ones came from
+  the live lookups, which cover the 54,175 words with no bundled
+  definition and can return multi-sentence Wiktionary / dictionary
+  glosses. New `shortenDefinition` in getDefinition, the single
+  funnel for every served definition (bundled and live): keep only
+  the first sentence (the core sense), and cut a first sentence
+  that still runs long to its first complete clause under 140
+  chars (the longest bundled definition), otherwise to a word
+  boundary. Abbreviations (e.g., i.e.) never split a sentence, and
+  a gloss with no terminal punctuation is kept whole. The cached
+  live result is the shortened one.
+- Tests: server vm 10/10 (duello-v91-server-test.js: first
+  sentence only, clause cut, short phrase unchanged, e.g. does not
+  split, one sentence kept, word-boundary cut, empty stays empty,
+  a stubbed live lookup and the /api/define HTTP path both serve
+  the shortened gloss, a bundled word is unchanged). Regressions
+  all still passing (v86/v88/v90 server, SSE server, countdown
+  server, v85-v90 client, SSE client/echo, e2e playtest 13/13).
+
 ## Persona think + skill, definition popover position v90 (Nov 11, 2026, cache v90)
 
 - Diagnosis first: the think/skill correlation was NOT broken — the

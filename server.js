@@ -1517,10 +1517,34 @@ async function resolveLiveMorph(live, depth) {
     return await resolveLiveMorph(coreLive, depth + 1);
   } catch { return null; }
 }
+// Definitions stay short: one sentence only. A longer gloss is cut
+// to its first sentence (the core sense), and a first sentence that
+// still runs long is cut to its first complete clause under the cap
+// (140 chars — the longest bundled definition). Abbreviations
+// (e.g., i.e.) never end a sentence, and a gloss with no terminal
+// punctuation is already a single short phrase, so it is kept whole.
+const DEF_MAX_LEN = 140;
+function shortenDefinition(def) {
+  let d = String(def || '').trim();
+  if (!d) return d;
+  // First sentence: the first . ! ? followed by whitespace + a capital
+  // (or the end of the string). "e.g." / "i.e." / "etc." are followed
+  // by lowercase, so they never split.
+  const end = d.search(/[.!?](?=\s+[A-Z]|$)/);
+  if (end >= 0) d = d.slice(0, end + 1).trim();
+  if (d.length <= DEF_MAX_LEN) return d;
+  // Cut to the last clause boundary (semicolon, comma, dash) inside
+  // the cap; otherwise the last word boundary inside the cap.
+  const cut = d.slice(0, DEF_MAX_LEN);
+  const boundary = Math.max(cut.lastIndexOf(';'), cut.lastIndexOf(','), cut.lastIndexOf(' — '));
+  if (boundary > 40) return cut.slice(0, boundary).trim();
+  const space = cut.lastIndexOf(' ');
+  return (space > 40 ? cut.slice(0, space) : cut).trim();
+}
 async function getDefinition(word) {
   const w = String(word || '').toUpperCase();
   const bundled = bundledDefinition(w);
-  if (bundled) return bundled;
+  if (bundled) return { ...bundled, definition: shortenDefinition(bundled.definition) };
   if (DEF_CACHE.has(w)) return DEF_CACHE.get(w);
   // Live chain, in parallel so the total wait is the slower source, not
   // the sum: free dictionary API first if it lands, else Wiktionary.
@@ -1544,7 +1568,7 @@ async function getDefinition(word) {
     }
   }
   if (live) {
-    const out = { word: w, pos: live.pos || '', definition: live.definition };
+    const out = { word: w, pos: live.pos || '', definition: shortenDefinition(live.definition) };
     DEF_CACHE.set(w, out);
     return out;
   }

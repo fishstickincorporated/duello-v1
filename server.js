@@ -61,14 +61,30 @@ for (const line of fs.readFileSync(path.join(DATA_DIR, 'words.txt'), 'utf8').spl
   if (w) WORDS.add(w);
 }
 let DEFS = {};
+// Which file each bundled definition came from, so getDefinition can
+// tell a modern first-sense entry from a single-gloss pick that may
+// be a rare sense. Measured Nov 13, 2026: the base file is WordNet
+// (43,732 entries, 0 archaic markers); extras a-c are Webster's
+// 1913 (~18,400 entries, ~950 with [Obs.]/[Prov.] tags, ~2,000
+// numbered multi-sense glosses, ~700 starting "One who/He who");
+// extras d-g are the Wiktionary dump (~22,900 entries, modern
+// first senses). Later files override earlier ones, so the last
+// writer wins — exactly like DEFS itself.
+const DEFS_SRC = {};
+function loadDefsFile(file, src) {
+  try {
+    const chunk = JSON.parse(fs.readFileSync(path.join(DATA_DIR, file), 'utf8'));
+    for (const w of Object.keys(chunk)) { DEFS[w] = chunk[w]; DEFS_SRC[w] = src; }
+  } catch (e) { /* chunk absent, ignore */ }
+}
 try { DEFS = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'definitions.json'), 'utf8')); } catch (e) { DEFS = {}; }
+for (const w of Object.keys(DEFS)) DEFS_SRC[w] = 'wordnet';
 // Extra definitions (expanded dictionary + Webster) are split into small
 // chunk files because a single 5.8 MB definitions file cannot be pushed
 // through the GitHub MCP tool (413). Chunks override the base file, so
 // placeholder entries in the base file are replaced by real definitions.
-for (const extraFile of ['definitions-extra-a.json', 'definitions-extra-b.json', 'definitions-extra-c.json', 'definitions-extra-d.json', 'definitions-extra-e.json', 'definitions-extra-f.json', 'definitions-extra-g.json']) {
-  try { Object.assign(DEFS, JSON.parse(fs.readFileSync(path.join(DATA_DIR, extraFile), 'utf8'))); } catch (e) { /* chunk absent, ignore */ }
-}
+for (const extraFile of ['definitions-extra-a.json', 'definitions-extra-b.json', 'definitions-extra-c.json']) loadDefsFile(extraFile, 'webster');
+for (const extraFile of ['definitions-extra-d.json', 'definitions-extra-e.json', 'definitions-extra-f.json', 'definitions-extra-g.json']) loadDefsFile(extraFile, 'wiktionary');
 const LETTER_VALUES = { A:1,B:4,C:4,D:3,E:1,F:5,G:3,H:4,I:1,J:9,K:6,L:2,M:4,N:2,O:1,P:4,Q:10,R:1,S:1,T:1,U:2,V:6,W:5,X:8,Y:5,Z:9 };
 const VOWELS = new Set(['A','E','I','O','U']);
 const FREQ = [['A',8.59],['B',2.46],['C',2.39],['D',4.31],['E',9.43],['F',2.16],['G',3.00],['H',2.39],['I',6.26],['J',1.46],['K',1.77],['L',4.51],['M',2.68],['N',5.62],['O',6.43],['P',2.70],['Q',1.38],['R',6.44],['S',6.12],['T',6.17],['U',4.41],['V',1.94],['W',2.20],['X',1.51],['Y',2.20],['Z',1.48]];
@@ -1431,8 +1447,9 @@ function resolvedBundledDef(word, seen) {
   if (seen && seen.has(w)) return null;
   const entry = DEFS[w];
   if (!isRealDef(entry)) return null;
+  const src = DEFS_SRC[w] || 'wordnet';
   const core = coreWordFromDef(entry.def);
-  if (!core || core === w) return { pos: entry.pos || '', definition: entry.def };
+  if (!core || core === w) return { pos: entry.pos || '', definition: entry.def, src };
   // Webster "form of X — <X's definition>": the core definition is
   // already embedded after the dash, so use it even if X is not a
   // separate bundled entry.
@@ -1440,20 +1457,20 @@ function resolvedBundledDef(word, seen) {
   const nextSeen = new Set(seen || []); nextSeen.add(w);
   const coreResolved = resolvedBundledDef(core, nextSeen);
   if (coreResolved) return coreResolved;
-  if (dash >= 0) return { pos: entry.pos || '', definition: entry.def.slice(dash + 3) };
+  if (dash >= 0) return { pos: entry.pos || '', definition: entry.def.slice(dash + 3), src };
   return null;
 }
 function bundledDefinition(word) {
   const w = String(word || '').toUpperCase();
   const direct = resolvedBundledDef(w, null);
-  if (direct) return { word: w, pos: direct.pos || JEFF2_POS[w] || '', definition: direct.definition };
+  if (direct) return { word: w, pos: direct.pos || JEFF2_POS[w] || '', definition: direct.definition, src: direct.src };
   // Stem to a base word and return its core definition directly,
   // with no "form of" prefix.
   const cands = [...stemCandidates(w)];
   for (const c of [...cands]) for (const c2 of stemCandidates(c)) if (!cands.includes(c2)) cands.push(c2);
   for (const base of cands) {
     const resolved = resolvedBundledDef(base, null);
-    if (resolved) return { word: w, pos: resolved.pos || '', definition: resolved.definition };
+    if (resolved) return { word: w, pos: resolved.pos || '', definition: resolved.definition, src: resolved.src };
   }
   return null;
 }
@@ -1477,9 +1494,26 @@ async function fetchDictApi(wordLower) {
     const r = await fetchWithTimeout('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(wordLower), 1500);
     if (!r || !r.ok) return null;
     const arr = await r.json();
-    const meaning = Array.isArray(arr) && arr[0] && arr[0].meanings && arr[0].meanings[0];
-    const def = meaning && meaning.definitions && meaning.definitions[0] && meaning.definitions[0].definition;
-    return def ? { pos: meaning.partOfSpeech || '', definition: def } : null;
+    const meanings = Array.isArray(arr) && arr[0] && arr[0].meanings;
+    if (!meanings) return null;
+    // Meanings come back most-common first, but the first meaning's
+    // first gloss can be circular ("To run." for RUN) or a chopped
+    // long sentence, so scan for the first gloss that is a real,
+    // whole definition. Fall back to the first gloss seen, so a word
+    // whose only gloss is morphological still resolves through
+    // resolveLiveMorph below.
+    let first = null;
+    for (const meaning of meanings) {
+      const defs = (meaning && meaning.definitions) || [];
+      for (const d of defs) {
+        if (!d || !d.definition) continue;
+        if (!first) first = { pos: meaning.partOfSpeech || '', definition: d.definition };
+        if (!isMorphologicalDef(d.definition) && !isCircularDef(d.definition, wordLower) && !isCutDef(d.definition)) {
+          return { pos: meaning.partOfSpeech || '', definition: d.definition };
+        }
+      }
+    }
+    return first;
   } catch { return null; }
 }
 async function fetchWiktionary(wordLower) {
@@ -1491,12 +1525,55 @@ async function fetchWiktionary(wordLower) {
     const data = await r.json();
     const entries = (data && data.en) || [];
     for (const e of entries) {
-      const d = e.definitions && e.definitions[0] && e.definitions[0].definition;
-      const clean = stripHtml(d);
-      if (clean) return { pos: e.partOfSpeech || '', definition: clean };
+      const defs = (e.definitions || []).map(x => x && x.definition).filter(Boolean).map(stripHtml).filter(Boolean);
+      // First gloss that fits whole and says something real; else the
+      // entry's first gloss (morphological ones still resolve).
+      for (const clean of defs) {
+        if (!isMorphologicalDef(clean) && !isCircularDef(clean, wordLower) && !isCutDef(clean)) return { pos: e.partOfSpeech || '', definition: clean };
+      }
+      if (defs[0]) return { pos: e.partOfSpeech || '', definition: defs[0] };
     }
     return null;
   } catch { return null; }
+}
+// A definition that only restates the word ("To run." for RUN) is no
+// definition at all: strip stopwords and the headword itself (with
+// its usual inflections), and call it circular when nothing is left.
+const DEF_STOPWORDS = new Set(['to', 'a', 'an', 'the', 'of', 'and', 'or', 'in', 'on', 'for', 'with', 'by', 'as', 'at', 'be', 'is', 'are', 'was', 'were', 'it', 'its', 'this', 'that', 'one']);
+function stemToken(t) {
+  let s = String(t || '').toLowerCase();
+  for (const suf of ['ing', 'ed', 'es', 's']) if (s.length > suf.length + 1 && s.endsWith(suf)) { s = s.slice(0, -suf.length); break; }
+  // Doubled consonant from -ing/-ed: running -> runn -> run.
+  if (s.length >= 3 && s[s.length - 1] === s[s.length - 2]) s = s.slice(0, -1);
+  return s;
+}
+function isCircularDef(def, wordLower) {
+  const toks = String(def || '').toLowerCase().match(/[a-z]+/g) || [];
+  const rest = toks.filter(t => !DEF_STOPWORDS.has(t) && stemToken(t) !== stemToken(wordLower));
+  return rest.length === 0;
+}
+// True when shortenDefinition would chop the gloss (first sentence
+// over 140 chars): the live chain prefers a whole sense over one.
+function isCutDef(def) { return shortenDefinition(def).endsWith('…'); }
+// Both live sources are fetched in parallel; when both land, a whole
+// (uncut) sense beats a chopped one, else dictionaryapi.dev wins.
+function pickLiveCandidate(a, b) {
+  if (a && b && isCutDef(a.definition) && !isCutDef(b.definition)) return b;
+  return a || b;
+}
+async function fetchLiveRaw(wordLower) {
+  // dictionaryapi.dev is the preferred source: if it lands a whole
+  // definition, use it at once instead of waiting on Wiktionary.
+  // Only when its best sense is chopped (or it misses) is the
+  // Wiktionary result awaited, so a whole sense there can win.
+  const bP = fetchWiktionary(wordLower);
+  bP.catch(() => {});
+  let a = null;
+  try { a = await fetchDictApi(wordLower); } catch {}
+  if (a && !isCutDef(a.definition)) return a;
+  let b = null;
+  try { b = await bP; } catch {}
+  return pickLiveCandidate(a, b);
 }
 // Resolve a live definition that is only a morphological reference
 // ("plural of aal", "past tense of ...") to the core word's own
@@ -1509,13 +1586,16 @@ async function resolveLiveMorph(live, depth) {
   const core = coreWordFromDef(live.definition);
   if (!core) return null;
   const bundledCore = bundledDefinition(core);
-  if (bundledCore) return { pos: bundledCore.pos || '', definition: bundledCore.definition };
+  // A Wiktionary-bundled core is a modern first sense: use it at
+  // once. A WordNet/Webster's core may be a rare sense, so try the
+  // live core first and keep the bundled one only as a fallback.
+  if (bundledCore && bundledCore.src === 'wiktionary') return { pos: bundledCore.pos || '', definition: bundledCore.definition };
   try {
-    const [a, b] = await Promise.all([fetchDictApi(core.toLowerCase()), fetchWiktionary(core.toLowerCase())]);
-    const coreLive = a || b;
-    if (!coreLive) return null;
-    return await resolveLiveMorph(coreLive, depth + 1);
-  } catch { return null; }
+    const coreLive = await fetchLiveRaw(core.toLowerCase());
+    if (coreLive) return await resolveLiveMorph(coreLive, depth + 1);
+  } catch {}
+  if (bundledCore) return { pos: bundledCore.pos || '', definition: bundledCore.definition };
+  return null;
 }
 // Definitions stay short: one sentence only. A longer gloss is cut
 // to its first sentence (the core sense), and a first sentence that
@@ -1537,25 +1617,35 @@ function shortenDefinition(def) {
   // the cap; otherwise the last word boundary inside the cap.
   const cut = d.slice(0, DEF_MAX_LEN);
   const boundary = Math.max(cut.lastIndexOf(';'), cut.lastIndexOf(','), cut.lastIndexOf(' — '));
-  if (boundary > 40) return cut.slice(0, boundary).trim();
-  const space = cut.lastIndexOf(' ');
-  return (space > 40 ? cut.slice(0, space) : cut).trim();
+  let out;
+  if (boundary > 40) out = cut.slice(0, boundary).trim();
+  else { const space = cut.lastIndexOf(' '); out = (space > 40 ? cut.slice(0, space) : cut).trim(); }
+  // A cut is marked, so it reads as shortened on purpose instead of
+  // breaking off mid-thought. The ellipsis counts inside the cap.
+  if (out.length >= DEF_MAX_LEN) out = out.slice(0, DEF_MAX_LEN - 1).trim();
+  return out + '…';
 }
 async function getDefinition(word) {
   const w = String(word || '').toUpperCase();
   const bundled = bundledDefinition(w);
-  if (bundled) return { ...bundled, definition: shortenDefinition(bundled.definition) };
+  // A Wiktionary-bundled entry is a modern first sense: serve it at
+  // once, with no network. A WordNet or Webster's 1913 entry holds a
+  // single gloss that is often a rare sense (RUN: the baseball score;
+  // CRANE: the writer Stephen Crane), so the live chain — modern
+  // dictionaries, most-common first — gets the first try, and the
+  // bundled gloss is the fallback when the network has nothing
+  // better. The src marker stays server-side: the response is still
+  // just {word, pos, definition}.
+  if (bundled && bundled.src === 'wiktionary') return { word: w, pos: bundled.pos || '', definition: shortenDefinition(bundled.definition) };
   if (DEF_CACHE.has(w)) return DEF_CACHE.get(w);
-  // Live chain, in parallel so the total wait is the slower source, not
-  // the sum: free dictionary API first if it lands, else Wiktionary.
-  // Only the queried game word is sent, to either source.
-  const lower = w.toLowerCase();
-  let live = null;
-  try {
-    const [a, b] = await Promise.all([fetchDictApi(lower), fetchWiktionary(lower)]);
-    live = a || b;
-  } catch {}
+  let live = await fetchLiveRaw(w.toLowerCase());
   if (live) live = await resolveLiveMorph(live, 0);
+  if (live) {
+    const out = { word: w, pos: live.pos || '', definition: shortenDefinition(live.definition) };
+    DEF_CACHE.set(w, out);
+    return out;
+  }
+  if (bundled) return { word: w, pos: bundled.pos || '', definition: shortenDefinition(bundled.definition) };
   // Stemmed forms through Wiktionary: plurals / inflections that are
   // not themselves Wiktionary headwords (e.g. ABOILS -> ABOIL).
   // Return the core definition directly, with no "form of" prefix.

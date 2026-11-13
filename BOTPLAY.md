@@ -454,6 +454,92 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   workspace/goals/duello-1v1-word-game/hidden_files/duello-sse-client-test.js
   and duello-sse-server-test.js.
 
+## Game screen safe area + common-sense definitions + pfp fallback + background tab preload v93 (Nov 13, 2026, cache v93)
+
+- Game screen clears the Dynamic Island and pins the rack to the
+  bottom: the old `#gameScreen{padding:4px 10px 12px}` overrode
+  `.screen`'s safe-area padding, so the logo slid under the island,
+  and the screen was only as tall as its content, leaving a dead gap
+  below the buttons. The screen is a full-height flex column now
+  (`min-height:100vh/100dvh/100svh`, svh last so the height stays
+  stable when Safari's toolbar hides), top padding
+  `calc(4px + env(safe-area-inset-top))`, bottom padding
+  `calc(12px + env(safe-area-inset-bottom))`, `#gameDim` flexes to
+  fill, and `#rack` has `margin-top:auto`. Board, scoreboard, and
+  controls are otherwise unchanged; the stat window, definition
+  popover, and drag ghost are `position:fixed` so the column only
+  lays out the game itself.
+- Definitions default to the most common sense. Measured Nov 13:
+  the bundled set mixes three sources — WordNet base file (43,256
+  entries), Webster's 1913 extras a-c (18,396, ~950 with [Obs.]/
+  [Prov.] tags), Wiktionary-dump extras d-g (22,925, modern first
+  senses) — and a bundled entry holds a single gloss that is often
+  a rare sense (RUN: the baseball score; CRANE: the writer Stephen
+  Crane). `DEFS_SRC` now records each entry's source at load.
+  A Wiktionary-bundled entry is still served instantly with no
+  network; for a WordNet/Webster's entry the live chain gets the
+  first try (dictionaryapi.dev, then Wiktionary REST, both
+  most-common first) and the bundled gloss is the fallback when the
+  network has nothing better. The live fetchers now scan all
+  meanings/senses for the first gloss that is real, whole, and not
+  circular ("To run." is skipped as a restatement of the word),
+  and when both live sources land, a whole sense beats a chopped
+  one. Morphological live forms resolve to the core's live sense
+  first (RUNS -> the running sense). The response is still just
+  {word, pos, definition} — the source marker stays server-side.
+  First tap on a WordNet/Webster's word now waits on one live
+  round-trip (usually ~100-400ms, cached after); Wiktionary-bundled
+  words stay instant.
+- Cut-off definitions are fixed two ways, keeping the one-sentence
+  ≤140-char rule: when several senses are available the fetchers
+  prefer one that fits whole over chopping a long one, and when a
+  cut is unavoidable `shortenDefinition` ends the result with an
+  ellipsis (…) inside the cap, so it reads as shortened on purpose
+  instead of breaking off mid-thought.
+- Opponent pfp no longer becomes a "?": persona photos are remote
+  URLs, and when one fails to load Safari paints its broken-image
+  glyph inside the circle. A single capture-phase error listener
+  (img errors do not bubble) now swaps any failed photo inside a
+  `.pfp` / `.lb-pfp` / `.person-pfp` for the inline silhouette,
+  which cannot fail or loop, and adds the `no-photo` ring. The logo
+  and other images are untouched. `.person-pfp svg` and
+  `.pfp.huge svg` sizing rules were added so the fallback fills
+  those circles too. The static scoreboard placeholders are emoji
+  (👤/🤖), never "?".
+- Profile + Leaderboard preload in the background from Home: the
+  first Home render idle-schedules `renderProfileUI`,
+  `ensureGlobalRows`, and `loadServerFriends` (sequential, so the
+  friends load's internal Global-rows fetch cannot double-fetch),
+  so both tabs are instant when tapped. The v74 load-once guards
+  still hold — a later tap never refetches. A session check runs
+  first, so a dead token can never bounce the user to sign-in from
+  a background load, and any preload failure is silent (the tab
+  just loads normally on tap). Nothing preloads before sign-in.
+  `renderProfileUI` accepts the pre-check's `/api/me` payload so
+  the profile is not fetched twice at boot.
+- Tests: server vm 31/31 (duello-v93-server-test.js: source map
+  counts, RUN returns the movement sense with the circular gloss
+  skipped and no src marker in the response, Wiktionary-bundled
+  BRO costs zero fetches, live beats the WordNet gloss, Webster's
+  and stemmed WordNet fallbacks still serve, RUNS resolves to the
+  running sense, the fallback still works, a long first sense
+  gives way to a short whole one, an unavoidable cut ends with …
+  inside the cap, shortenDefinition unit cases incl. the 140-char
+  boundary, and /api/define serves the fixed RUN sense over HTTP).
+  Client vm 33/33 (duello-v93-client-test.js: cache bump, game
+  screen safe-area + full-height column + rack pinned, fallback
+  silhouette sizing, Home shows, preload idle then exactly one
+  load each for profile/rank/leaderboard/friends, both tab taps
+  refetch nothing, failed pfp photo swaps to the silhouette with
+  the ring while a non-photo image is untouched, static
+  placeholders are emoji, and no preload before sign-in).
+  Regressions still passing (v91 server 10/10 — its S6 updated
+  for the deliberate ellipsis change and its sandbox given the
+  AbortController the vm context lacks, so S8 now genuinely
+  exercises the live path instead of passing vacuously on the
+  fallback; v92 client 16/16 with its cache assertion moved to
+  v93; v89/v90 client).
+
 ## Profile photo crop v92 (Nov 13, 2026, cache v92)
 
 - Picking a photo on the Edit profile screen now opens a crop step

@@ -98,14 +98,60 @@ function show(id) {
   if ((id === 'homeScreen' || id === 'botScreen') && $('tabHome')) $('tabHome').classList.add('active');
   if (id === 'friendsScreen' && $('tabFriends')) $('tabFriends').classList.add('active');
   if ((id === 'profileScreen' || id === 'profileEditScreen') && $('tabProfile')) $('tabProfile').classList.add('active');
+  // First Home render warms the Profile + Leaderboard caches (below).
+  if (id === 'homeScreen') preloadHomeTabs();
 }
 function silhouetteSVG(size) { return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#b3b2b1"/></svg>`; }
 function pfpHTML(userLike) {
   if (userLike && userLike.photoData) return `<img src="${userLike.photoData}" alt="">`;
   return silhouetteSVG(36);
 }
+// A persona photo is a remote URL (randomuser.me / picsum): when it
+// fails to load, Safari paints its broken-image "?" inside the
+// circle instead of the silhouette. Any failed photo is swapped for
+// the inline silhouette, which cannot fail and cannot loop. Capture
+// phase: <img> errors do not bubble. Only photos are touched — the
+// logo and other images are left alone.
+document.addEventListener('error', (e) => {
+  const t = e.target;
+  if (!t || t.tagName !== 'IMG' || !t.closest) return;
+  const host = t.closest('.pfp, .lb-pfp, .person-pfp');
+  if (!host) return;
+  host.classList.add('no-photo');
+  t.outerHTML = silhouetteSVG(32);
+}, true);
 function goTab(id) { show(id); }
 $('tabHome').onclick = () => show('homeScreen');
+
+// Profile + Leaderboard load in the background once Home first
+// renders, so both tabs are instant when tapped. Idle-scheduled so
+// Home stays responsive; the v74 load-once guards (profileData,
+// globalRows, serverFriends) still hold, so a later tap never
+// refetches — the preload only fills the same caches the tab taps
+// fill. Silent on failure: a failed preload leaves the caches empty
+// and the tab loads normally on tap. Never fires before the session
+// is ready (no token / no user yet): the flag is set when the
+// preload is scheduled, so a second Home render inside the idle
+// window cannot schedule it twice. A session check runs first,
+// because a rejected session inside renderProfileUI would bounce
+// the user to sign-in from a background load.
+let homeTabsPreloaded = false;
+function preloadHomeTabs() {
+  if (homeTabsPreloaded || !token || !me) return;
+  homeTabsPreloaded = true;
+  // Sequential on purpose: loadServerFriends pulls the Global rows
+  // in first, so a parallel ensureGlobalRows would see the cache
+  // still empty and fetch /api/leaderboard twice.
+  const run = async () => {
+    let d = null;
+    try { d = await api('/api/me'); } catch { return; }
+    try { await renderProfileUI(d); } catch {}
+    try { await ensureGlobalRows(); } catch {}
+    try { await loadServerFriends(); } catch {}
+  };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(() => { run(); }, { timeout: 2000 });
+  else setTimeout(() => { run(); }, 500);
+}
 
 // ---------- Friends tab ----------
 // The Global scope is real registered users, top by Elo, from GET
@@ -2379,12 +2425,15 @@ function blankProfileUI() {
   $('statsList').innerHTML = '';
   const chartCv = $('eloChart'); if (chartCv) chartCv.getContext('2d').clearRect(0, 0, chartCv.width, chartCv.height);
 }
-async function renderProfileUI() {
+async function renderProfileUI(prefetched) {
   // Sign-in is required: no token, or a rejected session, goes to auth.
   if (!token) { setAuthMode('signin'); show('authScreen'); return; }
   blankProfileUI();
-  let d;
-  try { d = await api('/api/me'); }
+  // The background preload (preloadHomeTabs) passes the /api/me
+  // payload it already fetched for the session check, so the profile
+  // is not fetched twice at boot.
+  let d = prefetched || null;
+  try { if (!d) d = await api('/api/me'); }
   catch (err) {
     if (err && err.message === 'Not signed in.') { token = ''; storeDel('duello_token'); me = null; profileData = null; setAuthMode('signin'); show('authScreen'); }
     return;

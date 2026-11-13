@@ -122,6 +122,7 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .person-close{position:absolute;top:6px;right:10px;background:none;border:0;color:#e8ecf1;font-size:24px;line-height:1;cursor:pointer;padding:4px}
 .person-pfp{display:inline-flex;width:64px;height:64px;border-radius:50%;overflow:hidden;background:#3a3f4b;align-items:center;justify-content:center}
 .person-pfp img{width:64px;height:64px;border-radius:50%;object-fit:cover}
+.person-pfp svg{width:64px;height:64px;display:block}
 .person-pfp.no-photo{border:2px solid #03eaff}
 .person-name{font-size:18px;font-weight:800;margin-top:10px}
 .person-user{color:#b3b2b1;font-size:14px;margin-top:2px}
@@ -228,6 +229,7 @@ same 52px column, right-aligned, on every row including your own
 .profile-top{padding-top:28px;display:flex;flex-direction:column;align-items:center;gap:4px}
 .pfp.huge{width:84px;height:84px;border-radius:50%;background:#262a33;display:flex;align-items:center;justify-content:center;font-size:44px;overflow:hidden}
 .pfp.huge img{width:100%;height:100%;object-fit:cover}
+.pfp.huge svg{width:84px;height:84px;display:block}
 .profile-name{font-size:22px;font-weight:900;margin-top:4px}
 .profile-username{color:#b3b2b1}
 .profile-joined{color:#b3b2b1;font-size:14px;margin-top:4px}
@@ -290,7 +292,17 @@ same 52px column, right-aligned, on every row including your own
    (stat window, definition popover, drag ghost) are position:fixed
    and already phone-width, so the cap only affects the board, rack,
    controls and scoreboard. */
-#gameScreen{padding:4px 10px 12px}
+/* The old padding (4px 10px 12px) overrode .screen's safe-area
+   padding, so the logo slid under the Dynamic Island, and the screen
+   was only as tall as its content, leaving a dead gap below the
+   buttons. The screen is a full-height column now: the safe area
+   clears the island at the top and the home indicator at the bottom,
+   and the rack sits at the bottom of the screen (margin-top:auto on
+   #rack). svh last so the height stays stable when Safari's toolbar
+   hides; dvh/vh are the fallbacks. */
+#gameScreen{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
+#gameScreen #gameDim{flex:1;display:flex;flex-direction:column}
+#gameScreen #rack{margin-top:auto}
 #gameScreen .board,#gameScreen .rack,#gameScreen .controls,#gameScreen #endButtons{width:100%}
 
 html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}

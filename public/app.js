@@ -1088,7 +1088,7 @@ function renderGame() {
   $('botName').textContent = isFish ? 'Fishstick' : isPersonaGame ? (game.persona?.firstName || 'Player') : isHumanGame ? (game.opponent?.firstName || 'Player') : 'Bot';
   $('botElo').textContent = isFish ? '∞' : game.botElo;
   $('botElo').classList.toggle('inf', isFish);
-  if (isFish) $('botPfp').innerHTML = '<img src="/assets/fishstick.jpeg?v=2" alt="Fishstick">';
+  if (isFish) $('botPfp').innerHTML = '<img src="/assets/fishstick.png?v=1" alt="Fishstick">';
   else if (isPersonaGame && game.persona?.photoData) $('botPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
   else if (isHumanGame && game.opponent?.photoData) $('botPfp').innerHTML = `<img src="${game.opponent.photoData}" alt="">`;
   // A persona with no photo is a person without a photo, not a bot:
@@ -1987,10 +1987,10 @@ function showStatWindow(stats) {
   // A persona with no photo gets the silhouette in the stat box and
   // the top pfp too (same reasoning as the scoreboard: a person
   // without a photo, not Competitive Bot).
-  const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.jpeg?v=2" alt="Fishstick">' : isPersonaGame && game.persona?.photoData ? `<img src="${game.persona.photoData}" alt="">` : isHumanGame && game.opponent?.photoData ? `<img src="${game.opponent.photoData}" alt="">` : isPersonaGame || isHumanGame ? silhouetteSVG(36) : '🤖';
+  const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.png?v=1" alt="Fishstick">' : isPersonaGame && game.persona?.photoData ? `<img src="${game.persona.photoData}" alt="">` : isHumanGame && game.opponent?.photoData ? `<img src="${game.opponent.photoData}" alt="">` : isPersonaGame || isHumanGame ? silhouetteSVG(36) : '🤖';
   const botNoPhoto = (isPersonaGame && !game.persona?.photoData) || (isHumanGame && !game.opponent?.photoData);
   $('statGrid').innerHTML = box(humanLabel, humanPfp, stats.human, !(me && me.photoData)) + box(botLabel, botPfpBox, stats.bot, botNoPhoto);
-  if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.jpeg?v=2" alt="Fishstick">';
+  if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.png?v=1" alt="Fishstick">';
   else if (isPersonaGame && game.persona?.photoData) $('statBotPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
   else if (isHumanGame && game.opponent?.photoData) $('statBotPfp').innerHTML = `<img src="${game.opponent.photoData}" alt="">`;
   else if (isPersonaGame) $('statBotPfp').innerHTML = silhouetteSVG(44);

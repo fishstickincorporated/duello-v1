@@ -454,6 +454,24 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   workspace/goals/duello-1v1-word-game/hidden_files/duello-sse-client-test.js
   and duello-sse-server-test.js.
 
+## Profile photo crop v92 (Nov 13, 2026, cache v92)
+
+- Picking a photo on the Edit profile screen now opens a crop step
+  instead of saving the photo as-is: a circular viewport (what you
+  frame is what every pfp shows — they all display round), drag to
+  move, a slider to zoom 1x–3x, Cancel or Use photo. The old
+  shrink-only path (`shrinkPhoto`) is gone; the crop output is a
+  512x512 JPEG under the same 750KB cap, with the same "too large"
+  last-resort error. Cancel keeps the previous photo, and the file
+  input is cleared so picking the same file again still opens the
+  cropper.
+- Tests: client vm 16/16 (duello-v92-client-test.js: modal markup +
+  cache bump, base scale, clamp bounds, cropper opens on pick,
+  drag delta with vertical clamp, zoom scaling, Use photo draws
+  the framed square to 512x512 with the right source rect, preview
+  + remove button, reopen + Cancel keeps the old photo).
+  Regressions still passing (v89/v90 client).
+
 ## Short one-sentence definitions v91 (Nov 11, 2026, cache v91)
 
 - The bundled definitions were already short (median 44 chars,

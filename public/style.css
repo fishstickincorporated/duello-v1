@@ -125,6 +125,17 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .person-pfp.no-photo{border:2px solid #03eaff}
 .person-name{font-size:18px;font-weight:800;margin-top:10px}
 .person-user{color:#b3b2b1;font-size:14px;margin-top:2px}
+/* Photo crop (v92): the viewport is a circle, like every pfp — what
+   you frame is what you get. The image is absolutely positioned and
+   moved with a transform, so dragging never scrolls the page. */
+.crop-card{max-width:340px}
+.crop-title{font-size:18px;font-weight:800;margin-bottom:14px}
+.crop-viewport{position:relative;width:280px;height:280px;margin:0 auto;border-radius:50%;overflow:hidden;background:#11131a;touch-action:none;cursor:grab}
+.crop-viewport:active{cursor:grabbing}
+.crop-viewport img{position:absolute;left:50%;top:50%;max:none;pointer-events:none}
+.crop-viewport::after{content:'';position:absolute;inset:0;border-radius:50%;border:2px solid #03eaff;pointer-events:none}
+#cropZoom{width:280px;margin:16px auto 0;display:block;accent-color:#03eaff}
+.crop-hint{color:#b3b2b1;font-size:13px;margin-top:8px}
 .person-elo{color:#b3b2b1;font-size:14px;margin:12px 0 2px}
 .person-elo span{font-family:Arial,Helvetica,sans-serif;font-weight:800;color:#03eaff}
 .person-rank{color:#b3b2b1;font-size:14px;margin:0 0 12px}

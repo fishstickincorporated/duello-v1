@@ -2457,35 +2457,87 @@ $('gearBtn').onclick = async () => {
 };
 let editPhotoData;
 $('editPfpWrap').onclick = () => $('editPhotoInput').click();
-// Normal phone photos are several MB, far over the 750KB photo cap
-// as a raw data URL — so shrink the photo on the device first.
-// Pfps display at 36-64px, so 512px on the longest side is plenty;
-// JPEG at 0.82 lands well under the cap. Step down only if a very
-// wide/tall shot still doesn't fit; the "too large" error is now
-// a last resort, not the normal outcome.
-function shrinkPhoto(img, maxSide, quality) {
-  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-  const w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
-  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-  cv.getContext('2d').drawImage(img, 0, 0, w, h);
-  return cv.toDataURL('image/jpeg', quality);
+// Photo crop (v92): after picking a photo, the user frames it in a
+// circular viewport — drag to move, slider to zoom — before it is
+// saved. Pfps display round everywhere, so the crop preview is what
+// you get. Output is a 512x512 JPEG under the 750KB cap.
+const CROP_SIZE = 280; // viewport px, matches .crop-viewport in CSS
+let cropState = null; // {img, base, zoom, x, y}
+function cropBaseScale(img) { return CROP_SIZE / Math.min(img.width, img.height); }
+function cropClamp(s) {
+  // Keep the image covering the square: the offset range is half the
+  // overflow on each axis (0 when the image exactly fills it).
+  const w = s.img.width * s.base * s.zoom, h = s.img.height * s.base * s.zoom;
+  const mx = Math.max(0, (w - CROP_SIZE) / 2), my = Math.max(0, (h - CROP_SIZE) / 2);
+  s.x = Math.max(-mx, Math.min(mx, s.x));
+  s.y = Math.max(-my, Math.min(my, s.y));
 }
+function cropPaint() {
+  const s = cropState; if (!s) return;
+  const el = $('cropImg');
+  el.style.width = (s.img.width * s.base * s.zoom) + 'px';
+  el.style.height = (s.img.height * s.base * s.zoom) + 'px';
+  el.style.transform = 'translate(calc(-50% + ' + s.x + 'px), calc(-50% + ' + s.y + 'px))';
+}
+function openCrop(img) {
+  cropState = { img, base: cropBaseScale(img), zoom: 1, x: 0, y: 0 };
+  $('cropImg').src = img.src;
+  $('cropZoom').value = '1';
+  cropPaint();
+  $('cropModal').classList.remove('hidden');
+}
+function closeCrop() {
+  $('cropModal').classList.add('hidden');
+  cropState = null;
+  $('editPhotoInput').value = ''; // same file picked again still fires
+}
+let cropDrag = null;
+$('cropViewport').addEventListener('pointerdown', e => {
+  if (!cropState) return;
+  cropDrag = { px: e.clientX, py: e.clientY, x: cropState.x, y: cropState.y };
+  try { $('cropViewport').setPointerCapture(e.pointerId); } catch {}
+});
+$('cropViewport').addEventListener('pointermove', e => {
+  if (!cropDrag || !cropState) return;
+  cropState.x = cropDrag.x + (e.clientX - cropDrag.px);
+  cropState.y = cropDrag.y + (e.clientY - cropDrag.py);
+  cropClamp(cropState); cropPaint();
+});
+$('cropViewport').addEventListener('pointerup', () => { cropDrag = null; });
+$('cropViewport').addEventListener('pointercancel', () => { cropDrag = null; });
+$('cropZoom').oninput = () => {
+  if (!cropState) return;
+  cropState.zoom = parseFloat($('cropZoom').value) || 1;
+  cropClamp(cropState); cropPaint();
+};
+$('cropUseBtn').onclick = () => {
+  const s = cropState; if (!s) return;
+  // Map the viewport square back onto the source image: the image is
+  // drawn at (base*zoom) scale, centred on the viewport plus (x, y).
+  const scale = s.base * s.zoom;
+  const w = s.img.width * scale, h = s.img.height * scale;
+  const sx = (w / 2 - CROP_SIZE / 2 - s.x) / scale;
+  const sy = (h / 2 - CROP_SIZE / 2 - s.y) / scale;
+  const side = CROP_SIZE / scale;
+  const cv = document.createElement('canvas'); cv.width = 512; cv.height = 512;
+  cv.getContext('2d').drawImage(s.img, sx, sy, side, side, 0, 0, 512, 512);
+  let data = cv.toDataURL('image/jpeg', 0.82);
+  if (data.length > 750000) data = cv.toDataURL('image/jpeg', 0.7);
+  if (data.length > 750000) { $('editError').textContent = 'That photo is too large. Pick a smaller one.'; return; }
+  editPhotoData = data;
+  $('editPfp').innerHTML = `<img src="${data}" alt="">`; $('editPfp').classList.remove('no-photo');
+  $('editPhotoRemoveBtn').classList.remove('hidden');
+  $('editError').textContent = '';
+  closeCrop();
+};
+$('cropCancelBtn').onclick = () => closeCrop();
 $('editPhotoInput').onchange = () => {
   const f = $('editPhotoInput').files && $('editPhotoInput').files[0];
   if (!f) return;
   const rd = new FileReader();
   rd.onload = () => {
     const img = new Image();
-    img.onload = () => {
-      let data = shrinkPhoto(img, 512, 0.82);
-      if (data.length > 750000) data = shrinkPhoto(img, 384, 0.75);
-      if (data.length > 750000) data = shrinkPhoto(img, 256, 0.7);
-      if (data.length > 750000) { $('editError').textContent = 'That photo is too large. Pick a smaller one.'; return; }
-      editPhotoData = data;
-      $('editPfp').innerHTML = `<img src="${data}" alt="">`; $('editPfp').classList.remove('no-photo');
-      $('editPhotoRemoveBtn').classList.remove('hidden');
-      $('editError').textContent = '';
-    };
+    img.onload = () => openCrop(img);
     img.onerror = () => { $('editError').textContent = 'That photo could not be read. Try a different one.'; };
     img.src = String(rd.result || '');
   };

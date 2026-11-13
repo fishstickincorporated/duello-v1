@@ -454,6 +454,10 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   workspace/goals/duello-1v1-word-game/hidden_files/duello-sse-client-test.js
   and duello-sse-server-test.js.
 
+## No grey disc behind Fishstick v95 (Nov 13, 2026, cache v95)
+
+- The transparent Fishstick PNG was still sitting on the grey `#3a3f4b` pfp disc, so the pfp containers go transparent for Fishstick only: a `clear-bg` class on the scoreboard pfp (app.js:1102), the stat-window top pfp (:2001), and the stat-grid box pfp (via a 5th `clearBg` arg on `box()`, :1986/:1993), with one CSS rule covering all three (style.css:61). Photos, silhouettes, and the robot keep their grey disc. No rule, clock, Elo, or dictionary changes.
+
 ## Fishstick goes transparent v94 (Nov 13, 2026, cache v94)
 
 - The Fishstick character is a transparent PNG now (`public/assets/fishstick.png`, 1600x1600 RGBA): the smart fish with gold professor glasses was cut out of its dark JPEG background with rembg (u2net model — the default bria model is 1.02 GB and got OOM-killed on this VM), verified clean on the panel colour with no glow haze. The scoreboard pfp, the game-screen bot pfp, and the stat-window pfp all point at `fishstick.png?v=1` (app.js:1091, :1990, :1993) so the fish floats on the panel instead of sitting on a dark disc. The old `fishstick.jpeg` is deleted from the branch — nothing references it anymore. No rule, clock, Elo, or dictionary changes.

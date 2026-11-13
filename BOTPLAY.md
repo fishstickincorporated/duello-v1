@@ -539,6 +539,12 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   exercises the live path instead of passing vacuously on the
   fallback; v92 client 16/16 with its cache assertion moved to
   v93; v89/v90 client).
+- Nov 13, 2026, after the v93 push: primary logo replaced with the
+  6000 × 1552 px transparent rebuild of the same artwork (smoother
+  corners, no design change) and Fishstick got a new character — the
+  same round Duello Blue fish, now with gold professor glasses.
+  Both assets cache-busted (?v=2 on the logo and fishstick refs) so
+  browsers pick up the new images.
 
 ## Profile photo crop v92 (Nov 13, 2026, cache v92)
 

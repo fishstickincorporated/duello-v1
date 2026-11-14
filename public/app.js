@@ -120,6 +120,102 @@ document.addEventListener('error', (e) => {
   host.classList.add('no-photo');
   t.outerHTML = silhouetteSVG(32);
 }, true);
+
+// ---------- First-open intro (v96) ----------
+// Black overlay, real logo starts zoomed in 3x, pulls back fast, sits
+// 2s, then zooms in fast to reveal Home. Plays once per device
+// (localStorage duello_intro_seen, set on finish or skip); tap the
+// overlay to skip. Behind it, 20 premium-colour squares flicker on/off
+// across the whole background, each jumping to a new grid cell per
+// cycle — never overlapping, never in neighbouring cells, same colour
+// kept further apart. WAAPI calls are guarded: the client harness runs
+// this file in a vm with no Element.animate, and the intro must never
+// kill the boot there (or on a browser without WAAPI).
+const INTRO_SEEN_KEY = 'duello_intro_seen';
+function introCellFree(occupied, col, row, ci) {
+  for (let dc = -2; dc <= 2; dc++) {
+    for (let dr = -2; dr <= 2; dr++) {
+      if (dc === 0 && dr === 0) continue;
+      const occ = occupied[(col + dc) + ',' + (row + dr)];
+      if (occ === undefined) continue;
+      const dist = Math.max(Math.abs(dc), Math.abs(dr));
+      if (dist === 1) return false;
+      if (dist === 2 && occ === ci) return false;
+    }
+  }
+  return true;
+}
+function introPlaceCell(el, ci, occupied) {
+  if (el._introCell) delete occupied[el._introCell];
+  let col = 0, row = 0, key = '0,0', tries = 0;
+  do {
+    col = Math.floor(Math.random() * 9);
+    row = Math.floor(Math.random() * 15);
+    key = col + ',' + row;
+    tries++;
+  } while ((occupied[key] !== undefined || !introCellFree(occupied, col, row, ci)) && tries < 300);
+  if (occupied[key] !== undefined || !introCellFree(occupied, col, row, ci)) {
+    let found = false;
+    for (let t = 0; t < 300 && !found; t++) {
+      col = Math.floor(Math.random() * 9);
+      row = Math.floor(Math.random() * 15);
+      key = col + ',' + row;
+      if (occupied[key] === undefined) found = true;
+    }
+    if (!found) { col = 0; row = 0; key = '0,0'; }
+  }
+  occupied[key] = ci; el._introCell = key;
+  el.style.left = (col * 11.1 + Math.random() * 2.5) + '%';
+  el.style.top = (row * 6.67 + Math.random() * 2) + '%';
+}
+function initIntro() {
+  const overlay = $('introOverlay');
+  if (!overlay) return;
+  if (storeGet(INTRO_SEEN_KEY)) { overlay.style.display = 'none'; return; }
+  const zoom = $('introLogoZoom');
+  const flicker = $('introFlicker');
+  const COLORS = ['255,19,3', '28,255,3', '255,3,238', '255,141,3'];
+  const occupied = {};
+  const anims = [];
+  let timers = [];
+  if (flicker) {
+    for (let k = 0; k < 20; k++) {
+      const ci = k % 4;
+      const s = document.createElement('div');
+      s.className = 'intro-cell';
+      s.style.background = 'rgb(' + COLORS[ci] + ')';
+      s.style.animationDuration = (2.2 + Math.random() * 2).toFixed(2) + 's';
+      s.style.animationDelay = (Math.random() * 2).toFixed(2) + 's';
+      s._introCi = ci;
+      introPlaceCell(s, ci, occupied);
+      s.addEventListener('animationiteration', function () { introPlaceCell(this, this._introCi, occupied); });
+      flicker.appendChild(s);
+    }
+  }
+  function finishIntro() {
+    try { storeSet(INTRO_SEEN_KEY, '1'); } catch {}
+    anims.forEach(a => { try { a.finish(); } catch {} });
+    timers.forEach(clearTimeout); timers = [];
+    overlay.style.display = 'none';
+  }
+  function playIntro() {
+    if (zoom && typeof zoom.animate === 'function') {
+      anims.push(zoom.animate([{ transform: 'scale(3)' }, { transform: 'scale(1)' }], { duration: 400, easing: 'cubic-bezier(.25,1.3,.35,1)', fill: 'both' }));
+    }
+    timers.push(setTimeout(() => {
+      if (zoom && typeof zoom.animate === 'function') {
+        anims.push(zoom.animate([{ transform: 'scale(1)' }, { transform: 'scale(8)' }], { duration: 650, easing: 'cubic-bezier(.5,0,.9,.4)', fill: 'forwards' }));
+      }
+      if (typeof overlay.animate === 'function') {
+        anims.push(overlay.animate([{ opacity: 1 }, { opacity: 0 }], { delay: 350, duration: 500, fill: 'forwards' }));
+      }
+    }, 2400));
+    timers.push(setTimeout(finishIntro, 3400));
+  }
+  overlay.addEventListener('click', finishIntro);
+  playIntro();
+}
+initIntro();
 function goTab(id) { show(id); }
 $('tabHome').onclick = () => show('homeScreen');
 

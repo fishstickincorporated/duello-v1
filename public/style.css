@@ -362,3 +362,15 @@ itself clips anything left over. */
 /* The one exception: the numbers in the profile stats list are Comfortaa
    (the .num spans numify wraps digits in). Every other number stays Arial. */
 .stats-list .num{font-family:"Comfortaa",sans-serif}
+/* First-open intro (v96): black overlay, real logo starts zoomed in,
+pulls back fast, sits 2s, then zooms in fast to reveal Home. Plays once
+per device (localStorage duello_intro_seen); tap to skip. The flicker
+squares are the premium colours, spread out across the whole screen. */
+.intro-seen #introOverlay{display:none}
+#introOverlay{position:fixed;inset:0;background:#000;z-index:100;display:flex;align-items:center;justify-content:center;overflow:hidden}
+#introFlicker{position:absolute;inset:0;pointer-events:none}
+#introFlicker .intro-cell{position:absolute;width:min(7vw,28px);aspect-ratio:1;opacity:0;animation-name:introCellFlicker;animation-timing-function:ease-in-out;animation-iteration-count:infinite}
+@keyframes introCellFlicker{0%,100%{opacity:0}30%,70%{opacity:.38}}
+#introInner{position:relative;z-index:1;display:flex;align-items:center;justify-content:center}
+#introLogoZoom{transform:scale(3)}
+#introLogo{display:block;width:min(88vw,340px);height:auto}

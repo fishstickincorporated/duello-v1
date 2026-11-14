@@ -454,6 +454,10 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   workspace/goals/duello-1v1-word-game/hidden_files/duello-sse-client-test.js
   and duello-sse-server-test.js.
 
+## First-open intro animation v96 (Nov 14, 2026, cache v96)
+
+- First app open now plays a ~3.5s intro, once per device (localStorage `duello_intro_seen`, set when it finishes or is skipped; tap the overlay to skip): the real logo (`assets/logo.png?v=2`) starts zoomed in 3x, pulls back to normal in 400ms, sits 2s, then zooms in fast (scale 8, 650ms) as the overlay fades to reveal Home. Behind it, 20 premium-colour squares (DL red, TL green, TW magenta, DW orange) flicker on/off across the whole background, each jumping to a new grid cell per cycle — never overlapping, never in neighbouring cells, same colour kept further apart. Markup in index.html:5 (inline flag check in <head>, :4, so repeat visits never flash it), styles in style.css:369, sequencing + placement in app.js:134 (WAAPI calls guarded so the client harness vm, which has no Element.animate, still boots). The chat previews used vector tiles because the widget flattens transparent PNGs; the shipped intro uses the real logo file, which renders transparent in the app. Verified with a new v96 client harness (21/21: version bump, real-logo markup, placement rules, seen-gate, skip, lifecycle) and the v93 harness (32/33 — only its v93-pinned version check fails, as expected after a bump). No rule, clock, Elo, or dictionary changes.
+
 ## No grey disc behind Fishstick v95 (Nov 13, 2026, cache v95)
 
 - The transparent Fishstick PNG was still sitting on the grey `#3a3f4b` pfp disc, so the pfp containers go transparent for Fishstick only: a `clear-bg` class on the scoreboard pfp (app.js:1102), the stat-window top pfp (:2001), and the stat-grid box pfp (via a 5th `clearBg` arg on `box()`, :1986/:1993), with one CSS rule covering all three (style.css:61). Photos, silhouettes, and the robot keep their grey disc. No rule, clock, Elo, or dictionary changes.

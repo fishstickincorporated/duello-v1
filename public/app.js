@@ -121,17 +121,17 @@ document.addEventListener('error', (e) => {
   t.outerHTML = silhouetteSVG(32);
 }, true);
 
-// ---------- First-open intro (v96) ----------
+// ---------- First-open intro (v96, v98: plays on every fresh open) ----------
 // Black overlay, real logo starts zoomed in 3x, pulls back fast, sits
-// 2s, then zooms in fast to reveal Home. Plays once per device
-// (localStorage duello_intro_seen, set on finish or skip); tap the
-// overlay to skip. Behind it, 20 premium-colour squares flicker on/off
-// across the whole background, each jumping to a new grid cell per
-// cycle — never overlapping, never in neighbouring cells, same colour
-// kept further apart. WAAPI calls are guarded: the client harness runs
-// this file in a vm with no Element.animate, and the intro must never
-// kill the boot there (or on a browser without WAAPI).
-const INTRO_SEEN_KEY = 'duello_intro_seen';
+// 2s, then zooms in fast to reveal Home. Plays on every fresh open
+// (v98: the once-per-device flag is gone — close the tab and reopen
+// and it plays again); tap the overlay to skip. Behind it, 20
+// premium-colour squares flicker on/off across the whole background,
+// each jumping to a new grid cell per cycle — never overlapping, never
+// in neighbouring cells, same colour kept further apart. WAAPI calls
+// are guarded: the client harness runs this file in a vm with no
+// Element.animate, and the intro must never kill the boot there (or on
+// a browser without WAAPI).
 function introCellFree(occupied, col, row, ci) {
   for (let dc = -2; dc <= 2; dc++) {
     for (let dr = -2; dr <= 2; dr++) {
@@ -171,7 +171,6 @@ function introPlaceCell(el, ci, occupied) {
 function initIntro() {
   const overlay = $('introOverlay');
   if (!overlay) return;
-  if (storeGet(INTRO_SEEN_KEY)) { overlay.style.display = 'none'; return; }
   const zoom = $('introLogoZoom');
   const flicker = $('introFlicker');
   const COLORS = ['255,19,3', '28,255,3', '255,3,238', '255,141,3'];
@@ -195,7 +194,6 @@ function initIntro() {
   }
   function finishIntro() {
     started = true; // a late logo load must not restart the intro after a skip
-    try { storeSet(INTRO_SEEN_KEY, '1'); } catch {}
     anims.forEach(a => { try { a.finish(); } catch {} });
     timers.forEach(clearTimeout); timers = [];
     overlay.style.display = 'none';
@@ -261,9 +259,25 @@ function preloadHomeTabs() {
     let d = null;
     try { d = await api('/api/me'); } catch { return; }
     try { await renderProfileUI(d); } catch {}
+    // Warm the user's photo so it paints instantly when the Profile
+    // tab is tapped: an <img> inside a hidden screen is only decoded
+    // when the screen shows, so decode it here (during the intro) and
+    // the cached image paints at once. This is the same photoData the
+    // leaderboard row uses, so it covers that row too.
+    try {
+      const u = d && d.user;
+      if (u && u.photoData) {
+        const im = new Image();
+        im.src = u.photoData;
+        if (typeof im.decode === 'function') await im.decode();
+      }
+    } catch {}
     try { await ensureGlobalRows(); } catch {}
     try { await loadServerFriends(); } catch {}
   };
+  // Idle-scheduled (v93): the 2s timeout bounds the wait, and the
+  // intro now gives it a 3.4s head start, so the profile is ready
+  // (photo decoded, below) before the intro even finishes.
   if (typeof requestIdleCallback === 'function') requestIdleCallback(() => { run(); }, { timeout: 2000 });
   else setTimeout(() => { run(); }, 500);
 }

@@ -454,6 +454,11 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   workspace/goals/duello-1v1-word-game/hidden_files/duello-sse-client-test.js
   and duello-sse-server-test.js.
 
+## Intro plays on every fresh open + instant profile pfp v98 (Nov 14, 2026, cache v98)
+
+- The intro now plays on every fresh open: the once-per-device localStorage flag is gone (app.js, index.html head script, and the `.intro-seen` CSS rule all removed), so closing the tab and reopening replays it; tap-to-skip still works. The v97 logo-wait gate is unchanged.
+- The Profile + Leaderboard preload now decodes the user's photo during the preload — an <img> inside a hidden screen is only decoded when the screen shows, so the warmed image paints instantly when the Profile tab is tapped (app.js: preloadHomeTabs). The preload itself stays idle-scheduled (v93 design, 2s bound); the intro now gives it a 3.4s head start, so the photo is decoded before the intro even finishes. Same photoData feeds the leaderboard row, so that row is covered too. Verified with a new v98 client harness (27/27, including a plays-again scenario with the old flag preset and a pfp-preload scenario proving the photo is decoded) and the v93 harness (32/33 — only its v93-pinned version check fails). No rule, clock, Elo, or dictionary changes.
+
 ## Intro zoom-out waits for the logo v97 (Nov 14, 2026, cache v97)
 
 - The initial zoom-out (logo 3x → normal) was invisible: the zoom ran the moment app.js loaded, but the 2.6 MB logo PNG can still be downloading/decoding during those first 400ms, so the logo popped in at normal size after the zoom had already finished. The zoom-out now waits for the logo image to load (or error), with a 1.5s backstop so a slow or broken image never stalls the intro; the 2s sit and the zoom-in are timed from the zoom-out, not from page load (app.js:210). A late logo load after a tap-to-skip cannot restart the intro. Verified with a new v97 client harness (25/25, including a logo-still-loading scenario proving the intro waits) and the v93 harness (32/33 — only its v93-pinned version check fails). No rule, clock, Elo, or dictionary changes.

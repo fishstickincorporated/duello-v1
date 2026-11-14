@@ -2120,8 +2120,18 @@ function showStatWindow(stats) {
   $('statScore').textContent = `${stats.scores.human}–${stats.scores.bot}`;
   $('statReason').textContent = sentence(stats.reason || '');
   const fmtMove = (d, v) => v >= 0 ? '+' + v : '' + v;
-  $('eloMoveHuman').textContent = fmtMove(null, stats.eloDeltaHuman ?? 0);
-  $('eloMoveHuman').className = 'elo-move ' + ((stats.eloDeltaHuman ?? 0) < 0 ? 'neg' : 'pos');
+  // A Fishstick match that moves your rating by nothing shows no
+  // Elo change at all: the +0 is noise (losing to the 3000-rated
+  // engine costs 0), and Fishstick's own move is already blank.
+  // A real move — a draw (+16) or a win — still shows.
+  const humanDelta = stats.eloDeltaHuman ?? 0;
+  if (game && game.botType === 'fishstick' && humanDelta === 0) {
+    $('eloMoveHuman').textContent = '';
+    $('eloMoveHuman').className = 'elo-move';
+  } else {
+    $('eloMoveHuman').textContent = fmtMove(null, humanDelta);
+    $('eloMoveHuman').className = 'elo-move ' + (humanDelta < 0 ? 'neg' : 'pos');
+  }
   // Both Elo moves show for a human-vs-human match, and personas
   // count as humans: their rating moves opposite yours, so it is
   // shown like yours. A real opponent's move shows the same way.

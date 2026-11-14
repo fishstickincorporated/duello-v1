@@ -454,6 +454,11 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   workspace/goals/duello-1v1-word-game/hidden_files/duello-sse-client-test.js
   and duello-sse-server-test.js.
 
+## Fishstick +0 hidden, drag ghost higher v100 (Nov 14, 2026, cache v100)
+
+- After a Fishstick match the stat window no longer shows the +0 Elo change: losing to the 3000-rated engine costs 0, so the +0 was noise, and Fishstick's own move was already blank — the human side is blanked too when the delta is exactly 0 after a Fishstick game (app.js: showStatWindow). A real move still shows: a draw (+16) or a win (+31). The scope is Fishstick only — a +0 draw against Competitive Bot still shows. The server Elo math is untouched; only the display hides.
+- The drag ghost sits higher still: `translate(-50%,-75%)` → `translate(-50%,-90%)`, so the finger is right at the tile's bottom edge and the tile is essentially entirely above it. Drop logic is untouched — the drop cell is still the cell under the pointer. Verified with a new v100 client harness (23/23, including the real showStatWindow run against stub DOM: Fishstick +0 blank, Fishstick +16/+31 shown, Competitive −16 shown, persona both sides shown). No rule, clock, Elo, or dictionary changes.
+
 ## Tile bevel, drag finger position, deck shift, stalled leaderboard photos v99 (Nov 14, 2026, cache v99)
 
 - Tile corners are rounder: `.tile` border-radius 5px → 8px (style.css:79), and the last-word white ring matches at 8px. Board cells stay 5px.

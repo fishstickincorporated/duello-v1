@@ -76,13 +76,13 @@ name or a big score never reflows the board. Names never wrap. */
 .inner-glow.on{opacity:1}
 .inner-glow .glow-cell{border-radius:5px;aspect-ratio:1;animation:glow 3.2s ease-in-out infinite}
 @keyframes glow{0%,100%{box-shadow:inset 0 0 0 2px rgba(3,234,255,.35)}50%{box-shadow:inset 0 0 0 2px rgba(3,234,255,.9)}}
-.tile{width:100%;height:100%;border-radius:5px;overflow:hidden;background:linear-gradient(180deg,#7df3ff 0%,#03eaff 50%,#00b8d2 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.65),inset 0 -2px 0 rgba(0,90,110,.35);color:#1a1d24;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;position:relative;cursor:grab;user-select:none;touch-action:none}
+.tile{width:100%;height:100%;border-radius:8px;overflow:hidden;background:linear-gradient(180deg,#7df3ff 0%,#03eaff 50%,#00b8d2 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.65),inset 0 -2px 0 rgba(0,90,110,.35);color:#1a1d24;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;position:relative;cursor:grab;user-select:none;touch-action:none}
 .tile svg,.drag-ghost svg{width:100%;height:100%;display:block;pointer-events:none}
 .tile.pending{outline:2px solid #ffd166}
 /* Board tiles must cover their whole cell even if a premium label is ever
 present again; a flex-shared cell previously squeezed them to half width. */
 .cell .tile{position:absolute;inset:0;width:auto;height:auto}
-.cell.last-word .tile::after{content:"";position:absolute;inset:0;border:2px solid #fff;border-radius:5px;pointer-events:none;z-index:2}
+.cell.last-word .tile::after{content:"";position:absolute;inset:0;border:2px solid #fff;border-radius:8px;pointer-events:none;z-index:2}
 .status{display:flex;align-items:center;justify-content:center;min-height:22px;margin:3px 0;padding:8px 0;font-size:15px;line-height:1.3;white-space:nowrap}
 .rack{display:flex;gap:6px;justify-content:space-between;margin:8px 0;min-height:57px}
 .rack .tile{width:52px;flex:1;aspect-ratio:1;font-size:30px;transition:transform 100ms ease,opacity 100ms ease}
@@ -147,7 +147,7 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .person-add.sent{border-color:#b3b2b1;color:#b3b2b1}
 .person-add:disabled{opacity:.6;cursor:default;border-color:#b3b2b1;color:#b3b2b1}
 .person-add svg{display:block}
-.drag-ghost{position:fixed;width:92px;height:92px;border-radius:8px;overflow:hidden;background:linear-gradient(180deg,#7df3ff 0%,#03eaff 50%,#00b8d2 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.65),inset 0 -2px 0 rgba(0,90,110,.35);color:#1a1d24;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;z-index:30;pointer-events:none;transform:translate(-50%,-60%)}
+.drag-ghost{position:fixed;width:92px;height:92px;border-radius:12px;overflow:hidden;background:linear-gradient(180deg,#7df3ff 0%,#03eaff 50%,#00b8d2 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.65),inset 0 -2px 0 rgba(0,90,110,.35);color:#1a1d24;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;z-index:30;pointer-events:none;transform:translate(-50%,-75%)}
 
 /* Bottom tabs: main menu only, no text under icons */
 .tab-bar{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:390px;display:flex;justify-content:space-around;align-items:center;background:#1a1d24;border-top:1px solid #2a2f3a;padding:10px 0 calc(14px + env(safe-area-inset-bottom));z-index:40}
@@ -304,6 +304,11 @@ same 52px column, right-aligned, on every row including your own
 #gameScreen{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
 #gameScreen #gameDim{flex:1;display:flex;flex-direction:column}
 #gameScreen #rack{margin-top:auto}
+/* The rack + buttons sit a little closer to the status line: the
+   auto margin above the rack absorbs 40px less free space, so the
+   whole deck-and-buttons block shifts up 40px and the space below
+   the buttons grows by the same amount. */
+#gameScreen #gameDim>.controls{margin-bottom:40px}
 #gameScreen .board,#gameScreen .rack,#gameScreen .controls,#gameScreen #endButtons{width:100%}
 
 html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}

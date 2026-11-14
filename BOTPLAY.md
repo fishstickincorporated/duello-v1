@@ -454,6 +454,13 @@ tab's Global scope is real users, its Friends scope awaits the backend.)
   workspace/goals/duello-1v1-word-game/hidden_files/duello-sse-client-test.js
   and duello-sse-server-test.js.
 
+## Tile bevel, drag finger position, deck shift, stalled leaderboard photos v99 (Nov 14, 2026, cache v99)
+
+- Tile corners are rounder: `.tile` border-radius 5px → 8px (style.css:79), and the last-word white ring matches at 8px. Board cells stay 5px.
+- Dragging a tile now puts your finger over its bottom quarter: the drag ghost's transform went from `translate(-50%,-60%)` to `translate(-50%,-75%)`, so ~75% of the tile sits above your finger. The ghost's own radius scaled to 12px (it's a 92px tile). Drop logic is untouched — the drop cell is still the cell under the pointer, so the offset is visual only.
+- The deck and buttons sit 40px closer to the status line: `#gameScreen #gameDim>.controls{margin-bottom:40px}` — the auto margin above the rack absorbs 40px less free space, so the whole rack+buttons block shifts up and the space below the buttons grows by the same amount. The rack stays bottom-pinned and the stat-window buttons are unaffected (not #gameDim children).
+- Some Global leaderboard photos weren't showing: 10 of the 100 personas use picsum URLs, and picsum is unreachable from some networks (verified Nov 14: every picsum URL times out, while randomuser.me answers in ~1s). A stalled photo never fires 'error', so the old handler never ran and the circle sat empty. New `armPfpTimeouts()` (app.js): a 3s timer on every leaderboard/search photo swaps any still-unloaded one for the silhouette, exactly as the error handler does — wired into renderFriendsUI and runFriendSearch. Loaded photos (data URLs, randomuser) are complete long before the timer and are left alone. Verified with a new v99 client harness (26/26, including a stalled-img scenario proving the swap and a loaded-img scenario proving no false swap). No rule, clock, Elo, or dictionary changes.
+
 ## Intro plays on every fresh open + instant profile pfp v98 (Nov 14, 2026, cache v98)
 
 - The intro now plays on every fresh open: the once-per-device localStorage flag is gone (app.js, index.html head script, and the `.intro-seen` CSS rule all removed), so closing the tab and reopening replays it; tap-to-skip still works. The v97 logo-wait gate is unchanged.

@@ -120,6 +120,25 @@ document.addEventListener('error', (e) => {
   host.classList.add('no-photo');
   t.outerHTML = silhouetteSVG(32);
 }, true);
+// A remote photo that stalls never fires 'error', so the circle
+// sits empty forever: 10 of the 100 personas use picsum URLs, and
+// picsum is unreachable from some networks (verified Nov 14, 2026:
+// every picsum URL times out, while randomuser.me answers in ~1s).
+// Arm a 3s timer on every leaderboard/search photo: if it still
+// hasn't loaded, swap it for the silhouette, exactly as the error
+// handler does. Photos that loaded (data URLs, randomuser) are
+// complete long before the timer fires and are left alone.
+function armPfpTimeouts() {
+  document.querySelectorAll('.lb-pfp img').forEach(img => {
+    setTimeout(() => {
+      if (!img.isConnected) return;
+      if (img.complete && img.naturalWidth > 0) return;
+      const host = img.closest('.lb-pfp');
+      if (host) host.classList.add('no-photo');
+      img.outerHTML = silhouetteSVG(32);
+    }, 3000);
+  });
+}
 
 // ---------- First-open intro (v96, v98: plays on every fresh open) ----------
 // Black overlay, real logo starts zoomed in 3x, pulls back fast, sits
@@ -652,6 +671,10 @@ async function renderFriendsUI() {
   // you are on the Friends page.
   renderIncomingChallenges();
   friendsStale = false; friendsRenderedScope = lbScope;
+  // A stalled remote photo never errors, so without this the
+  // circle stays empty: swap any leaderboard photo that hasn't
+  // loaded in 3s for the silhouette.
+  armPfpTimeouts();
   // Warm the rank cache for the Friends list in the background,
   // so opening a friend's profile shows their Global Rank at
   // once instead of waiting on the fetch: the list is small, this
@@ -832,6 +855,8 @@ async function runFriendSearch() {
     const nameEl = row.querySelector('.lb-name');
     if (nameEl) nameEl.onclick = () => openPersonModal(r);
   });
+  // Same stalled-photo swap as the leaderboard lists.
+  armPfpTimeouts();
   // Results live for 10 seconds, then vanish and the search bar
   // empties itself. Typing again restarts the clock (the input
   // listener clears this timer).

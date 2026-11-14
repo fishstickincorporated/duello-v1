@@ -178,6 +178,7 @@ function initIntro() {
   const occupied = {};
   const anims = [];
   let timers = [];
+  let started = false;
   if (flicker) {
     for (let k = 0; k < 20; k++) {
       const ci = k % 4;
@@ -193,24 +194,42 @@ function initIntro() {
     }
   }
   function finishIntro() {
+    started = true; // a late logo load must not restart the intro after a skip
     try { storeSet(INTRO_SEEN_KEY, '1'); } catch {}
     anims.forEach(a => { try { a.finish(); } catch {} });
     timers.forEach(clearTimeout); timers = [];
     overlay.style.display = 'none';
   }
   function playIntro() {
-    if (zoom && typeof zoom.animate === 'function') {
-      anims.push(zoom.animate([{ transform: 'scale(3)' }, { transform: 'scale(1)' }], { duration: 400, easing: 'cubic-bezier(.25,1.3,.35,1)', fill: 'both' }));
-    }
-    timers.push(setTimeout(() => {
+    // The zoom-out is invisible if the logo image has not painted yet
+    // (the logo PNG is 2.6 MB and can still be downloading/decoding
+    // when app.js runs), so the zoom-out waits for the logo to load —
+    // with a 1.5s backstop so a slow or broken image never stalls the
+    // intro. The 2s sit and the zoom-in are timed from the zoom-out,
+    // not from page load.
+    function startZoomOut() {
+      if (started) return; started = true;
       if (zoom && typeof zoom.animate === 'function') {
-        anims.push(zoom.animate([{ transform: 'scale(1)' }, { transform: 'scale(8)' }], { duration: 650, easing: 'cubic-bezier(.5,0,.9,.4)', fill: 'forwards' }));
+        anims.push(zoom.animate([{ transform: 'scale(3)' }, { transform: 'scale(1)' }], { duration: 400, easing: 'cubic-bezier(.25,1.3,.35,1)', fill: 'both' }));
       }
-      if (typeof overlay.animate === 'function') {
-        anims.push(overlay.animate([{ opacity: 1 }, { opacity: 0 }], { delay: 350, duration: 500, fill: 'forwards' }));
-      }
-    }, 2400));
-    timers.push(setTimeout(finishIntro, 3400));
+      timers.push(setTimeout(() => {
+        if (zoom && typeof zoom.animate === 'function') {
+          anims.push(zoom.animate([{ transform: 'scale(1)' }, { transform: 'scale(8)' }], { duration: 650, easing: 'cubic-bezier(.5,0,.9,.4)', fill: 'forwards' }));
+        }
+        if (typeof overlay.animate === 'function') {
+          anims.push(overlay.animate([{ opacity: 1 }, { opacity: 0 }], { delay: 350, duration: 500, fill: 'forwards' }));
+        }
+      }, 2400));
+      timers.push(setTimeout(finishIntro, 3400));
+    }
+    const logo = $('introLogo');
+    if (logo && logo.complete === false) {
+      logo.addEventListener('load', startZoomOut, { once: true });
+      logo.addEventListener('error', startZoomOut, { once: true });
+      timers.push(setTimeout(startZoomOut, 1500));
+    } else {
+      startZoomOut();
+    }
   }
   overlay.addEventListener('click', finishIntro);
   playIntro();

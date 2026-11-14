@@ -103,8 +103,18 @@ function show(id) {
 }
 function silhouetteSVG(size) { return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#b3b2b1"/></svg>`; }
 function pfpHTML(userLike) {
-  if (userLike && userLike.photoData) return `<img src="${userLike.photoData}" alt="">`;
+  if (usablePhoto(userLike)) return `<img src="${userLike.photoData}" alt="">`;
   return silhouetteSVG(36);
+}
+// A picsum photo never loads (verified Nov 14, 2026: every picsum
+// URL times out), so a persona carrying one effectively has no
+// photo: show the silhouette at once instead of a blank grey
+// circle with no border while it stalls. One helper for every
+// img-vs-silhouette and no-photo-ring decision, so the two can
+// never disagree.
+function usablePhoto(userLike) {
+  const url = userLike && userLike.photoData;
+  return !!url && !url.includes('picsum.photos');
 }
 // A persona photo is a remote URL (randomuser.me / picsum): when it
 // fails to load, Safari paints its broken-image "?" inside the
@@ -425,7 +435,7 @@ function lbRowHTML(r, actionHTML, opts) {
   // is left out and the row uses the no-rank grid, so nothing
   // shifts — pfp, name, action and Elo keep their columns.
   const rank = opts && opts.hideRank ? '' : `<span class="rank${(r.rank || 0) >= 100 ? ' small' : ''}">${r.rank ?? ''}</span>`;
-  return `${rank}<span class="lb-pfp${r.photoData ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${shortName(r)}</div><div class="lb-user">@${r.username}</div></span>${actionHTML}<span class="lb-elo">${r.elo}</span>`;
+  return `${rank}<span class="lb-pfp${usablePhoto(r) ? '' : ' no-photo'}">${pfpHTML(r)}</span><span class="lb-identity"><div class="lb-name">${shortName(r)}</div><div class="lb-user">@${r.username}</div></span>${actionHTML}<span class="lb-elo">${r.elo}</span>`;
 }
 function youBadgeHTML(r) {
   return r.isYou ? '<span class="lb-action"><span class="you-badge">YOU</span></span>' : '';
@@ -475,8 +485,8 @@ async function openPersonModal(person) {
   modalPerson = person;
   if (!person.isPersona) await loadServerFriends();
   const pfp = $('personPfp');
-  pfp.innerHTML = person.photoData ? `<img src="${person.photoData}" alt="">` : silhouetteSVG(64);
-  pfp.classList.toggle('no-photo', !person.photoData);
+  pfp.innerHTML = usablePhoto(person) ? `<img src="${person.photoData}" alt="">` : silhouetteSVG(64);
+  pfp.classList.toggle('no-photo', !usablePhoto(person));
   $('personName').textContent = person.name;
   $('personUser').textContent = '@' + person.username;
   $('personElo').textContent = person.elo;
@@ -658,7 +668,7 @@ async function renderFriendsUI() {
     for (const u of (serverFriends.incoming || []).slice(0, 2)) {
       const name = shortName({ firstName: u.firstName, lastName: u.lastName, name: '', username: u.username });
       const row = document.createElement('div'); row.className = 'request-row';
-      row.innerHTML = `<span class="lb-pfp${u.photoData ? '' : ' no-photo'}">${pfpHTML(u)}</span><span class="lb-identity"><div class="lb-name">${name}</div><div class="lb-user">@${u.username}</div></span><span class="request-actions"><button class="mini-btn" data-act="accept">Accept</button><button class="mini-btn grey" data-act="decline">Decline</button></span>`;
+      row.innerHTML = `<span class="lb-pfp${usablePhoto(u) ? '' : ' no-photo'}">${pfpHTML(u)}</span><span class="lb-identity"><div class="lb-name">${name}</div><div class="lb-user">@${u.username}</div></span><span class="request-actions"><button class="mini-btn" data-act="accept">Accept</button><button class="mini-btn grey" data-act="decline">Decline</button></span>`;
       row.querySelector('[data-act="accept"]').onclick = async () => { try { await api('/api/friends/respond', { method: 'POST', body: JSON.stringify({ username: u.username, accept: true }) }); } catch {} await loadServerFriends(true); renderFriendsUI(); };
       row.querySelector('[data-act="decline"]').onclick = async () => { try { await api('/api/friends/respond', { method: 'POST', body: JSON.stringify({ username: u.username, accept: false }) }); } catch {} await loadServerFriends(true); renderFriendsUI(); };
       reqEl.appendChild(row);
@@ -706,7 +716,7 @@ async function renderIncomingChallenges(list) {
     const u = c.from;
     const name = u.firstName || u.username;
     const row = document.createElement('div'); row.className = 'request-row';
-    row.innerHTML = `<span class="lb-pfp${u.photoData ? '' : ' no-photo'}">${pfpHTML(u)}</span><span class="lb-identity"><div class="lb-name">${name} challenged you</div><div class="lb-user">@${u.username}</div></span><span class="request-actions"><button class="mini-btn" data-act="accept">Accept</button><button class="mini-btn grey" data-act="decline">Decline</button></span>`;
+    row.innerHTML = `<span class="lb-pfp${usablePhoto(u) ? '' : ' no-photo'}">${pfpHTML(u)}</span><span class="lb-identity"><div class="lb-name">${name} challenged you</div><div class="lb-user">@${u.username}</div></span><span class="request-actions"><button class="mini-btn" data-act="accept">Accept</button><button class="mini-btn grey" data-act="decline">Decline</button></span>`;
     row.querySelector('[data-act="accept"]').onclick = async () => {
       try {
         const d = await api(`/api/challenges/${c.id}/respond`, { method: 'POST', body: JSON.stringify({ accept: true }) });
@@ -747,7 +757,7 @@ function showChallengeModal(c) {
   const u = c.from;
   const name = u.firstName || u.username;
   $('challengePfp').innerHTML = pfpHTML(u);
-  $('challengePfp').classList.toggle('no-photo', !u.photoData);
+  $('challengePfp').classList.toggle('no-photo', !usablePhoto(u));
   $('challengeName').textContent = name + ' challenged you';
   $('challengeUser').textContent = '@' + u.username;
   $('challengeModal').classList.remove('hidden');
@@ -810,11 +820,18 @@ $('friendsPencil').onclick = () => { if (lbScope !== 'friends') return; deleteMo
 async function runFriendSearch() {
   // A leading @ is stripped: typing "@neo" searches for neo, so
   // the @ in a displayed handle never makes a search miss.
-  const q = $('friendSearch').value.trim().toLowerCase().replace(/^@+/, ''); const el = $('friendSearchResults'); el.innerHTML = '';
-  if (!q) return;
+  const q = $('friendSearch').value.trim().toLowerCase().replace(/^@+/, ''); const el = $('friendSearchResults');
+  // An empty query clears the old results at once; a real query
+  // keeps the last results up until the new ones are ready, so
+  // typing never flashes the list away.
+  if (!q) { el.innerHTML = ''; return; }
+  // A newer keystroke supersedes this search: a slow reply must
+  // not overwrite the results of the query typed after it.
+  const mySearch = ++friendSearchSeq;
   // loadMe sends a dead session to sign-in and returns false;
   // don't run a search on a rejected session.
   if (!(await loadMe())) return;
+  if (mySearch !== friendSearchSeq) return;
   // Server search, not the top-25 leaderboard: a new account at
   // 1000 Elo is below the top 25 and was unfindable before.
   let users = null, searchFallback = false, searchFailReason = '';
@@ -831,10 +848,14 @@ async function runFriendSearch() {
     const rows = await ensureGlobalRows();
     users = rows.filter(u => (`${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)));
   }
+  if (mySearch !== friendSearchSeq) return;
+  // Build the new results off-DOM, then swap them in one go, so
+  // the old results stay visible until the new ones are ready.
+  const frag = document.createDocumentFragment();
   if (searchFallback) {
     const note = document.createElement('div'); note.className = 'small';
     note.textContent = `Search isn't working (${searchFailReason}) — showing top players only.`;
-    el.appendChild(note);
+    frag.appendChild(note);
   }
   // At most the 5 most relevant results (the server already
   // ranks and caps at 5; this caps the fallback too).
@@ -851,10 +872,12 @@ async function runFriendSearch() {
     if (u.rank != null) r.globalRank = u.rank;
     const row = document.createElement('div'); row.className = 'lb-row no-rank' + (r.isYou ? ' you' : '');
     row.innerHTML = lbRowHTML(r, youBadgeHTML(r), { hideRank: true });
-    el.appendChild(row);
+    frag.appendChild(row);
     const nameEl = row.querySelector('.lb-name');
     if (nameEl) nameEl.onclick = () => openPersonModal(r);
   });
+  el.innerHTML = '';
+  el.appendChild(frag);
   // Same stalled-photo swap as the leaderboard lists.
   armPfpTimeouts();
   // Results live for 10 seconds, then vanish and the search bar
@@ -863,7 +886,7 @@ async function runFriendSearch() {
   if (friendSearchClearTimer) clearTimeout(friendSearchClearTimer);
   friendSearchClearTimer = setTimeout(() => { $('friendSearch').value = ''; el.innerHTML = ''; }, 10000);
 }
-let friendSearchTimer = null, friendSearchClearTimer = null;
+let friendSearchTimer = null, friendSearchClearTimer = null, friendSearchSeq = 0;
 $('friendSearch').addEventListener('input', () => {
   clearTimeout(friendSearchTimer);
   clearTimeout(friendSearchClearTimer);
@@ -1234,7 +1257,7 @@ function renderGame() {
     pending = []; selectedRack = null;
   }
   $('playerName').textContent = me && me.firstName ? me.firstName : 'You';
-  try { const pp = document.querySelector('.player-panel .pfp'); pp.innerHTML = pfpHTML(me); pp.classList.toggle('no-photo', !(me && me.photoData)); const sp = document.querySelector('.stat-pfp .pfp'); sp.innerHTML = pfpHTML(me); sp.classList.toggle('no-photo', !(me && me.photoData)); } catch {}
+  try { const pp = document.querySelector('.player-panel .pfp'); pp.innerHTML = pfpHTML(me); pp.classList.toggle('no-photo', !usablePhoto(me)); const sp = document.querySelector('.stat-pfp .pfp'); sp.innerHTML = pfpHTML(me); sp.classList.toggle('no-photo', !usablePhoto(me)); } catch {}
   $('playerElo').textContent = (game.player && game.player.elo != null) ? game.player.elo : (me ? me.elo : '');
   const isFish = game.botType === 'fishstick';
   const isPersonaGame = game.botType === 'persona';
@@ -1243,8 +1266,8 @@ function renderGame() {
   $('botElo').textContent = isFish ? '∞' : game.botElo;
   $('botElo').classList.toggle('inf', isFish);
   if (isFish) $('botPfp').innerHTML = '<img src="/assets/fishstick.png?v=1" alt="Fishstick">';
-  else if (isPersonaGame && game.persona?.photoData) $('botPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
-  else if (isHumanGame && game.opponent?.photoData) $('botPfp').innerHTML = `<img src="${game.opponent.photoData}" alt="">`;
+  else if (isPersonaGame && usablePhoto(game.persona)) $('botPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
+  else if (isHumanGame && usablePhoto(game.opponent)) $('botPfp').innerHTML = `<img src="${game.opponent.photoData}" alt="">`;
   // A persona with no photo is a person without a photo, not a bot:
   // show the silhouette (with the blue no-photo ring, like the
   // player's own) instead of the robot, which is Competitive Bot.
@@ -1252,7 +1275,7 @@ function renderGame() {
   else if (isPersonaGame) $('botPfp').innerHTML = silhouetteSVG(32);
   else if (isHumanGame) $('botPfp').innerHTML = silhouetteSVG(32);
   else $('botPfp').textContent = '🤖';
-  $('botPfp').classList.toggle('no-photo', (isPersonaGame && !game.persona?.photoData) || (isHumanGame && !game.opponent?.photoData));
+  $('botPfp').classList.toggle('no-photo', (isPersonaGame && !usablePhoto(game.persona)) || (isHumanGame && !usablePhoto(game.opponent)));
   $('botPfp').classList.toggle('clear-bg', isFish);
   document.querySelector('.player-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'human');
   document.querySelector('.bot-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'bot');
@@ -2152,12 +2175,12 @@ function showStatWindow(stats) {
   // A persona with no photo gets the silhouette in the stat box and
   // the top pfp too (same reasoning as the scoreboard: a person
   // without a photo, not Competitive Bot).
-  const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.png?v=1" alt="Fishstick">' : isPersonaGame && game.persona?.photoData ? `<img src="${game.persona.photoData}" alt="">` : isHumanGame && game.opponent?.photoData ? `<img src="${game.opponent.photoData}" alt="">` : isPersonaGame || isHumanGame ? silhouetteSVG(36) : '🤖';
-  const botNoPhoto = (isPersonaGame && !game.persona?.photoData) || (isHumanGame && !game.opponent?.photoData);
-  $('statGrid').innerHTML = box(humanLabel, humanPfp, stats.human, !(me && me.photoData)) + box(botLabel, botPfpBox, stats.bot, botNoPhoto, game.botType === 'fishstick');
+  const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.png?v=1" alt="Fishstick">' : isPersonaGame && usablePhoto(game.persona) ? `<img src="${game.persona.photoData}" alt="">` : isHumanGame && usablePhoto(game.opponent) ? `<img src="${game.opponent.photoData}" alt="">` : isPersonaGame || isHumanGame ? silhouetteSVG(36) : '🤖';
+  const botNoPhoto = (isPersonaGame && !usablePhoto(game.persona)) || (isHumanGame && !usablePhoto(game.opponent));
+  $('statGrid').innerHTML = box(humanLabel, humanPfp, stats.human, !usablePhoto(me)) + box(botLabel, botPfpBox, stats.bot, botNoPhoto, game.botType === 'fishstick');
   if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.png?v=1" alt="Fishstick">';
-  else if (isPersonaGame && game.persona?.photoData) $('statBotPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
-  else if (isHumanGame && game.opponent?.photoData) $('statBotPfp').innerHTML = `<img src="${game.opponent.photoData}" alt="">`;
+  else if (isPersonaGame && usablePhoto(game.persona)) $('statBotPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
+  else if (isHumanGame && usablePhoto(game.opponent)) $('statBotPfp').innerHTML = `<img src="${game.opponent.photoData}" alt="">`;
   else if (isPersonaGame) $('statBotPfp').innerHTML = silhouetteSVG(44);
   else if (isHumanGame) $('statBotPfp').innerHTML = silhouetteSVG(44);
   else $('statBotPfp').textContent = '🤖';
@@ -2606,7 +2629,7 @@ async function renderProfileUI(prefetched) {
   }
   profileData = d; me = d.user;
   const u = profileData.user;
-  $('profilePfp').innerHTML = u.photoData ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44); $('profilePfp').classList.toggle('no-photo', !u.photoData);
+  $('profilePfp').innerHTML = usablePhoto(u) ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44); $('profilePfp').classList.toggle('no-photo', !usablePhoto(u));
   $('profileName').textContent = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
   $('profileUsername').textContent = '@' + u.username;
   $('profileJoined').innerHTML = 'Joined ' + numify(formatJoined(u.createdAt));
@@ -2663,7 +2686,7 @@ $('gearBtn').onclick = async () => {
   const u = profileData.user;
   $('editFirstName').value = u.firstName; $('editLastName').value = u.lastName; $('editUsername').value = u.username; $('editEmail').value = u.email || ''; $('editError').textContent = '';
   editPhotoData = undefined;
-  $('editPfp').innerHTML = u.photoData ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44); $('editPfp').classList.toggle('no-photo', !u.photoData);
+  $('editPfp').innerHTML = usablePhoto(u) ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44); $('editPfp').classList.toggle('no-photo', !usablePhoto(u));
   $('editPhotoRemoveBtn').classList.toggle('hidden', !u.photoData);
   $('editCurrentPassword').value = ''; $('editNewPassword').value = ''; $('editNewPassword2').value = '';
   $('editPasswordError').textContent = ''; $('editPasswordDone').textContent = '';

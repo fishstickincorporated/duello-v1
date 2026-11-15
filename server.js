@@ -723,38 +723,204 @@ const COMMON_WORDS = new Set([
   'WATER', 'WAY', 'WE', 'WEAK', 'WELL', 'WENT', 'WERE', 'WHAT', 'WHEN', 'WHERE', 'WHICH', 'WHILE',
   'WHO', 'WHY', 'WIDE', 'WILL', 'WIND', 'WINDOW', 'WITH', 'WOOD', 'WORD', 'WORK', 'WORLD', 'WOULD',
   'WRITE', 'YEAR', 'YES', 'YOU', 'YOUNG', 'YOUR',
+  // v102 expansion: many more everyday words, so the common-word
+  // bias below applies on far more boards. Every word here is in
+  // the dictionary (2-10 letters); longer/month-name candidates
+  // were dropped because the dictionary does not contain them.
+  'ABLE', 'ABOVE', 'ABSENT', 'ACCEPT', 'ACCIDENT', 'ACCOUNT', 'ACROSS', 'ACT', 'ACTION', 'ACTIVE', 'ACTUAL', 'ADAPT',
+  'ADDRESS', 'ADMIT', 'ADOPT', 'ADULT', 'ADVICE', 'AFRAID', 'AFTERNOON', 'AGAINST', 'AGE', 'AGENCY', 'AGENT', 'AGO',
+  'AGREE', 'AHEAD', 'AIM', 'ALARM', 'ALBUM', 'ALIKE', 'ALIVE', 'ALLOW', 'ALMOST', 'ALONE', 'ALREADY', 'ALTER',
+  'AMOUNT', 'ANCIENT', 'ANGLE', 'ANGRY', 'ANKLE', 'ANNOUNCE', 'ANNOY', 'ANYONE', 'ANYWAY', 'APART', 'APOLOGY', 'APPARENT',
+  'APPEAL', 'APPEAR', 'APPLY', 'APPOINT', 'APPROACH', 'APPROVE', 'ARCH', 'AREA', 'ARGUE', 'ARISE', 'ARMY', 'ARRANGE',
+  'ARREST', 'ARRIVE', 'ARROW', 'ARTICLE', 'ARTIST', 'ASHAMED', 'ASIDE', 'ASLEEP', 'ASPECT', 'ASSIGN', 'ASSIST', 'ASSOCIATE',
+  'ASSUME', 'ASSURE', 'ATHLETE', 'ATTACH', 'ATTACK', 'ATTEMPT', 'ATTEND', 'ATTENTION', 'ATTITUDE', 'ATTRACT', 'AUDIENCE', 'AUGUST',
+  'AUTHOR', 'AUTUMN', 'AVAILABLE', 'AVERAGE', 'AVOID', 'AWAKE', 'AWARD', 'AWARE', 'AWFUL', 'AXE', 'BAG', 'BAKE',
+  'BALANCE', 'BAND', 'BANK', 'BAR', 'BARE', 'BARN', 'BASE', 'BASIC', 'BASK', 'BASKET', 'BATH', 'BATTERY', 'BATTLE',
+  'BEACH', 'BEAM', 'BEAN', 'BEAR', 'BEARD', 'BEAST', 'BEAT', 'BEAUTY', 'BECAME', 'BECOME', 'BEEF', 'BEER',
+  'BEGAN', 'BEHAVE', 'BEHIND', 'BELIEF', 'BELL', 'BELONG', 'BELT', 'BEND', 'BENEFIT', 'BERRY', 'BESIDE', 'BEST',
+  'BET', 'BETTER', 'BIBLE', 'BID', 'BILL', 'BIRTH', 'BIRTHDAY', 'BIT', 'BITE', 'BLACK', 'BLADE', 'BLAME',
+  'BLANK', 'BLANKET', 'BLAST', 'BLEED', 'BLESS', 'BLIND', 'BLOCK', 'BLOW', 'BOARD', 'BOAT', 'BODY', 'BOIL',
+  'BOLD', 'BOLT', 'BOMB', 'BOND', 'BONUS', 'BOOST', 'BOOT', 'BORDER', 'BORN', 'BORROW', 'BOSS', 'BOTHER',
+  'BOTTLE', 'BOUGHT', 'BOUNCE', 'BOUND', 'BOWL', 'BOX', 'BRANCH', 'BRAND', 'BREAK', 'BREATH', 'BREATHE', 'BREEZE',
+  'BRICK', 'BRIDE', 'BRIDGE', 'BRIEF', 'BRING', 'BROAD', 'BROKE', 'BROKEN', 'BROTHER', 'BROWN', 'BRUSH', 'BUBBLE',
+  'BUCKET', 'BUDGET', 'BUILD', 'BUILDING', 'BULB', 'BULLET', 'BUNCH', 'BURN', 'BURST', 'BURY', 'BUSH', 'BUSINESS',
+  'BUTTON', 'BUY', 'BUYER', 'CABIN', 'CABLE', 'CAGE', 'CALM', 'CAMERA', 'CAMP', 'CANAL', 'CANCEL', 'CANDLE',
+  'CAP', 'CAPABLE', 'CAPITAL', 'CAPTAIN', 'CARBON', 'CARD', 'CARE', 'CAREER', 'CAREFUL', 'CARPET', 'CARRY', 'CART',
+  'CASE', 'CASH', 'CAST', 'CASTLE', 'CATCH', 'CATTLE', 'CAUSE', 'CELEBRATE', 'CELL', 'CENT', 'CENTER', 'CENTURY',
+  'CERTAIN', 'CHAIN', 'CHALK', 'CHANCE', 'CHANNEL', 'CHAOS', 'CHAPTER', 'CHARGE', 'CHARITY', 'CHART', 'CHASE', 'CHEAP',
+  'CHECK', 'CHEMICAL', 'CHEST', 'CHICKEN', 'CHIEF', 'CHILL', 'CHIP', 'CHOICE', 'CHOOSE', 'CHOP', 'CHURCH', 'CIRCLE',
+  'CITIZEN', 'CIVIL', 'CLAIM', 'CLASS', 'CLEAR', 'CLERK', 'CLEVER', 'CLICK', 'CLIENT', 'CLIMATE', 'CLIMB', 'CLOCK',
+  'CLOTH', 'CLOTHES', 'CLOUD', 'CLUB', 'COACH', 'COAL', 'COAST', 'COAT', 'CODE', 'COFFEE', 'COIN', 'COLLAR',
+  'COLLECT', 'COLLEGE', 'COLOR', 'COLUMN', 'COMBINE', 'COMFORT', 'COMMAND', 'COMMENT', 'COMMON', 'COMMUNITY', 'COMPANY', 'COMPARE',
+  'COMPETE', 'COMPLAIN', 'COMPLETE', 'COMPLEX', 'COMPOSE', 'CONCEPT', 'CONCERN', 'CONCERT', 'CONCLUDE', 'CONDITION', 'CONDUCT', 'CONFERENCE',
+  'CONFESS', 'CONFIDENT', 'CONFIRM', 'CONFLICT', 'CONFUSE', 'CONNECT', 'CONSIDER', 'CONSIST', 'CONSTANT', 'CONSTRUCT', 'CONTACT', 'CONTAIN',
+  'CONTENT', 'CONTEST', 'CONTEXT', 'CONTINUE', 'CONTRACT', 'CONTROL', 'CONVENIENT', 'COPE', 'COPY', 'CORE', 'CORN', 'CORNER',
+  'CORRECT', 'COST', 'COTTON', 'COUCH', 'COUNT', 'COUPLE', 'COURAGE', 'COURSE', 'COURT', 'COUSIN', 'COVER', 'CRACK',
+  'CRAFT', 'CRASH', 'CRAZY', 'CREAM', 'CREATE', 'CREDIT', 'CREEK', 'CREW', 'CRIME', 'CRISIS', 'CRITERIA', 'CRITIC',
+  'CROP', 'CROSS', 'CROWD', 'CRUCIAL', 'CRUEL', 'CRUSH', 'CULTURE', 'CUP', 'CURE', 'CURIOUS', 'CURRENT', 'CURTAIN',
+  'CURVE', 'CUSTOM', 'CUSTOMER', 'CUT', 'CYCLE', 'DAILY', 'DAMAGE', 'DANGER', 'DARE', 'DATA', 'DATE', 'DAUGHTER',
+  'DAWN', 'DEAD', 'DEAL', 'DEAR', 'DEATH', 'DEBATE', 'DEBT', 'DECADE', 'DECIDE', 'DECISION', 'DECLARE', 'DECLINE',
+  'DECORATE', 'DECREASE', 'DEER', 'DEFEAT', 'DEFEND', 'DEFINE', 'DEGREE', 'DELAY', 'DELIVER', 'DEMAND', 'DEMOCRACY', 'DENY',
+  'DEPART', 'DEPEND', 'DEPOSIT', 'DEPTH', 'DEPUTY', 'DESCRIBE', 'DESERT', 'DESIGN', 'DESK', 'DESPITE', 'DETAIL', 'DETECT',
+  'DETERMINE', 'DEVELOP', 'DEVICE', 'DEVOTE', 'DIARY', 'DIE', 'DIET', 'DIFFICULT', 'DIG', 'DIGITAL', 'DIM', 'DINNER',
+  'DIRECT', 'DIRECTION', 'DIRT', 'DISAGREE', 'DISAPPEAR', 'DISASTER', 'DISCIPLINE', 'DISCOUNT', 'DISCOVER', 'DISCUSS', 'DISEASE', 'DISH',
+  'DISMISS', 'DISPLAY', 'DISTANCE', 'DISTINCT', 'DISTRICT', 'DITCH', 'DIVE', 'DIVIDE', 'DIVISION', 'DOCTOR', 'DOCUMENT', 'DOLL',
+  'DOLLAR', 'DOMAIN', 'DONATE', 'DOUBLE', 'DOUBT', 'DOZEN', 'DRAFT', 'DRAG', 'DRAMA', 'DRAW', 'DREAM', 'DRESS',
+  'DRIFT', 'DRILL', 'DRIVE', 'DRIVER', 'DROP', 'DRUM', 'DRY', 'DUCK', 'DUE', 'DULL', 'DUMP', 'DUST',
+  'DUTY', 'DYING', 'EAGER', 'EAGLE', 'EARLY', 'EARN', 'EASE', 'EAST', 'ECHO', 'ECONOMY', 'EDGE', 'EDIT',
+  'EDUCATE', 'EFFECT', 'EFFORT', 'EIGHT', 'EITHER', 'ELBOW', 'ELDER', 'ELECT', 'ELEMENT', 'ELEPHANT', 'ELEVEN', 'ELITE',
+  'ELSE', 'EMAIL', 'EMBARRASS', 'EMERGENCY', 'EMOTION', 'EMPHASIS', 'EMPIRE', 'EMPLOY', 'ENABLE', 'ENCOUNTER', 'ENCOURAGE', 'ENEMY',
+  'ENERGY', 'ENGAGE', 'ENGINE', 'ENGINEER', 'ENJOY', 'ENORMOUS', 'ENOUGH', 'ENTER', 'ENTIRE', 'ENTRANCE', 'ENTRY', 'ENVELOPE',
+  'EPISODE', 'EQUAL', 'EQUIPMENT', 'ERA', 'ERROR', 'ESCAPE', 'ESPECIALLY', 'ESSAY', 'ESSENTIAL', 'ESTABLISH', 'ESTATE', 'ESTIMATE',
+  'ETHICS', 'EVENING', 'EVENT', 'EVIDENCE', 'EVIL', 'EXACT', 'EXAM', 'EXCEED', 'EXCEPT', 'EXCHANGE', 'EXCITE', 'EXCUSE',
+  'EXECUTIVE', 'EXERCISE', 'EXHAUST', 'EXHIBIT', 'EXIST', 'EXIT', 'EXPAND', 'EXPECT', 'EXPENSE', 'EXPERIENCE', 'EXPERT', 'EXPLAIN',
+  'EXPLORE', 'EXPORT', 'EXPOSE', 'EXPRESS', 'EXTEND', 'EXTRA', 'EXTREME', 'FACT', 'FACTOR', 'FACTORY', 'FAIL', 'FAITH',
+  'FALL', 'FAME', 'FAMOUS', 'FAN', 'FANCY', 'FAR', 'FARM', 'FASHION', 'FAT', 'FATE', 'FAULT', 'FAVOR',
+  'FEAR', 'FEATHER', 'FEATURE', 'FEDERAL', 'FEE', 'FEED', 'FEEL', 'FELLOW', 'FEMALE', 'FENCE', 'FERRY', 'FEVER',
+  'FICTION', 'FIELD', 'FIERCE', 'FIFTEEN', 'FIFTH', 'FIFTY', 'FIGHT', 'FIGURE', 'FILE', 'FILL', 'FILM', 'FINAL',
+  'FINANCE', 'FINE', 'FINISH', 'FIRM', 'FIT', 'FIX', 'FLAG', 'FLAME', 'FLASH', 'FLAT', 'FLAVOR', 'FLEE',
+  'FLEET', 'FLESH', 'FLIGHT', 'FLOAT', 'FLOOD', 'FLOUR', 'FLOW', 'FLOWER', 'FLUID', 'FLUSH', 'FLY', 'FOCUS',
+  'FOG', 'FOLD', 'FOLK', 'FOND', 'FOOL', 'FORCE', 'FORECAST', 'FOREHEAD', 'FOREIGN', 'FOREST', 'FORGET', 'FORGIVE',
+  'FORMAL', 'FORMER', 'FORTH', 'FORTUNE', 'FORWARD', 'FOUR', 'FRAME', 'FREEDOM', 'FREEZE', 'FREQUENT', 'FROG', 'FROST',
+  'FROWN', 'FUEL', 'FUNCTION', 'FUND', 'FUNNY', 'FUR', 'FURNITURE', 'FURTHER', 'FUTURE', 'GAIN', 'GALAXY', 'GALLERY',
+  'GAP', 'GARAGE', 'GARDEN', 'GARLIC', 'GAS', 'GATE', 'GATHER', 'GAVE', 'GEAR', 'GENDER', 'GENE', 'GENERAL',
+  'GENEROUS', 'GENIUS', 'GENTLE', 'GENTLEMAN', 'GENUINE', 'GESTURE', 'GHOST', 'GIANT', 'GIFT', 'GIGGLE', 'GINGER', 'GLANCE',
+  'GLASS', 'GLEAM', 'GLIDE', 'GLOBAL', 'GLORY', 'GLOVE', 'GOAL', 'GOAT', 'GOD', 'GOLF', 'GONE', 'GOODS',
+  'GORGEOUS', 'GOSSIP', 'GOVERN', 'GRAB', 'GRACE', 'GRADE', 'GRADUAL', 'GRAIN', 'GRAND', 'GRANT', 'GRAPH', 'GRASP',
+  'GRASS', 'GRATEFUL', 'GRAVE', 'GRAY', 'GREET', 'GREW', 'GRIEF', 'GRILL', 'GRIN', 'GRIND', 'GRIP', 'GROCERY',
+  'GROUND', 'GROW', 'GROWTH', 'GUARANTEE', 'GUARD', 'GUESS', 'GUEST', 'GUIDE', 'GUILTY', 'GUITAR', 'GUN', 'HABIT',
+  'HALF', 'HALL', 'HANDLE', 'HANDSOME', 'HANG', 'HAPPEN', 'HARBOR', 'HARM', 'HARVEST', 'HAT', 'HATE', 'HAUNT',
+  'HAWK', 'HEAL', 'HEALTH', 'HEAR', 'HEAT', 'HEAVEN', 'HEIGHT', 'HELLO', 'HENCE', 'HERB', 'HERO', 'HERS',
+  'HERSELF', 'HIDE', 'HIGHWAY', 'HILL', 'HINT', 'HIRE', 'HISTORY', 'HIT', 'HOBBY', 'HOLD', 'HOLE', 'HOLIDAY',
+  'HOLLOW', 'HOLY', 'HONEST', 'HONOR', 'HOOK', 'HOPE', 'HORIZON', 'HORN', 'HOSPITAL', 'HOST', 'HOTEL', 'HOUR',
+  'HOWEVER', 'HUGE', 'HUMAN', 'HUMOR', 'HUNDRED', 'HUNT', 'HURRY', 'HURT', 'HUSBAND', 'ICE', 'IDEA', 'IDEAL',
+  'IDENTIFY', 'IDENTITY', 'IDLE', 'IGNORANT', 'IGNORE', 'ILL', 'ILLUSTRATE', 'IMAGE', 'IMAGINE', 'IMMEDIATE', 'IMPACT', 'IMPLEMENT',
+  'IMPLY', 'IMPORT', 'IMPORTANT', 'IMPOSE', 'IMPRESS', 'IMPROVE', 'INCH', 'INCIDENT', 'INCLUDE', 'INCOME', 'INCREASE', 'INDEED',
+  'INDEX', 'INDICATE', 'INDIVIDUAL', 'INDUSTRY', 'INFANT', 'INFLATION', 'INFLUENCE', 'INFORM', 'INGREDIENT', 'INJURE', 'INNER', 'INNOCENT',
+  'INPUT', 'INSECT', 'INSIDE', 'INSIST', 'INSPECT', 'INSPIRE', 'INSTALL', 'INSTEAD', 'INSTRUMENT', 'INSULT', 'INSURANCE', 'INTACT',
+  'INTAKE', 'INTEGER', 'INTEND', 'INTENSE', 'INTENT', 'INTEREST', 'INTERNAL', 'INTERNET', 'INTERPRET', 'INTERRUPT', 'INTERVIEW', 'INTRODUCE',
+  'INVENT', 'INVEST', 'INVITE', 'INVOLVE', 'IRON', 'ISLAND', 'ISSUE', 'ITEM', 'ITSELF', 'JACKET', 'JAW', 'JAZZ',
+  'JEANS', 'JET', 'JEWEL', 'JOB', 'JOIN', 'JOINT', 'JOKE', 'JOURNAL', 'JOURNEY', 'JOY', 'JUDGE', 'JUICE',
+  'JUNIOR', 'JURY', 'JUSTICE', 'JUSTIFY', 'KEEN', 'KEY', 'KICK', 'KID', 'KILL', 'KISS', 'KITCHEN', 'KNEW',
+  'KNIFE', 'KNOCK', 'LABEL', 'LABOR', 'LACK', 'LADDER', 'LADY', 'LAKE', 'LANDSCAPE', 'LANGUAGE', 'LAP', 'LASER',
+  'LATE', 'LAUNCH', 'LAUNDRY', 'LAW', 'LAWN', 'LAYER', 'LAZY', 'LEAD', 'LEADER', 'LEAF', 'LEAGUE', 'LEAN',
+  'LEASE', 'LEAST', 'LEATHER', 'LEAVE', 'LECTURE', 'LEGAL', 'LEGEND', 'LEND', 'LENGTH', 'LESS', 'LESSON', 'LET',
+  'LEVEL', 'LIBERAL', 'LIBERTY', 'LIBRARY', 'LICENSE', 'LIE', 'LIFT', 'LIKELY', 'LIMIT', 'LINK', 'LION', 'LIP',
+  'LIQUID', 'LIST', 'LISTEN', 'LITERATURE', 'LIVING', 'LOAD', 'LOAN', 'LOCAL', 'LOCATE', 'LOCK', 'LOG', 'LONELY',
+  'LOSE', 'LOSS', 'LOST', 'LOT', 'LOYAL', 'LUCK', 'LUGGAGE', 'LUNCH', 'LUNG', 'MACHINE', 'MAD', 'MAGIC',
+  'MAIL', 'MAIN', 'MAINTAIN', 'MAJOR', 'MALE', 'MALL', 'MANAGE', 'MANNER', 'MAP', 'MARCH', 'MARGIN', 'MARK',
+  'MARKET', 'MARRIAGE', 'MARRY', 'MASK', 'MASS', 'MASTER', 'MATCH', 'MATE', 'MATH', 'MATTER', 'MAYBE', 'MAYOR',
+  'MEAL', 'MEANING', 'MEASURE', 'MECHANIC', 'MEDIA', 'MEDICAL', 'MEDICINE', 'MEDIUM', 'MEET', 'MELT', 'MEMBER', 'MEMORY',
+  'MENTION', 'MENU', 'MERCY', 'MERE', 'MERIT', 'MESS', 'MESSAGE', 'METAL', 'METER', 'METHOD', 'MIDDLE', 'MILD',
+  'MILE', 'MILL', 'MIND', 'MINE', 'MINERAL', 'MINIMUM', 'MINOR', 'MINUTE', 'MIRROR', 'MISS', 'MISTAKE', 'MIX',
+  'MODE', 'MODEL', 'MODEST', 'MOMENT', 'MONEY', 'MONITOR', 'MONKEY', 'MONTH', 'MOOD', 'MORAL', 'MORNING', 'MORTAL',
+  'MOTION', 'MOTOR', 'MOUNTAIN', 'MOUSE', 'MOVIE', 'MUD', 'MULTIPLE', 'MURDER', 'MUSCLE', 'MUSEUM', 'MUTUAL', 'MYSELF',
+  'MYSTERY', 'NAIL', 'NARROW', 'NATION', 'NATIVE', 'NATURAL', 'NATURE', 'NEAT', 'NECESSARY', 'NEGATIVE', 'NEGLECT', 'NEIGHBOR',
+  'NEPHEW', 'NERVE', 'NEST', 'NET', 'NETWORK', 'NEWS', 'NICHE', 'NIECE', 'NIGHT', 'NINE', 'NOBLE', 'NOD',
+  'NOISE', 'NONE', 'NOON', 'NOR', 'NORMAL', 'NORTH', 'NOTE', 'NOTHING', 'NOTICE', 'NOVEL', 'NUMEROUS', 'NURSE',
+  'NUT', 'OAK', 'OATH', 'OBEY', 'OBJECT', 'OBLIGE', 'OBSERVE', 'OBTAIN', 'OBVIOUS', 'OCCASION', 'OCCUPY', 'OCCUR',
+  'OCEAN', 'ODD', 'OFFER', 'OFFICE', 'OFFICER', 'OKAY', 'ONCE', 'OPERA', 'OPERATE', 'OPINION', 'OPPONENT', 'OPPOSE',
+  'OPTION', 'ORDER', 'ORGAN', 'ORGANIZE', 'ORIGIN', 'OUGHT', 'OUTCOME', 'OUTER', 'OUTLINE', 'OUTPUT', 'OUTSIDE', 'OVEN',
+  'OVERALL', 'OVERCOME', 'OWNER', 'PACE', 'PACK', 'PAIN', 'PAINT', 'PAIR', 'PALACE', 'PALE', 'PANEL', 'PANIC',
+  'PARADE', 'PARENT', 'PARK', 'PARKING', 'PARTICULAR', 'PARTNER', 'PARTY', 'PASS', 'PASSAGE', 'PASSENGER', 'PASSION', 'PAST',
+  'PATH', 'PATIENT', 'PATTERN', 'PAUSE', 'PAY', 'PEACE', 'PEAK', 'PEANUT', 'PEER', 'PEN', 'PENCIL', 'PEPPER',
+  'PER', 'PERCENT', 'PERFECT', 'PERFORM', 'PERHAPS', 'PERIOD', 'PERMANENT', 'PERMISSION', 'PERSON', 'PERSONAL', 'PERSUADE', 'PET',
+  'PHASE', 'PHOTO', 'PHRASE', 'PHYSICAL', 'PIANO', 'PICK', 'PICNIC', 'PIECE', 'PIG', 'PILE', 'PILOT', 'PIN',
+  'PINK', 'PINT', 'PIPE', 'PITCH', 'PITY', 'PLAIN', 'PLAN', 'PLANE', 'PLANET', 'PLASTIC', 'PLATE', 'PLATFORM',
+  'PLEASE', 'PLEASURE', 'PLENTY', 'PLOT', 'PLUG', 'PLUS', 'POCKET', 'POEM', 'POET', 'POISON', 'POLICE', 'POLICY',
+  'POLITE', 'POLITICAL', 'POOL', 'POPULAR', 'PORK', 'PORT', 'POSE', 'POSITION', 'POSITIVE', 'POSSESS', 'POSSIBLE', 'POST',
+  'POT', 'POTATO', 'POUND', 'POUR', 'POWDER', 'POWER', 'PRACTICAL', 'PRACTICE', 'PRAISE', 'PRAY', 'PRECIOUS', 'PREDICT',
+  'PREFER', 'PREGNANT', 'PREMIUM', 'PREPARE', 'PRESENT', 'PRESIDENT', 'PRESS', 'PRESSURE', 'PRETEND', 'PRETTY', 'PREVENT', 'PREVIOUS',
+  'PRICE', 'PRIDE', 'PRIEST', 'PRIMARY', 'PRIME', 'PRINCIPAL', 'PRINT', 'PRIOR', 'PRISON', 'PRIVATE', 'PRIZE', 'PROBABLY',
+  'PROBLEM', 'PROCEED', 'PROCESS', 'PRODUCE', 'PRODUCT', 'PROFESSOR', 'PROFILE', 'PROFIT', 'PROGRAM', 'PROGRESS', 'PROJECT', 'PROMISE',
+  'PROMOTE', 'PROMPT', 'PROOF', 'PROPER', 'PROPERTY', 'PROPOSAL', 'PROSPECT', 'PROTECT', 'PROVE', 'PROVIDE', 'PUBLIC', 'PUBLISH',
+  'PULSE', 'PUMP', 'PUNCH', 'PUNISH', 'PUPIL', 'PURCHASE', 'PURE', 'PURPLE', 'PURPOSE', 'PURSUE', 'QUALITY', 'QUANTITY',
+  'QUARTER', 'QUESTION', 'QUICK', 'QUIT', 'QUITE', 'RACE', 'RADIO', 'RAIL', 'RAISE', 'RALLY', 'RANDOM', 'RANGE',
+  'RANK', 'RAPID', 'RARE', 'RATE', 'RATHER', 'RAW', 'REACH', 'REAL', 'REALIZE', 'REALLY', 'REASON', 'RECEIVE',
+  'RECENT', 'RECEPTION', 'RECIPE', 'RECOGNIZE', 'RECORD', 'RECOVER', 'REDUCE', 'REFER', 'REFLECT', 'REFORM', 'REFUSE', 'REGARD',
+  'REGION', 'REGULAR', 'REGULATE', 'REJECT', 'RELATE', 'RELAX', 'RELEASE', 'RELIABLE', 'RELIEF', 'RELIGION', 'RELY', 'REMAIN',
+  'REMARK', 'REMEMBER', 'REMIND', 'REMOTE', 'REMOVE', 'RENT', 'REPAIR', 'REPEAT', 'REPLACE', 'REPLY', 'REPORT', 'REPRESENT',
+  'REPUBLIC', 'REQUEST', 'REQUIRE', 'RESCUE', 'RESEARCH', 'RESERVE', 'RESIDENT', 'RESIST', 'RESOLVE', 'RESORT', 'RESOURCE', 'RESPECT',
+  'RESPOND', 'RESPONSE', 'REST', 'RESTAURANT', 'RESULT', 'RETAIN', 'RETIRE', 'RETURN', 'REVEAL', 'REVIEW', 'REWARD', 'RIDE',
+  'RING', 'RIPE', 'RISE', 'RISK', 'RIVER', 'ROAD', 'ROB', 'ROCK', 'ROLE', 'ROLL', 'ROOM', 'ROOT',
+  'ROPE', 'ROSE', 'ROUGH', 'ROUND', 'ROUTE', 'ROW', 'ROYAL', 'RUB', 'RUDE', 'RUIN', 'RULE', 'RURAL',
+  'RUSH', 'SAD', 'SAIL', 'SALAD', 'SALE', 'SAMPLE', 'SAND', 'SATISFY', 'SAUCE', 'SAVE', 'SCALE', 'SCAN',
+  'SCARE', 'SCENE', 'SCHEDULE', 'SCHEME', 'SCHOLAR', 'SCIENCE', 'SCISSORS', 'SCOPE', 'SCORE', 'SCRATCH', 'SCREAM', 'SCREEN',
+  'SCRIPT', 'SEA', 'SEAL', 'SEARCH', 'SEASON', 'SEAT', 'SECOND', 'SECRET', 'SECTION', 'SECTOR', 'SECURE', 'SEED',
+  'SEEK', 'SEGMENT', 'SELECT', 'SELF', 'SELL', 'SEND', 'SENIOR', 'SENSE', 'SEPARATE', 'SERIES', 'SERIOUS', 'SERVE',
+  'SERVICE', 'SESSION', 'SETTLE', 'SEVEN', 'SEVERAL', 'SEVERE', 'SEW', 'SHADE', 'SHADOW', 'SHAKE', 'SHALL', 'SHAME',
+  'SHAPE', 'SHARE', 'SHARP', 'SHEEP', 'SHEET', 'SHELF', 'SHELL', 'SHELTER', 'SHIFT', 'SHINE', 'SHIP', 'SHIRT',
+  'SHOCK', 'SHOE', 'SHOOT', 'SHOP', 'SHORE', 'SHOULDERS', 'SHOUT', 'SHOWER', 'SHUT', 'SICK', 'SIGHT', 'SIGN',
+  'SIGNAL', 'SILENCE', 'SILK', 'SILLY', 'SIMILAR', 'SIMPLE', 'SINCE', 'SINGLE', 'SISTER', 'SIT', 'SITE', 'SITUATION',
+  'SIX', 'SIZE', 'SKILL', 'SKIRT', 'SKY', 'SLICE', 'SLIDE', 'SLIGHT', 'SLIM', 'SLIP', 'SLOPE', 'SMART',
+  'SMELL', 'SMOKE', 'SMOOTH', 'SNAKE', 'SOAP', 'SOCIAL', 'SOCIETY', 'SOCK', 'SOIL', 'SOLAR', 'SOLDIER', 'SOLID',
+  'SOLUTION', 'SOLVE', 'SOMEONE', 'SOMETIMES', 'SON', 'SOON', 'SORT', 'SOUL', 'SOUP', 'SOURCE', 'SOUTH', 'SPACE',
+  'SPARE', 'SPEAK', 'SPECIAL', 'SPECIES', 'SPECIFIC', 'SPEECH', 'SPEED', 'SPHERE', 'SPILL', 'SPIN', 'SPIRIT', 'SPITE',
+  'SPLIT', 'SPOKE', 'SPONSOR', 'SPOON', 'SPORT', 'SPOT', 'SPRAY', 'SPREAD', 'SPRING', 'SQUARE', 'STABLE', 'STAFF',
+  'STAGE', 'STAIR', 'STAND', 'STANDARD', 'STARE', 'STATE', 'STATION', 'STAY', 'STEADY', 'STEAK', 'STEAL', 'STEAM',
+  'STEEL', 'STEEP', 'STEER', 'STEM', 'STEP', 'STICK', 'STING', 'STIR', 'STOOD', 'STORE', 'STORM', 'STOVE',
+  'STRAIGHT', 'STRANGE', 'STRATEGY', 'STRAW', 'STREAM', 'STREET', 'STRENGTH', 'STRESS', 'STRETCH', 'STRICT', 'STRIKE', 'STRING',
+  'STRIP', 'STROKE', 'STRUCTURE', 'STRUGGLE', 'STUDENT', 'STUDIO', 'STUFF', 'STUPID', 'STYLE', 'SUBJECT', 'SUBMIT', 'SUBSTANCE',
+  'SUBWAY', 'SUCCEED', 'SUCCESS', 'SUDDEN', 'SUFFER', 'SUGAR', 'SUGGEST', 'SUIT', 'SUMMER', 'SUPER', 'SUPPER', 'SUPPLY',
+  'SUPPORT', 'SUPPOSE', 'SUPREME', 'SURFACE', 'SURGERY', 'SURPRISE', 'SURROUND', 'SURVEY', 'SURVIVE', 'SUSPECT', 'SWEAR', 'SWEAT',
+  'SWEEP', 'SWIM', 'SWING', 'SWITCH', 'SYMBOL', 'SYSTEM', 'TACKLE', 'TAIL', 'TALE', 'TALENT', 'TALL', 'TANK',
+  'TAP', 'TAPE', 'TARGET', 'TASK', 'TASTE', 'TAX', 'TEA', 'TEACH', 'TEAM', 'TECHNICAL', 'TECHNIQUE', 'TECHNOLOGY',
+  'TEEN', 'TEMPLE', 'TEMPORARY', 'TEN', 'TEND', 'TENNIS', 'TENSION', 'TERM', 'TERRIBLE', 'TERRITORY', 'TEST', 'TEXT',
+  'THANK', 'THEME', 'THEMSELVES', 'THEORY', 'THICK', 'THIN', 'THIRD', 'THOROUGH', 'THREAD', 'THREAT', 'THROW', 'THUMB',
+  'TICKET', 'TIDE', 'TIE', 'TIGHT', 'TIN', 'TINY', 'TIP', 'TIRE', 'TITLE', 'TOAST', 'TODAY', 'TOILET',
+  'TOLD', 'TOMATO', 'TONE', 'TONIGHT', 'TOOL', 'TOPIC', 'TOTAL', 'TOUCH', 'TOUGH', 'TOUR', 'TOWARD', 'TOWER',
+  'TOWN', 'TOY', 'TRACE', 'TRACK', 'TRADE', 'TRADITION', 'TRAFFIC', 'TRANSFER', 'TRANSFORM', 'TRANSIT', 'TRANSLATE', 'TRAP',
+  'TRAVEL', 'TRAY', 'TREAT', 'TREND', 'TRIAL', 'TRIBE', 'TRICK', 'TRIP', 'TROOP', 'TROUBLE', 'TRUCK', 'TRUST',
+  'TRUTH', 'TUBE', 'TUNE', 'TWELVE', 'TWENTY', 'TWICE', 'TWIN', 'TYPE', 'TYPICAL', 'UGLY', 'ULTIMATE', 'UMBRELLA',
+  'UNABLE', 'UNCLE', 'UNDERSTAND', 'UNIFORM', 'UNION', 'UNIQUE', 'UNIT', 'UNITE', 'UNITY', 'UNIVERSE', 'UNIVERSITY', 'UNKNOWN',
+  'UNLESS', 'UNTIL', 'UPDATE', 'UPON', 'UPPER', 'UPSIDE', 'URBAN', 'URGE', 'USED', 'USEFUL', 'USUAL', 'USUALLY',
+  'VACATION', 'VALLEY', 'VALUABLE', 'VALUE', 'VAN', 'VARIETY', 'VARIOUS', 'VARY', 'VAST', 'VEGETABLE', 'VEHICLE', 'VENTURE',
+  'VERB', 'VEST', 'VIA', 'VICTIM', 'VICTORY', 'VIDEO', 'VIEW', 'VILLAGE', 'VIRUS', 'VISION', 'VISIT', 'VISUAL',
+  'VITAL', 'VITAMIN', 'VOICE', 'VOLUME', 'VOTE', 'WAGE', 'WAIT', 'WANDER', 'WAR', 'WARN', 'WASH', 'WASTE',
+  'WATCH', 'WAVE', 'WEALTH', 'WEAPON', 'WEAR', 'WEATHER', 'WEAVE', 'WEB', 'WEDDING', 'WEEK', 'WEIGH', 'WEIGHT',
+  'WELCOME', 'WEST', 'WET', 'WHEEL', 'WHETHER', 'WHITE', 'WHOLE', 'WIDOW', 'WIDTH', 'WIFE', 'WILD', 'WIN',
+  'WINE', 'WING', 'WINNER', 'WINTER', 'WIPE', 'WIRE', 'WISDOM', 'WISE', 'WISH', 'WITHIN', 'WITHOUT', 'WOLF',
+  'WOMAN', 'WONDER', 'WOODEN', 'WORRY', 'WORTH', 'WOUND', 'WRAP', 'WRITER', 'WRONG', 'YARD', 'YELLOW', 'YESTERDAY',
+  'YET', 'YIELD', 'YOURS', 'YOURSELF', 'YOUTH', 'ZERO', 'ZONE',
 ]);
 
 function pickPersonaMove(moves, elo) {
   // A persona plays like a human at its Elo, not like an engine: it
-  // prefers everyday words, and the Elo sets how deep into the pool
-  // it reaches. The pool is the everyday words plus the very best
-  // plays on the board — how many of those best plays the persona
-  // can even consider grows with Elo (a low-Elo persona only knows
-  // everyday words; a high-Elo one finds the big plays too). The
-  // reach is the fraction of the pool the pick can come from — 800
-  // Elo reaches the top half, 1000 the top quarter, 1200 the top
-  // few — and within the reach the pick is uniform, so a low-Elo
-  // persona still sometimes finds a good word. The old 5/3/1 tiers
-  // all sat within the top few moves, so every persona played
-  // near-optimally and Elo barely mattered — that is why they felt
-  // too good. With no common move available, the pool is all moves
-  // and the same Elo reach applies (a 1200 persona still plays its
-  // best).
+  // strongly prefers everyday words, and the Elo sets how deep into
+  // the pool it reaches. Most of the time (85%) the persona only
+  // considers everyday words at all — an obscure best play is only
+  // even on the table 15% of the time, and only a few of the very
+  // best plays are ever candidates. Within the pool the pick is
+  // spread over a wider slice than before, so the single best move
+  // is picked far less often: the old reach let a ~1130 persona pick
+  // the optimal move about half the time. The reach still tightens
+  // with Elo (a higher-Elo persona reaches a smaller, better slice),
+  // so Elo still means stronger play — just less optimal. Think time
+  // is unchanged (see personaThinkMsForMove): a 7s move is a simple
+  // one, a 33s think is a better outcome, averaging ~20s.
   if (!moves.length) return null;
   const common = moves.filter(m => m.mainWord && COMMON_WORDS.has(m.mainWord));
   // Best plays the persona can consider: none at 800, one more per
-  // ~75 Elo above 900, up to 5. moves is sorted by score, so the
+  // ~100 Elo above 900, up to 3. moves is sorted by score, so the
   // first few are the best plays on the board.
-  const topN = Math.max(0, Math.min(5, Math.floor((elo - 900) / 75)));
-  const pool = common.slice();
-  for (const m of moves.slice(0, topN)) if (!pool.includes(m)) pool.push(m);
+  const topN = Math.max(0, Math.min(3, Math.floor((elo - 900) / 100)));
+  const top = moves.slice(0, topN);
+  // High common-word bias: 85% of the time the pool is everyday
+  // words only. With no common move available, the pool is all moves
+  // and the same Elo reach applies (a 1200 persona still plays its
+  // best).
+  const pool = [];
+  if (common.length && Math.random() >= 0.15) pool.push(...common);
+  else {
+    for (const m of common) if (!pool.includes(m)) pool.push(m);
+    for (const m of top) if (!pool.includes(m)) pool.push(m);
+  }
   if (!pool.length) pool.push(...moves);
   pool.sort((a, b) => b.score - a.score);
   // Reach is rounded to three decimals so a floating-point hair above
-  // a round number (0.050000000000000044 at exactly 1200 Elo) cannot
-  // push the pool depth up by a whole move.
-  const reach = Math.round(Math.max(0.05, Math.min(0.5, 0.5 - (elo - 800) * 0.001125)) * 1000) / 1000;
+  // a round number cannot push the pool depth up by a whole move.
+  // 800 Elo reaches the top 60%, 1000 the top 40%, 1200 the top 20%.
+  const reach = Math.round(Math.max(0.2, Math.min(0.6, 0.6 - (elo - 800) * 0.001)) * 1000) / 1000;
   const k = Math.max(1, Math.ceil(pool.length * reach));
   return pool[Math.floor(Math.random() * Math.min(k, pool.length))];
 }

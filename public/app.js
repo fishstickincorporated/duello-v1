@@ -1408,7 +1408,7 @@ function renderGame() {
     }
   }
 }
-let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0;
+let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0, timeoutFlipUnconfirmed = false;
 let countdownInterval = null, countdownActive = false;
 let clockHoldUntil = 0;
 function canPlaceTiles() { return !!game && game.status === 'active' && game.clocks.turn === 'human' && !playInFlight && !countdownActive; }
@@ -1425,7 +1425,7 @@ async function handleTimeoutFetch() {
     // check catches it when the play has already finished.
     if (playInFlight) return;
     if (mySeq <= gameAppliedSeq) return;
-    game = next; gameAppliedSeq = mySeq; gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
+    game = next; gameAppliedSeq = mySeq; gameFetchAt = Date.now(); pending = []; selectedRack = null; timeoutFlipUnconfirmed = false; renderGame();
     if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
   } catch {} finally { timeoutFetching = false; }
 }
@@ -1464,8 +1464,28 @@ function tickClocks() {
   // stepped value and flicker over the animation.
   if (Date.now() >= runoffUntil) $('clockBot').textContent = fmtClock(b);
   // Human clock hit 0: do not leave the game sitting on a dead turn.
-  // Fetching flips the server to the bot turn, which then loops on its own.
-  if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) { $('status').textContent = 'Out of time, opponent plays on.'; updateForfeitLabel(); if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch(); }
+  // Recall any placed-but-unplayed tiles and flip the turn locally
+  // at once, instead of leaving the tile on the board and the turn
+  // sitting until the fetch round-trips. Placements are client-only
+  // until Play, so the recall needs no server call; the fetch below
+  // confirms the turn server-side. Skipped while a Play is in flight,
+  // since the server reply settles those tiles. If that fetch fails,
+  // the flip stays unconfirmed and the retry below re-fires it, so
+  // the game can never stall on a failed fetch.
+  if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) {
+    $('status').textContent = 'Out of time, opponent plays on.'; updateForfeitLabel();
+    if (!playInFlight) {
+      cleanupStuckDrag();
+      if (pending.length > 0) { pending = []; selectedRack = null; }
+      game.clocks.turn = 'bot'; gameFetchAt = Date.now(); timeoutFlipUnconfirmed = true;
+      renderGame();
+    }
+    if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch();
+  }
+  // Optimistic flip done but the server has not confirmed it yet (the
+  // fetch failed or is still out): retry it, so the bot's turn starts
+  // instead of the game sitting on a locally-flipped turn.
+  if (game.status === 'active' && timeoutFlipUnconfirmed && !timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch();
   // Opponent clock hit 0: fetch at once instead of waiting for the
   // next scheduled poll. A persona's think can run 30s, so the board
   // sat on 0:00 with the turn never coming. The fetch flips the
@@ -2395,7 +2415,12 @@ function enableRackDrag(el, idx) {
     if (Math.hypot(e.clientX - startX, e.clientY - startY) > 8) moved = true;
     if (!moved) return;
     suppressNextClick = true;
-    el.style.opacity = '0.35';
+    // The tile being dragged leaves the rack: hide it entirely while
+    // the ghost is up, so it looks like you are dragging that same
+    // tile (not a copy of one still sitting in the deck). The slot
+    // keeps its layout (opacity only), so the rack does not shift.
+    // cleanup() restores the opacity on release/cancel.
+    el.style.opacity = '0';
     showGhost(game.humanRack[idx], e.clientX, e.clientY);
     clearDropHighlights();
     const hit = cellAtPoint(e.clientX, e.clientY);

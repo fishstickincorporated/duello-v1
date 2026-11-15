@@ -2186,9 +2186,15 @@ function showStatWindow(stats) {
     $('eloMoveBot').textContent = '';
     $('eloMoveBot').className = 'elo-move';
   }
+  // A blank Elo move takes no space: the pfp column is just the
+  // pfp, so the pfp sits vertically centred with the score instead
+  // of riding high over an empty 20px row. (Fishstick games show
+  // no Elo change at all, so both pfps centre.)
+  $('eloMoveHuman').classList.toggle('hidden', !$('eloMoveHuman').textContent);
+  $('eloMoveBot').classList.toggle('hidden', !$('eloMoveBot').textContent);
   const row = (label, h, b) => `<div class="stat-row"><span class="stat-label">${label}</span><span>${h}</span><span>${b}</span></div>`;
-  const best = (x) => x.best ? `${x.best.word} (<span class="num">${x.best.score} pts</span>)` : '—';
-  const longest = (x) => x.longest ? `${x.longest.word} (<span class="num">${x.longest.word.length} letters</span>)` : '—';
+  const best = (x) => x.best ? `${x.best.word} (<span class="num">${x.best.score}</span>)` : '—';
+  const longest = (x) => x.longest ? `${x.longest.word} (<span class="num">${x.longest.word.length}</span>)` : '—';
   const opt = (x) => `${x.optimal}/${x.total}`;
   const box = (name, pfp, st, noPhoto, clearBg) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}${clearBg ? ' clear-bg' : ''}">${pfp}</span><span class="stat-box-name">${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span><br><span class="stat-val num">${opt(st)}</span></div></div>`;
   const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
@@ -2675,17 +2681,38 @@ function fmt1(v) { return (Number(v) || 0).toFixed(1); }
 function renderStatsList() {
   if (!profileData || !profileData.profileStats) return;
   const st = profileData.profileStats[statsScope] || profileData.profileStats.aggregate;
+  // Once you have played a 10-letter word (the longest a word can
+  // be on a 10-wide board), the longest-word stat becomes a count
+  // of your 10-letter words. Tapping the row lists them; it looks
+  // like every other stat line, not a link.
+  const tenCount = st.tenLetterWordCount || 0;
+  const longestLine = tenCount > 0
+    ? ['10 letter words', tenCount]
+    : ['Longest word', st.longestWord ? `${st.longestWord} (${st.longestWordLen} letters)` : '—'];
   const lines = [
     ['Average game score', st.avgGameScore], ['Highest game score', st.highestGameScore],
     ['Average word score', fmt1(st.avgWordScore)], ['Highest word score', st.highestWord ? `${st.highestWord} (${st.highestWordScore} pts)` : '—'],
     ['50+ point words', st.wordsOver50], ['100+ point words', st.wordsOver100],
     ['Lifetime bingos', st.bingos],
-    ['Longest word', st.longestWord ? `${st.longestWord} (${st.longestWordLen} letters)` : '—'],
+    longestLine,
     ['Games played', st.gamesPlayed], ['Lifetime record', st.record || '0W-0L'],
     ['Optimal move %', fmt1(st.optimalPct) + '%'], ['Unique words played', st.uniqueWords],
   ];
-  $('statsList').innerHTML = lines.map(([k, v]) => `<div class="stat-line"><span>${k}</span><b>${numify(v)}</b></div>`).join('');
+  $('statsList').innerHTML = lines.map(([k, v]) => `<div class="stat-line"${k === '10 letter words' ? ' data-ten-letter="1"' : ''}><span>${k}</span><b>${numify(v)}</b></div>`).join('');
+  const tenRow = $('statsList').querySelector('[data-ten-letter]');
+  if (tenRow) tenRow.onclick = () => openTenLetterModal(st.tenLetterWords || []);
 }
+// The 10-letter words list: a plain modal reusing the person-modal
+// shell. The row that opens it looks like any other stat line.
+function openTenLetterModal(words) {
+  $('tenLetterList').innerHTML = words.length
+    ? words.map((w) => `<div class="ten-letter-word">${w}</div>`).join('')
+    : '<div class="ten-letter-word">No 10-letter words yet.</div>';
+  $('tenLetterModal').classList.remove('hidden');
+}
+function closeTenLetterModal() { $('tenLetterModal').classList.add('hidden'); }
+$('tenLetterCloseBtn').onclick = closeTenLetterModal;
+$('tenLetterModal').addEventListener('click', e => { if (e.target === $('tenLetterModal')) closeTenLetterModal(); });
 function drawEloChart() {
   const cv = $('eloChart'); if (!cv || !profileData) return;
   const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, cv.width, cv.height);

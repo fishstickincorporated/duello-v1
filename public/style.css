@@ -253,6 +253,10 @@ same 52px column, right-aligned, on every row including your own
 .stats-list{text-align:left;font-size:15px;line-height:1.9}
 .stats-list .stat-line{display:flex;justify-content:space-between;border-bottom:1px solid #333}
 .stats-list .stat-line:last-child{border-bottom:0}
+.stats-list .stat-line[data-ten-letter]{cursor:pointer}
+.ten-letter-list{text-align:left;font-size:16px;line-height:2;max-height:50vh;overflow-y:auto;margin-top:8px}
+.ten-letter-word{border-bottom:1px solid #333}
+.ten-letter-word:last-child{border-bottom:0}
 .email-row{display:flex;align-items:center;gap:8px}
 .email-row input{flex:1}
 .verified{font-size:18px}

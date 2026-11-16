@@ -1295,10 +1295,17 @@ async function endCountdown() {
   $('countdownOverlay').classList.add('hidden');
   if (game && game.offline) {
     // Offline games never POST /start: the clocks start locally.
+    // Mark the game started (v108): the countdown completed, so this
+    // is a real game in progress — it may resume on a later launch.
+    // A game closed before this point was never started, so it must
+    // not auto-open. Persist the flag at once, so closing the app
+    // right after the countdown still leaves a resumable game.
+    game.started = true;
     countdownActive = false;
     $('gameScreen').classList.remove('counting');
     clockHoldUntil = Date.now() + 1000;
     gameFetchAt = Date.now(); game.clocks.turnStartedAt = Date.now(); pending = []; selectedRack = null; renderGame();
+    persistOfflineGame();
     if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
     return;
   }
@@ -2128,6 +2135,7 @@ function buildOfflineGame(botType) {
     clocks: { human: 240000, bot: 240000, turn, turnStartedAt: Date.now() },
     botThinkUntil: null, botThinkRemainingMs: null, botThinkMs: null,
     status: 'active', reason: null, winner: null,
+    started: false,
     consecutivePasses: 0, consecutiveNoMoves: 0,
     moves: { human: [], bot: [] },
     lastCells: [], lastWord: null, lastScore: null, lastBy: null,
@@ -2447,12 +2455,71 @@ function cancelCountdown() {
   countdownActive = false; countdownPaused = false; countdownPausedRemainingMs = 0;
   try { $('gameScreen').classList.remove('counting'); $('countdownOverlay').classList.add('hidden'); } catch {}
 }
+// True when an offline game was actually played: a move was made (human
+// or bot), a move was logged, a pass happened, or tiles are on the board.
+// A game with none of these was started and abandoned before a single
+// play — most often the app was closed during the 5s countdown. Such a
+// game is not one the user was "in the middle of", so it must never
+// auto-open on launch.
+function offlineGameHasProgress(rec) {
+  const g = rec && rec.game;
+  if (!g) return false;
+  if (g.moves && ((g.moves.human && g.moves.human.length) || (g.moves.bot && g.moves.bot.length))) return true;
+  if (rec.plays && rec.plays.length) return true;
+  if (g.isFirst === false) return true;
+  if (g.consecutivePasses > 0) return true;
+  if (g.lastHuman || g.lastBot) return true;
+  if (g.board) {
+    for (const row of g.board) for (const cell of row) if (cell) return true;
+  }
+  return false;
+}
 async function maybeResumeOfflineGame() {
   if (game && game.status === 'active') return false;
   let recs = [];
   try { recs = await offlineStoreGetAll(); } catch { return false; }
-  const rec = recs.filter((r) => r.status === 'active').sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt))[0];
-  if (!rec || !rec.game) return false;
+  // Resume ONLY a game the user genuinely was in the middle of. The
+  // old code took the newest 'active' record unconditionally, and a
+  // game is persisted as 'active' the moment it is created — before
+  // the countdown, before any move. So a game that was started and
+  // abandoned (closed during the countdown, or the user just went
+  // home / closed the app) stayed 'active' forever, and every launch
+  // dropped the user straight back into it: closing the app to escape
+  // the game is exactly what kept it 'active', so it resumed again.
+  // There was no way out except finishing or forfeiting it. Now the
+  // candidates are walked newest-first and only a record that is
+  // really still in progress is resumed; stale ones are cleaned up
+  // so they can never keep auto-opening.
+  const cands = recs.filter((r) => r.status === 'active' && r.game).sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+  let rec = null;
+  for (const cand of cands) {
+    // A finished/forfeited game whose record still claims 'active'
+    // is stale and must never resume. If it carries a real result
+    // (delta + finish time) it is corrected to 'finished' so the
+    // outbox still syncs it; otherwise it is deleted.
+    if (cand.game.status !== 'active') {
+      try {
+        if (cand.eloDelta != null && cand.finishedAt) { cand.status = 'finished'; await offlineStorePut(cand); }
+        else await offlineStoreDel(cand.offlineId);
+      } catch {}
+      continue;
+    }
+    // Never started and never played: the countdown never completed
+    // and no move or pass happened. This is a game that was created
+    // and abandoned before it began — most often the app was closed
+    // during the 5s countdown. Delete the record and open Home
+    // instead of resuming a game that never started. A game whose
+    // countdown DID complete (started) resumes even before its first
+    // move, and a game with moves resumes even if the flag is missing
+    // (an older v106/v107 record, which predates the flag).
+    if (cand.game.started !== true && !offlineGameHasProgress(cand)) {
+      try { await offlineStoreDel(cand.offlineId); } catch {}
+      continue;
+    }
+    rec = cand;
+    break;
+  }
+  if (!rec) return false;
   if (!localWords) { try { await ensureLocalWords(); } catch {} }
   const g = rec.game;
   // Re-attach what persistence strips: the solver premiums and the bot rack.

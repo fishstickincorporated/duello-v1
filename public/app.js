@@ -295,6 +295,11 @@ function preloadHomeTabs() {
   // in first, so a parallel ensureGlobalRows would see the cache
   // still empty and fetch /api/leaderboard twice.
   const run = async () => {
+    // Warm the offline dictionary first (v112): it needs no network,
+    // so it must not wait behind the /api/me call below — in airplane
+    // mode that call throws and the warm never ran, which is why the
+    // first bot tap paid the whole dictionary load.
+    try { ensureLocalWords(); } catch {}
     let d = null;
     try { d = await api('/api/me'); } catch { return; }
     try { await renderProfileUI(d); } catch {}
@@ -313,11 +318,6 @@ function preloadHomeTabs() {
     } catch {}
     try { await ensureGlobalRows(); } catch {}
     try { await loadServerFriends(); } catch {}
-    // Warm the offline engine at first online load (v107): the
-    // dictionary + solver index are fetched/built in the background
-    // during the intro, so a bot tap later is instant even if the
-    // user never lingered on the bot screen. Fire and forget.
-    try { ensureLocalWords(); } catch {}
   };
   // Idle-scheduled (v93): the 2s timeout bounds the wait, and the
   // intro now gives it a 3.4s head start, so the profile is ready
@@ -2169,8 +2169,14 @@ function buildOfflineGame(botType) {
 }
 async function startOfflineGame(botType) {
   try {
-    await ensureLocalWords();
-    if (!localWords || !localEngine) throw new Error('dictionary');
+    // The game screen opens at once (v112): the dictionary keeps
+    // loading in the background and is only needed for the first
+    // validation / bot think, both after the 5s countdown. Building
+    // the game needs only the board/rack helpers, which run on a
+    // wordless engine until the real one lands.
+    try { ensureLocalWords(); } catch {}
+    if (!localEngine) { try { localEngine = DuelloEngine.createEngine(new Set()); } catch {} }
+    if (!localEngine) throw new Error('dictionary');
     if (!me) { try { await loadMe(); } catch {} }
     if (!me) throw new Error('nouser');
     buildOfflineGame(botType);
@@ -2285,7 +2291,11 @@ function endLocalGame(reason, winnerSide) {
   renderGame();
 }
 async function doLocalPlay() {
-  if (!localEngine) { $('status').textContent = 'Offline play needs the dictionary — connect once to download it.'; return; }
+  // The dictionary may still be loading behind the countdown (v112):
+  // wait for it here — validation cannot run without it — instead of
+  // failing the play.
+  if (!localWords) { try { await ensureLocalWords(); } catch {} }
+  if (!localEngine || !localWords) { $('status').textContent = 'Offline play needs the dictionary — connect once to download it.'; return; }
   playInFlight = true;
   try {
     const placements = pending.map((p) => ({ row: p.row, col: p.col, letter: p.letter }));
@@ -2365,7 +2375,8 @@ async function runLocalBotTurn() {
     game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); game.botThinkUntil = null; game.botThinkMs = null;
     renderGame(); finishLocalIfNeeded(); return;
   }
-  if (!localEngine) { $('status').textContent = 'Offline play needs the dictionary — connect once to download it.'; return; }
+  if (!localWords) { try { await ensureLocalWords(); } catch {} }
+  if (!localEngine || !localWords) { $('status').textContent = 'Offline play needs the dictionary — connect once to download it.'; return; }
   const isFirst = game.isFirst;
   let moves = [];
   try { moves = await solveMoves(game.board, offlineBotRack, isFirst, true); } catch { moves = []; }
@@ -2540,7 +2551,11 @@ async function maybeResumeOfflineGame() {
     break;
   }
   if (!rec) return false;
-  if (!localWords) { try { await ensureLocalWords(); } catch {} }
+  // Don't block the resume on the dictionary (v112): the screen opens
+  // at once and the words finish loading behind it; play and the bot
+  // think await them if they are still in flight.
+  try { ensureLocalWords(); } catch {}
+  if (!localEngine) { try { localEngine = DuelloEngine.createEngine(new Set()); } catch {} }
   const g = rec.game;
   // Re-attach what persistence strips: the solver premiums and the bot rack.
   g.board.__premiums = g.premiums;
@@ -3587,6 +3602,10 @@ function enablePlacedDrag(el, pend) {
 
 // ---------- Startup: sign-in is required before entering the app ----------
 (async () => {
+  // Warm the offline dictionary at once (v112): it is a bundled file
+  // under Capacitor and needs no network, so it loads during the
+  // intro instead of on the first bot tap. Fire and forget.
+  try { ensureLocalWords(); } catch {}
   if (!token) { setAuthMode('signin'); show('authScreen'); return; }
   // A login check that never answers must not leave the page black: if
   // /api/me takes over 10s, show Home anyway (the transient-error path).

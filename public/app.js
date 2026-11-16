@@ -96,6 +96,13 @@ function show(id) {
   if (id !== 'rematchScreen') cancelRematch();
   ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
   const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen'].includes(id);
+  // Warm the offline engine when the bot screen opens (v107): the
+  // dictionary + solver index build used to run on the first bot tap,
+  // so the game took a few seconds to open. Warming here — while the
+  // user is still choosing a bot — makes the tap instant. Fire and
+  // forget: ensureLocalWords is idempotent and the tap awaits it if
+  // it is still in flight.
+  if (id === 'botScreen') { try { ensureLocalWords(); } catch {} }
   const tb = $('tabBar'); if (tb) tb.classList.toggle('hidden', !isMenu);
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   if ((id === 'homeScreen' || id === 'botScreen') && $('tabHome')) $('tabHome').classList.add('active');
@@ -306,6 +313,11 @@ function preloadHomeTabs() {
     } catch {}
     try { await ensureGlobalRows(); } catch {}
     try { await loadServerFriends(); } catch {}
+    // Warm the offline engine at first online load (v107): the
+    // dictionary + solver index are fetched/built in the background
+    // during the intro, so a bot tap later is instant even if the
+    // user never lingered on the bot screen. Fire and forget.
+    try { ensureLocalWords(); } catch {}
   };
   // Idle-scheduled (v93): the 2s timeout bounds the wait, and the
   // intro now gives it a 3.4s head start, so the profile is ready
@@ -372,8 +384,15 @@ async function loadServerFriends(force) {
     }
     try { localStorage.setItem('duello_friend_requests', JSON.stringify(keep)); } catch {}
   }
-  try { const d = await api('/api/friends'); serverFriends = d; serverFriendsLoadedFor = me && me.username; }
-  catch (err) { deadSession(err); serverFriends = { friends: [], incoming: [], outgoing: [] }; }
+  try { const d = await api('/api/friends'); serverFriends = d; serverFriendsLoadedFor = me && me.username; serverFriendsFromCache = false; cacheServerFriends(d); }
+  catch (err) {
+    deadSession(err);
+    // Offline (v107): fall back to the last-known friends instead of
+    // an empty list, so the Friends leaderboard renders offline.
+    const cached = loadCachedServerFriends();
+    serverFriends = cached || { friends: [], incoming: [], outgoing: [] };
+    serverFriendsFromCache = !!cached;
+  }
   return serverFriends;
 }
 function isRealFriend(username) { return (serverFriends && serverFriends.friends || []).some(u => u.username === username); }
@@ -422,11 +441,45 @@ function unrequestFriend(username) {
 }
 async function ensureGlobalRows() {
   if (!globalRows) {
-    try { const d = await api('/api/leaderboard'); globalRows = d.users || []; }
-    catch (err) { deadSession(err); globalRows = []; }
+    try { const d = await api('/api/leaderboard'); globalRows = d.users || []; globalRowsFromCache = false; cacheGlobalRows(globalRows); }
+    catch (err) {
+      deadSession(err);
+      // Offline (v107): fall back to the last-known rows instead of
+      // an empty list, so the leaderboard renders offline.
+      const cached = loadCachedGlobalRows();
+      globalRows = cached || []; globalRowsFromCache = !!cached;
+    }
   }
   return globalRows;
 }
+
+// ---------- Offline caches: leaderboards + profile (v107) ----------
+// The last-known leaderboard / friends / profile payloads, persisted
+// when online so the screens render offline instead of going blank.
+// Each entry is {…, savedAt}; the render shows a "last known —
+// offline, not live" marker whenever cached (or otherwise not live)
+// data is shown.
+function cacheGlobalRows(users) {
+  try { storeSet('duello_lb_global', JSON.stringify({ users, savedAt: new Date().toISOString() })); } catch {}
+}
+function loadCachedGlobalRows() {
+  try { const o = JSON.parse(storeGet('duello_lb_global') || 'null'); return (o && Array.isArray(o.users)) ? o.users : null; } catch { return null; }
+}
+function cacheServerFriends(d) {
+  try { storeSet('duello_friends', JSON.stringify({ friends: d.friends || [], incoming: d.incoming || [], outgoing: d.outgoing || [], savedAt: new Date().toISOString() })); } catch {}
+}
+function loadCachedServerFriends() {
+  try { const o = JSON.parse(storeGet('duello_friends') || 'null'); return (o && Array.isArray(o.friends)) ? o : null; } catch { return null; }
+}
+function cacheProfileData(d) {
+  try { storeSet('duello_profile', JSON.stringify({ data: d, savedAt: new Date().toISOString() })); } catch {}
+}
+function loadCachedProfileData() {
+  try { const o = JSON.parse(storeGet('duello_profile') || 'null'); return (o && o.data && o.data.user) ? o.data : null; } catch { return null; }
+}
+// True when the leaderboard data in memory came from the persistent
+// cache (the network fetch failed and we fell back to it).
+let globalRowsFromCache = false, serverFriendsFromCache = false;
 // One row shape for every leaderboard-style list (Global, Friends,
 // search results): rank | pfp | name over username | Elo | action.
 // The action depends on the list: Global and search show nothing
@@ -683,6 +736,19 @@ async function renderFriendsUI() {
   // runs on both scopes — a challenge should reach you wherever
   // you are on the Friends page.
   renderIncomingChallenges();
+  // Offline (v107): the list above is the last-known results, not
+  // live — say so. The marker shows whenever the data was not
+  // fetched live in this render (cached, or the device is offline
+  // and the rows are from earlier in the session). No marker when
+  // there is nothing to show at all.
+  try {
+    const staleEl = $('leaderboardStaleNote');
+    if (staleEl) {
+      const stale = isOffline() || (lbScope === 'global' ? globalRowsFromCache : serverFriendsFromCache);
+      staleEl.textContent = 'Last known results — offline, not live.';
+      staleEl.classList.toggle('hidden', !(stale && rows.length > 0));
+    }
+  } catch {}
   friendsStale = false; friendsRenderedScope = lbScope;
   // A stalled remote photo never errors, so without this the
   // circle stays empty: swap any leaderboard photo that hasn't
@@ -837,7 +903,7 @@ async function runFriendSearch() {
   if (mySearch !== friendSearchSeq) return;
   // Server search, not the top-25 leaderboard: a new account at
   // 1000 Elo is below the top 25 and was unfindable before.
-  let users = null, searchFallback = false, searchFailReason = '';
+  let users = null, searchFallback = false, searchFailReason = '', searchOffline = false;
   try { const d = await api('/api/users/search?q=' + encodeURIComponent(q)); users = d.users || []; }
   catch (err) {
     // A dead session goes to sign-in, never to the fallback: the
@@ -848,6 +914,11 @@ async function runFriendSearch() {
     if (deadSession(err)) return;
     searchFallback = true;
     searchFailReason = (err && err.message) || 'network error';
+    // Offline (v107): the search cannot reach the server, so the
+    // note says exactly that — not "search isn't working". The
+    // fallback rows below still come from the last-known
+    // leaderboard (item 5) when there is one.
+    searchOffline = isOffline() || /failed to fetch|network/i.test(searchFailReason);
     const rows = await ensureGlobalRows();
     users = rows.filter(u => (`${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)));
   }
@@ -857,7 +928,7 @@ async function runFriendSearch() {
   const frag = document.createDocumentFragment();
   if (searchFallback) {
     const note = document.createElement('div'); note.className = 'small';
-    note.textContent = `Search isn't working (${searchFailReason}) — showing top players only.`;
+    note.textContent = searchOffline ? 'search requires an internet connection' : `Search isn't working (${searchFailReason}) — showing top players only.`;
     frag.appendChild(note);
   }
   // At most the 5 most relevant results (the server already
@@ -938,6 +1009,14 @@ $('playFriendsBtn').onclick = showFriendsTab;
 // friends backend to deliver it; until then a real player just
 // never answers, and the screen says so plainly instead of
 // hanging on the wait.
+// Offline signal for UI copy (v107): navigator.onLine is false in
+// airplane mode and on a dead connection. It can lie on captive
+// portals, but for "what should the screen say" it is the right
+// signal — the game-start path still falls back to the local engine
+// on any fetch failure, whatever this says.
+function isOffline() {
+  return (typeof navigator !== 'undefined' && navigator.onLine === false);
+}
 let searchTimer = null, searchingActive = false;
 let searchMode = 'random', challengePersona = null, liveChallengeId = null;
 function cancelSearch() {
@@ -957,11 +1036,27 @@ function startSearching() {
   cancelSearch();
   searchingActive = true;
   show('searchingScreen');
-  searchTimer = setTimeout(() => {
+  // Offline (v107): a persona opponent cannot be found without a
+  // connection, so the screen says so plainly instead of pretending
+  // to search — and the match waits, re-checking every 2s, until the
+  // connection is back instead of firing a match that fails silently.
+  const waitForConnection = () => {
     if (!searchingActive) return;
-    searchingActive = false; searchTimer = null;
-    startGame('persona');
-  }, 2000 + Math.floor(Math.random() * 1000));
+    if (isOffline()) {
+      $('searchingText').textContent = 'searching for internet connection';
+      searchTimer = setTimeout(waitForConnection, 2000);
+      return;
+    }
+    $('searchingText').textContent = 'Searching for opponent…';
+    searchTimer = setTimeout(() => {
+      if (!searchingActive) return;
+      // The connection may have dropped while the timer was running.
+      if (isOffline()) { waitForConnection(); return; }
+      searchingActive = false; searchTimer = null;
+      startGame('persona');
+    }, 2000 + Math.floor(Math.random() * 1000));
+  };
+  waitForConnection();
 }
 async function startChallenge(r) {
   cancelSearch();
@@ -1221,7 +1316,7 @@ function startCountdown(targetMs) {
   if (countdownInterval) clearInterval(countdownInterval);
   if (syncFallbackTimer) { clearTimeout(syncFallbackTimer); syncFallbackTimer = null; }
   waitingForSync = false;
-  countdownActive = true;
+  countdownActive = true; countdownTargetMs = targetMs; countdownPaused = false; countdownPausedRemainingMs = 0;
   $('gameScreen').classList.add('counting');
   // Re-render so the rack is blank slots (and controls disabled) during
   // the wait, even if an earlier render drew letters before the flag set.
@@ -1418,7 +1513,11 @@ function renderGame() {
   // in flight (the rack has blank slots then, so a server shuffle
   // would be rejected), and a server shuffle otherwise.
   $('shuffleBtn').disabled = false;
-  $('forfeitBtn').disabled = countdownActive;
+  // Forfeit is available at all times during an active game, including
+  // the 5s countdown (v107 — it used to be disabled until the countdown
+  // ended, so a mistap left no way out but to wait). The game is
+  // finished when it ends, so the controls hide with it.
+  $('forfeitBtn').disabled = false;
   updateForfeitLabel();
   document.querySelector('.controls').classList.toggle('hidden', finished);
   $('endButtons').classList.toggle('hidden', !finished);
@@ -1449,6 +1548,9 @@ function renderGame() {
 }
 let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0, timeoutFlipUnconfirmed = false;
 let countdownInterval = null, countdownActive = false;
+// Countdown pause (v107): the absolute target, and the remaining time
+// saved when the app hides mid-countdown so it resumes on return.
+let countdownTargetMs = 0, countdownPaused = false, countdownPausedRemainingMs = 0;
 let clockHoldUntil = 0;
 function canPlaceTiles() { return !!game && game.status === 'active' && game.clocks.turn === 'human' && !playInFlight && !countdownActive; }
 async function handleTimeoutFetch() {
@@ -1471,6 +1573,17 @@ async function handleTimeoutFetch() {
 }
 function tickClocks() {
   if (!game) return;
+  // Offline pause (v107): while the app is hidden, no wall-clock time
+  // may accumulate — reset the turn timer on every tick so the elapsed
+  // never grows, and run none of the timeout/end logic. v106 only
+  // settled the clock once at hide time, but this 100ms interval kept
+  // running and kept draining the settled clocks while the app sat in
+  // the background. Online games are untouched: the server clock runs
+  // there by design, and the next poll re-syncs on return.
+  if (game.offline && typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+    gameFetchAt = Date.now();
+    return;
+  }
   // Synced countdown (real-player games): the shared end can arrive
   // on the stream or on a poll, and the 100ms tick notices either
   // within a tenth of a second. The remaining time is relative
@@ -2200,6 +2313,9 @@ async function doLocalPass() {
 }
 function doLocalForfeit() {
   if (!game || !game.offline) return;
+  // A forfeit during the countdown stops it (v107) — doLocalForfeit is
+  // also the local path, so cancel here too, not just in the button.
+  cancelCountdown();
   const wasOutOfTime = humanOutOfTime();
   // Exit (out of time): the loss is recorded, but there is no stat
   // window — leave straight to the main menu, like the online path.
@@ -2288,14 +2404,48 @@ async function applyHumanNoMovePassLocal() {
 // closed is ever charged.
 function pauseOfflineClocks() {
   if (!game || !game.offline || game.status !== 'active') return;
-  settleLocalClock();
+  // A pending bot think must not fire while the app is closed: the bot
+  // would move (and drain its clock) in the background. Cleared here;
+  // resumeOfflineClocks re-arms the turn on return.
+  if (botTimer) { clearTimeout(botTimer); botTimer = null; }
+  // Pause the countdown too (v107): the 5s overlay must not complete
+  // while the app is closed. The remaining time is kept and the
+  // countdown resumes on return. The clocks have not started yet
+  // during a countdown, so there is nothing to settle — settling
+  // would wrongly charge the countdown seconds to the clock.
+  if (countdownActive) {
+    if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+    countdownPausedRemainingMs = Math.max(0, (countdownTargetMs || Date.now()) - Date.now());
+    countdownPaused = true;
+  } else {
+    settleLocalClock();
+  }
   persistOfflineGame();
 }
 function resumeOfflineClocks() {
   if (!game || !game.offline || game.status !== 'active') return;
   gameFetchAt = Date.now(); game.clocks.turnStartedAt = Date.now();
+  // A countdown paused on hide resumes from its remaining time.
+  if (countdownPaused) {
+    countdownPaused = false;
+    const remaining = countdownPausedRemainingMs || 0;
+    countdownPausedRemainingMs = 0;
+    startCountdown(Date.now() + Math.max(200, remaining));
+    return;
+  }
   renderGame();
   if (game.clocks.turn === 'bot' && !botTimer) beginBotTurn();
+}
+// Stop a running countdown outright (forfeit during the countdown,
+// v107): the interval is cleared, the overlay hides, and endCountdown
+// never fires — otherwise it would POST /start (or restart the local
+// clocks) on a game that is already finished.
+function cancelCountdown() {
+  if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+  if (syncFallbackTimer) { clearTimeout(syncFallbackTimer); syncFallbackTimer = null; }
+  waitingForSync = false;
+  countdownActive = false; countdownPaused = false; countdownPausedRemainingMs = 0;
+  try { $('gameScreen').classList.remove('counting'); $('countdownOverlay').classList.add('hidden'); } catch {}
 }
 async function maybeResumeOfflineGame() {
   if (game && game.status === 'active') return false;
@@ -2751,6 +2901,9 @@ $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => {
   catch { game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt; renderGame(); }
 }, '-30s');
 $('forfeitBtn').onclick = armButton($('forfeitBtn'), () => humanOutOfTime() ? 'Exit' : 'Forfeit', async () => {
+  // Forfeiting during the countdown stops it outright (v107): the
+  // countdown must never fire endCountdown on a finished game.
+  cancelCountdown();
   // Offline games forfeit locally: the forfeiter loses, no server call.
   if (game && game.offline) { doLocalForfeit(); return; }
   const wasOutOfTime = humanOutOfTime();
@@ -3401,12 +3554,20 @@ async function renderProfileUI(prefetched) {
   // payload it already fetched for the session check, so the profile
   // is not fetched twice at boot.
   let d = prefetched || null;
+  let fromCache = false;
   try { if (!d) d = await api('/api/me'); }
   catch (err) {
     if (err && err.message === 'Not signed in.') { token = ''; storeDel('duello_token'); me = null; profileData = null; setAuthMode('signin'); show('authScreen'); }
-    return;
+    // Offline (v107): fall back to the last-known profile instead of
+    // leaving the tab blank. Nothing cached and never loaded online
+    // means there is still nothing to show.
+    else { d = loadCachedProfileData(); if (!d) return; fromCache = true; }
+    if (!d) return;
   }
   profileData = d; me = d.user; persistMe();
+  if (!fromCache) cacheProfileData(d);
+  // Offline (v107): the profile above is the last-known one, not live.
+  try { const staleEl = $('profileStaleNote'); if (staleEl) { staleEl.textContent = 'Last known profile — offline, not live.'; staleEl.classList.toggle('hidden', !fromCache); } } catch {}
   const u = profileData.user;
   $('profilePfp').innerHTML = usablePhoto(u) ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44); $('profilePfp').classList.toggle('no-photo', !usablePhoto(u));
   $('profileName').textContent = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;

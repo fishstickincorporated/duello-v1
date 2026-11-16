@@ -1,11 +1,11 @@
-// Duello service worker (v106) — web only. Never registered under Capacitor
+// Duello service worker (v107) — web only. Never registered under Capacitor
 // (the iOS shell is bundled; index.html guards registration with a
 // window.Capacitor check). No build step, no Workbox.
 //
 // Cache-first (keyed by FULL URL, query string included, so a ?v=N bump
 // naturally fetches new files):
 //   '/', '/app.js?v=N', '/engine.js?v=N', '/style.css?v=N',
-//   '/engine-worker.js?v=N' (v106 solver worker — cached on first fetch,
+//   '/engine-worker.js?v=N' (v107 solver worker — cached on first fetch,
 //   not precached), '/assets/*', '/privacy.html', GET /api/words.
 // Network-only (never cached, passed straight through):
 //   every other /api/* path (/api/games/*, /api/me, /api/leaderboard,
@@ -18,15 +18,15 @@
 // preserves that). Old caches are deleted on activate.
 'use strict';
 
-var CACHE_NAME = 'duello-v106';
+var CACHE_NAME = 'duello-v107';
 
 // Precached on install (small shell only). /api/words is deliberately NOT
 // precached — it is a 1.2 MB lazy fetch, cached on first use (see below).
 var PRECACHE_URLS = [
   '/',
-  '/app.js?v=106',
-  '/engine.js?v=106',
-  '/style.css?v=106',
+  '/app.js?v=107',
+  '/engine.js?v=107',
+  '/style.css?v=107',
   '/privacy.html'
 ];
 

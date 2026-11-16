@@ -498,17 +498,28 @@
   // the index built from it, so the server and the client run the
   // exact same solver against the exact same dictionary.
   function createEngine(WORDS) {
-    // Index: length -> pos -> letter -> words. Built once per engine.
+    // Solver index (length -> pos -> letter -> words). Built LAZILY on
+    // the first findMoves call, not at creation (v107): the index build
+    // is the ~1s startup cost that used to block the first bot-game tap
+    // — the tap only needs makePremiums/drawRack/emptyBoard, none of
+    // which touch the index, so creation is now cheap and the game
+    // screen opens at once. findMoves is the only reader; the maps
+    // are created eagerly (empty) so the exported references stay valid.
     const DICT_BY_LEN = new Map();
     const FIXED_INDEX = new Map();
-    for (const w of WORDS) {
-      if (!DICT_BY_LEN.has(w.length)) DICT_BY_LEN.set(w.length, []);
-      DICT_BY_LEN.get(w.length).push(w);
-      for (let p = 0; p < w.length; p++) {
-        const key = `${w.length}|${p}|${w[p]}`;
-        if (!FIXED_INDEX.has(key)) FIXED_INDEX.set(key, []);
-        FIXED_INDEX.get(key).push(w);
+    let indexBuilt = false;
+    function ensureIndex() {
+      if (indexBuilt) return;
+      for (const w of WORDS) {
+        if (!DICT_BY_LEN.has(w.length)) DICT_BY_LEN.set(w.length, []);
+        DICT_BY_LEN.get(w.length).push(w);
+        for (let p = 0; p < w.length; p++) {
+          const key = `${w.length}|${p}|${w[p]}`;
+          if (!FIXED_INDEX.has(key)) FIXED_INDEX.set(key, []);
+          FIXED_INDEX.get(key).push(w);
+        }
       }
+      indexBuilt = true;
     }
 
     function rackSubset(letters, rack) {
@@ -649,6 +660,7 @@
     }
 
     function findMoves(board, rack, isFirst, wantAll) {
+      ensureIndex();
       const moves = [];
       let best = null;
       const consider = (move) => {

@@ -655,7 +655,7 @@ async function renderFriendsUI() {
     // here start at 1 — your Global rank is a different number,
     // shown on your profile.
     const realRows = (serverFriends.friends || []).map(u => toLbRow(u));
-    const selfRow = me ? toLbRow({ id: me.id, username: me.username, firstName: me.firstName, lastName: me.lastName, elo: me.elo, photoData: me.photoData || null, isPersona: false }) : null;
+    const selfRow = me ? toLbRow({ id: me.id, username: me.username, firstName: me.firstName, lastName: me.lastName, elo: localElo(), photoData: me.photoData || null, isPersona: false }) : null;
     rows = [...realRows, ...(selfRow ? [selfRow] : [])].sort((a, b) => b.elo - a.elo);
     // Ties share a rank, and the next rank skips ahead: two players
     // tied at 19 are both 19, and the next player is 21.
@@ -928,7 +928,7 @@ async function runFriendSearch() {
   const frag = document.createDocumentFragment();
   if (searchFallback) {
     const note = document.createElement('div'); note.className = 'small';
-    note.textContent = searchOffline ? 'search requires an internet connection' : `Search isn't working (${searchFailReason}) — showing top players only.`;
+    note.textContent = searchOffline ? 'Search requires an internet connection.' : `Search isn't working (${searchFailReason}) — showing top players only.`;
     frag.appendChild(note);
   }
   // At most the 5 most relevant results (the server already
@@ -1043,7 +1043,7 @@ function startSearching() {
   const waitForConnection = () => {
     if (!searchingActive) return;
     if (isOffline()) {
-      $('searchingText').textContent = 'searching for internet connection';
+      $('searchingText').textContent = 'Searching for internet connection…';
       searchTimer = setTimeout(waitForConnection, 2000);
       return;
     }
@@ -1070,6 +1070,9 @@ async function startChallenge(r) {
     // accepts or declines there. Wait up to 60 seconds, polling
     // the challenge every 2 seconds; Cancel (or the timeout)
     // withdraws it so it never sits stale on their page.
+    // Sync first (v111): the challenge is created from the server
+    // Elo, so finished offline games must land before it goes out.
+    if (!isOffline()) await syncBeforeOnlinePlay();
     let challengeId = null;
     try {
       const d = await api('/api/challenges', { method: 'POST', body: JSON.stringify({ username: r.username }) });
@@ -1263,6 +1266,11 @@ $('fishstickBtn').onclick = () => startGame('fishstick');
 let currentPersonaId = null;
 async function startGame(bot, personaId) {
   currentBot = bot; currentPersonaId = personaId || null; botTurnTapTime = Date.now();
+  // Online games are created from the server Elo: sync any finished
+  // offline games first, so the new game is priced from the current
+  // Elo, not a stale one (v111). Offline this is skipped — the tap
+  // falls through to the local game below.
+  if (!isOffline()) await syncBeforeOnlinePlay();
   try {
     game = await api('/api/games', { method: 'POST', body: JSON.stringify(personaId ? { bot, personaId } : { bot }) });
     // A random Play Online match learns its persona here, so Play
@@ -2666,6 +2674,19 @@ async function drainOutbox() {
     drainRunning = false;
   }
 }
+// Before an online or friend game starts, the server must have every
+// finished offline game: the new game's Elo is computed from the
+// server Elo, so starting on a stale one would misprice the game.
+// Wait for a running drain (up to 15s), then run one if the outbox
+// is non-empty. Callers skip this entirely when offline — the drain
+// itself also bails at once when the network is down (v111).
+async function syncBeforeOnlinePlay() {
+  try {
+    const t0 = Date.now();
+    while (drainRunning && Date.now() - t0 < 15000) await new Promise(r => setTimeout(r, 100));
+    if (outboxMayBeNonEmpty) await drainOutbox();
+  } catch {}
+}
 const LOCAL_VALUES = { A:1,B:4,C:4,D:3,E:1,F:5,G:3,H:4,I:1,J:9,K:6,L:2,M:4,N:2,O:1,P:4,Q:10,R:1,S:1,T:1,U:2,V:6,W:5,X:8,Y:5,Z:9 };
 const SIZE = 10;
 function localWordAt(board, r, c, dir) {
@@ -3152,16 +3173,7 @@ function showStatWindow(stats) {
     $('eloMoveBot').textContent = '';
     $('eloMoveBot').className = 'elo-move';
   }
-  // Offline game, not yet synced: the Elo move is local-only until the
-  // server confirms it — mark it pending instead of hiding it (v106).
-  // A Fishstick +0 stays blank, as online: there is no move to mark.
-  if (game && game.offline && game.offlinePending && $('eloMoveHuman').textContent) {
-    $('eloMoveHuman').textContent += ' · pending sync';
-  }
-  // A blank Elo move takes no space: the pfp column is just the
-  // pfp, so the pfp sits vertically centred with the score instead
-  // of riding high over an empty 20px row. (Fishstick games show
-  // no Elo change at all, so both pfps centre.)
+  // (Fishstick games show no Elo change at all, so both pfps centre.)
   $('eloMoveHuman').classList.toggle('hidden', !$('eloMoveHuman').textContent);
   $('eloMoveBot').classList.toggle('hidden', !$('eloMoveBot').textContent);
   const row = (label, h, b) => `<div class="stat-row"><span class="stat-label">${label}</span><span>${h}</span><span>${b}</span></div>`;
@@ -3652,13 +3664,17 @@ async function renderProfileUI(prefetched) {
   $('profileName').textContent = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
   $('profileUsername').textContent = '@' + u.username;
   $('profileJoined').innerHTML = 'Joined ' + numify(formatJoined(u.createdAt));
-  $('profileElo').textContent = u.elo;
+  $('profileElo').textContent = localElo(); // instant offline: includes unsynced deltas (v111), not just the last synced Elo
   $('profileEloHigh').textContent = u.eloHigh;
   // Global Rank sits above the chart with Elo and All-time high.
   // Show the cached rank at once when it is there (v75 cache), else
-  // fetch it once and cache it, like the profile modal does.
+  // fetch it once and cache it, like the profile modal does. On a
+  // last-known (offline) profile the rank is never fetched live:
+  // a stale screen must not show the latest rank (v110).
   const cachedRank = rankCache.get(u.username);
-  if (cachedRank != null) $('profileGlobalRank').textContent = cachedRank;
+  if (fromCache) {
+    $('profileGlobalRank').textContent = cachedRank != null ? cachedRank : '—';
+  } else if (cachedRank != null) $('profileGlobalRank').textContent = cachedRank;
   else {
     $('profileGlobalRank').textContent = '—';
     api('/api/users/rank?username=' + encodeURIComponent(u.username)).then(d => { rankCache.set(u.username, d.rank); if (profileData && profileData.user && profileData.user.username === u.username) $('profileGlobalRank').textContent = d.rank; }).catch(() => {});

@@ -1266,13 +1266,28 @@ $('fishstickBtn').onclick = () => startGame('fishstick');
 let currentPersonaId = null;
 async function startGame(bot, personaId) {
   currentBot = bot; currentPersonaId = personaId || null; botTurnTapTime = Date.now();
-  // Online games are created from the server Elo: sync any finished
-  // offline games first, so the new game is priced from the current
-  // Elo, not a stale one (v111). Offline this is skipped — the tap
-  // falls through to the local game below.
-  if (!isOffline()) await syncBeforeOnlinePlay();
+  // v113: when the device reports no network, don't attempt a server
+  // game at all. The POST is guaranteed to fail, and on iOS the
+  // failure can take seconds to surface — that hang, not the
+  // dictionary, is the delay Jeff still saw on build 29. Go straight
+  // to the local game.
+  if (isOffline()) {
+    if (bot === 'competitive' || bot === 'fishstick') { await startOfflineGame(bot); return; }
+    return;
+  }
+  // The device thinks it is online, but the connection may still be
+  // dead (Wi-Fi with no internet): bound the whole server attempt —
+  // sync + POST — to 1.5s, then fall back to the local game for bot
+  // play instead of hanging the tap. A late server reply is ignored.
+  const online = (async () => {
+    // Online games are created from the server Elo: sync any finished
+    // offline games first, so the new game is priced from the current
+    // Elo, not a stale one (v111).
+    await syncBeforeOnlinePlay();
+    return await api('/api/games', { method: 'POST', body: JSON.stringify(personaId ? { bot, personaId } : { bot }) });
+  })();
   try {
-    game = await api('/api/games', { method: 'POST', body: JSON.stringify(personaId ? { bot, personaId } : { bot }) });
+    game = await Promise.race([online, new Promise((_, rej) => setTimeout(() => rej(new Error('server-timeout')), 1500))]);
     // A random Play Online match learns its persona here, so Play
     // Again rematches the same person instead of drawing a new one.
     if (game.persona) currentPersonaId = game.persona.id;
@@ -2177,7 +2192,15 @@ async function startOfflineGame(botType) {
     try { ensureLocalWords(); } catch {}
     if (!localEngine) { try { localEngine = DuelloEngine.createEngine(new Set()); } catch {} }
     if (!localEngine) throw new Error('dictionary');
-    if (!me) { try { await loadMe(); } catch {} }
+    // v113: on a cold launch the boot /api/me may still be hanging when
+    // the tap lands, so me is not set yet — take the persisted user
+    // first instead of awaiting a network call that is doomed offline.
+    // Only fall back to the network when there is no persisted user.
+    if (!me) {
+      const stored = loadPersistedMe();
+      if (stored) me = stored;
+      else { try { await loadMe(); } catch {} }
+    }
     if (!me) throw new Error('nouser');
     buildOfflineGame(botType);
     persistOfflineGame();

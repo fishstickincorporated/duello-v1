@@ -20,7 +20,12 @@ CREATE TABLE IF NOT EXISTS games (
   client_game_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS games_client_game_id_unique ON games (client_game_id);
+-- NOTE (v106 deploy fix): do NOT put the games_client_game_id_unique index
+-- here. On an existing database CREATE TABLE IF NOT EXISTS is a no-op, so
+-- the index would run before the column exists and crash initDb with
+-- 'column "client_game_id" does not exist' (killed the first v106 Render
+-- deploy). server.js adds the column (line 141) and creates the index
+-- (line 142) after it, which is the only place the index is created.
 CREATE TABLE IF NOT EXISTS elo_history (
   id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), game_id INTEGER,
   elo_after INTEGER NOT NULL, delta INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()

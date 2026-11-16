@@ -318,6 +318,16 @@ function preloadHomeTabs() {
     } catch {}
     try { await ensureGlobalRows(); } catch {}
     try { await loadServerFriends(); } catch {}
+    // Warm the rank cache for friends (v114): their Global Ranks are
+    // fetched once here so they are cached for offline, even if the
+    // Friends tab is never opened. Already-cached names are skipped;
+    // the render-time warm on the tab itself does the same.
+    try {
+      for (const f of (serverFriends && serverFriends.friends || [])) {
+        if (!f || !f.username || rankCache.has(f.username)) continue;
+        api('/api/users/rank?username=' + encodeURIComponent(f.username)).then(d => setRank(f.username, d.rank)).catch(() => {});
+      }
+    } catch {}
   };
   // Idle-scheduled (v93): the 2s timeout bounds the wait, and the
   // intro now gives it a 3.4s head start, so the profile is ready
@@ -358,6 +368,16 @@ let friendsStale = true, friendsRenderedScope = null;
 // looks. Cleared when a game ends, because Elos (and therefore
 // ranks) move then.
 const rankCache = new Map();
+// Persisted ranks (v114): the same ranks, in localStorage, so the
+// profile and friends' Global Ranks are available offline. The
+// session Map above is still cleared when a game ends (Elos moved,
+// so ranks are re-fetched online); the persisted copy is the
+// last-known fallback and survives that clear — it is only ever a
+// display value, never a substitute for a fresh fetch online.
+const persistedRankCache = new Map();
+try { const o = JSON.parse(storeGet('duello_rank_cache') || 'null'); if (o && typeof o === 'object') for (const [u, r] of Object.entries(o)) if (typeof r === 'number') persistedRankCache.set(u, r); } catch {}
+function persistRankCache() { try { storeSet('duello_rank_cache', JSON.stringify(Object.fromEntries(persistedRankCache))); } catch {} }
+function setRank(username, rank) { if (!username || typeof rank !== 'number') return; rankCache.set(username, rank); persistedRankCache.set(username, rank); persistRankCache(); }
 // Server-owned friend state for the signed-in account: accepted
 // friends, incoming requests, outgoing requests. Cached per
 // username, so switching accounts never shows the old account's
@@ -449,6 +469,10 @@ async function ensureGlobalRows() {
       const cached = loadCachedGlobalRows();
       globalRows = cached || []; globalRowsFromCache = !!cached;
     }
+    // Cache every row's Global Rank (v114): the leaderboard is the
+    // one place the server hands out true ranks for everyone at
+    // once, so this covers me and every friend on it, for offline.
+    for (const u of globalRows) if (u && u.username && typeof u.rank === 'number') setRank(u.username, u.rank);
   }
   return globalRows;
 }
@@ -456,9 +480,9 @@ async function ensureGlobalRows() {
 // ---------- Offline caches: leaderboards + profile (v107) ----------
 // The last-known leaderboard / friends / profile payloads, persisted
 // when online so the screens render offline instead of going blank.
-// Each entry is {…, savedAt}; the render shows a "last known —
-// offline, not live" marker whenever cached (or otherwise not live)
-// data is shown.
+// Each entry is {…, savedAt}. Cached data renders with no marker:
+// the "last known" notes were removed in v114 — the screens just
+// show the last-known data as-is.
 function cacheGlobalRows(users) {
   try { storeSet('duello_lb_global', JSON.stringify({ users, savedAt: new Date().toISOString() })); } catch {}
 }
@@ -551,11 +575,15 @@ async function openPersonModal(person) {
   // rank fetched before sits in the session cache. Otherwise
   // fetch it once (and cache it) instead of on every open; '—'
   // only while that first fetch is in flight.
-  const knownRank = person.globalRank ?? rankCache.get(person.username);
-  if (knownRank != null) $('personRank').textContent = knownRank;
-  else {
-    $('personRank').textContent = '—';
-    api('/api/users/rank?username=' + encodeURIComponent(person.username)).then(d => { rankCache.set(person.username, d.rank); if (modalPerson && modalPerson.username === person.username) $('personRank').textContent = d.rank; }).catch(() => {});
+  // Show the last-known rank at once when there is one (v114: the
+  // persisted cache covers offline), and still fetch a fresh one
+  // whenever the session cache misses — a game just ended, say —
+  // so the number never sits stale online. No fetch offline.
+  const mapRank = person.globalRank ?? rankCache.get(person.username);
+  const knownRank = mapRank != null ? mapRank : persistedRankCache.get(person.username);
+  $('personRank').textContent = knownRank != null ? knownRank : '—';
+  if (mapRank == null && !isOffline()) {
+    api('/api/users/rank?username=' + encodeURIComponent(person.username)).then(d => { setRank(person.username, d.rank); if (modalPerson && modalPerson.username === person.username) $('personRank').textContent = d.rank; }).catch(() => {});
   }
   $('personAddBtn').style.display = person.isYou ? 'none' : '';
   renderPersonAddBtn();
@@ -736,19 +764,9 @@ async function renderFriendsUI() {
   // runs on both scopes — a challenge should reach you wherever
   // you are on the Friends page.
   renderIncomingChallenges();
-  // Offline (v107): the list above is the last-known results, not
-  // live — say so. The marker shows whenever the data was not
-  // fetched live in this render (cached, or the device is offline
-  // and the rows are from earlier in the session). No marker when
-  // there is nothing to show at all.
-  try {
-    const staleEl = $('leaderboardStaleNote');
-    if (staleEl) {
-      const stale = isOffline() || (lbScope === 'global' ? globalRowsFromCache : serverFriendsFromCache);
-      staleEl.textContent = 'Last known results — offline, not live.';
-      staleEl.classList.toggle('hidden', !(stale && rows.length > 0));
-    }
-  } catch {}
+  // (v114: the "Last known results" marker is gone — cached data
+  // just shows, with no note. The hidden note element stays in the
+  // DOM.)
   friendsStale = false; friendsRenderedScope = lbScope;
   // A stalled remote photo never errors, so without this the
   // circle stays empty: swap any leaderboard photo that hasn't
@@ -763,7 +781,7 @@ async function renderFriendsUI() {
   if (lbScope === 'friends') {
     for (const r of rows) {
       if (rankCache.has(r.username)) continue;
-      api('/api/users/rank?username=' + encodeURIComponent(r.username)).then(d => rankCache.set(r.username, d.rank)).catch(() => {});
+      api('/api/users/rank?username=' + encodeURIComponent(r.username)).then(d => setRank(r.username, d.rank)).catch(() => {});
     }
   }
 }
@@ -3699,8 +3717,9 @@ async function renderProfileUI(prefetched) {
   }
   profileData = d; me = d.user; persistMe();
   if (!fromCache) cacheProfileData(d);
-  // Offline (v107): the profile above is the last-known one, not live.
-  try { const staleEl = $('profileStaleNote'); if (staleEl) { staleEl.textContent = 'Last known profile — offline, not live.'; staleEl.classList.toggle('hidden', !fromCache); } } catch {}
+  // (v114: the "Last known profile" marker is gone — a cached
+  // profile just shows, with no note. The hidden note element
+  // stays in the DOM.)
   const u = profileData.user;
   $('profilePfp').innerHTML = usablePhoto(u) ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44); $('profilePfp').classList.toggle('no-photo', !usablePhoto(u));
   $('profileName').textContent = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
@@ -3715,11 +3734,17 @@ async function renderProfileUI(prefetched) {
   // a stale screen must not show the latest rank (v110).
   const cachedRank = rankCache.get(u.username);
   if (fromCache) {
-    $('profileGlobalRank').textContent = cachedRank != null ? cachedRank : '—';
+    // Offline (v114): the persisted rank is the last-known one —
+    // show it instead of '—'. Never fetched live (v110).
+    const knownRank = cachedRank != null ? cachedRank : persistedRankCache.get(u.username);
+    $('profileGlobalRank').textContent = knownRank != null ? knownRank : '—';
   } else if (cachedRank != null) $('profileGlobalRank').textContent = cachedRank;
   else {
-    $('profileGlobalRank').textContent = '—';
-    api('/api/users/rank?username=' + encodeURIComponent(u.username)).then(d => { rankCache.set(u.username, d.rank); if (profileData && profileData.user && profileData.user.username === u.username) $('profileGlobalRank').textContent = d.rank; }).catch(() => {});
+    // Show the last-known rank while the fresh one loads (v114),
+    // instead of '—', then replace it when the fetch lands.
+    const knownRank = persistedRankCache.get(u.username);
+    $('profileGlobalRank').textContent = knownRank != null ? knownRank : '—';
+    api('/api/users/rank?username=' + encodeURIComponent(u.username)).then(d => { setRank(u.username, d.rank); if (profileData && profileData.user && profileData.user.username === u.username) $('profileGlobalRank').textContent = d.rank; }).catch(() => {});
   }
   renderStatsList(); drawEloChart();
 }

@@ -1305,6 +1305,14 @@ async function endCountdown() {
     $('gameScreen').classList.remove('counting');
     clockHoldUntil = Date.now() + 1000;
     gameFetchAt = Date.now(); game.clocks.turnStartedAt = Date.now(); pending = []; selectedRack = null; renderGame();
+    // Arm the bot think HERE, at countdown end (v109) — not at game
+    // creation. The think must run after the countdown, not during it:
+    // arming it at creation let it elapse under the countdown, so
+    // Fishstick played the instant the countdown ended. This is the
+    // local mirror of the server's /start, which re-arms the think
+    // when the countdown ends. Persisted after arming, so a game
+    // closed mid-think resumes with the think state intact.
+    if (game.status === 'active' && game.clocks.turn === 'bot') startLocalBotTurn();
     persistOfflineGame();
     if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
     return;
@@ -2144,7 +2152,11 @@ function buildOfflineGame(botType) {
     isFirst: true,
     player: { firstName: me.firstName, username: me.username, elo: startElo },
   };
-  if (turn === 'bot') { game.botThinkMs = 5000; game.botThinkUntil = Date.now() + 5000; }
+  // No bot think armed here (v109): the think must run AFTER the 5s
+  // countdown, not during it. Arming it at creation let it elapse
+  // under the countdown, so Fishstick played the instant the countdown
+  // ended. endCountdown arms it (startLocalBotTurn) when the countdown
+  // completes — the local mirror of the server's /start re-arm.
   return game;
 }
 async function startOfflineGame(botType) {

@@ -6,7 +6,9 @@
 // naturally fetches new files):
 //   '/', '/app.js?v=N', '/engine.js?v=N', '/style.css?v=N',
 //   '/engine-worker.js?v=N' (v107 solver worker — cached on first fetch,
-//   not precached), '/assets/*', '/privacy.html', GET /api/words.
+//   not precached), '/assets/*', '/privacy.html', GET /api/words,
+//   '/definitions/*' (v115 client definitions bundle — cached on first
+//   fetch, so definitions work offline on the web after the first tap).
 // Network-only (never cached, passed straight through):
 //   every other /api/* path (/api/games/*, /api/me, /api/leaderboard,
 //   /api/friends, auth endpoints) and all cross-origin requests.
@@ -44,6 +46,7 @@ function isCacheableShell(url) {
   if (url.pathname === '/privacy.html') return true;
   if (url.pathname === '/api/words') return true;
   if (url.pathname.indexOf('/assets/') === 0) return true;
+  if (url.pathname.indexOf('/definitions/') === 0) return true;
   return false;
 }
 

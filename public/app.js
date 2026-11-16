@@ -74,6 +74,10 @@ const fmtClock = ms => { ms = Math.max(0, Math.ceil(ms / 1000) * 1000); if (ms =
 // to the live server instead. On the web the base is empty, so nothing
 // changes there. Capacitor exposes window.Capacitor in the shell.
 const API_BASE = (typeof window !== 'undefined' && window.Capacitor) ? 'https://duellogame.com' : '';
+// App version (v115): the ?v=N cache-buster in index.html. The local
+// definitions bundle is versioned with the same number so a rebuilt
+// bundle is fetched fresh instead of served stale from the cache.
+const APP_VERSION = 115;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -3322,6 +3326,49 @@ $('playAgainBtn').onclick = playAgain;
 $('statPlayAgain').onclick = playAgain;
 $('gameStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
 const defCache = new Map();
+// Local definitions bundle (v115): the client copy of every bundled
+// definition, split into sorted chunks under public/definitions/ with
+// a manifest naming each chunk's first/last word. The lookup is
+// local-first: a tap reads the bundle (instant, and it works offline
+// — under Capacitor the files are in the app bundle; on the web the
+// service worker caches them on first fetch), and /api/define is only
+// a fallback for words the bundle does not hold. Chunk files are
+// versioned with ?v=APP_VERSION so a rebuilt bundle is fetched fresh.
+let defManifest = null, defManifestPromise = null;
+const defChunkCache = new Map();
+async function localDefinition(word) {
+  const w = String(word || '').toUpperCase();
+  if (!w) return null;
+  try {
+    if (!defManifest) {
+      if (!defManifestPromise) {
+        defManifestPromise = fetch('definitions/manifest.json?v=' + APP_VERSION)
+          .then(r => { if (!r.ok) throw new Error('no manifest'); return r.json(); })
+          .then(m => { defManifest = m; return m; })
+          .catch(() => { defManifestPromise = null; return null; });
+      }
+      await defManifestPromise;
+    }
+    if (!defManifest || !Array.isArray(defManifest.chunks)) return null;
+    // Binary search the sorted chunks for the one holding this word.
+    let lo = 0, hi = defManifest.chunks.length - 1, chunk = null;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1, c = defManifest.chunks[mid];
+      if (w < c.first) hi = mid - 1;
+      else if (w > c.last) lo = mid + 1;
+      else { chunk = c; break; }
+    }
+    if (!chunk) return null;
+    let entries = defChunkCache.get(chunk.file);
+    if (!entries) {
+      const r = await fetch('definitions/' + chunk.file + '?v=' + APP_VERSION);
+      if (!r.ok) return null;
+      entries = await r.json();
+      defChunkCache.set(chunk.file, entries);
+    }
+    return entries[w] || null;
+  } catch { return null; }
+}
 function hideDefinition() { const pop = $('defPopover'); if (pop) { pop.classList.add('hidden'); pop.style.top = ''; pop.style.bottom = ''; } }
 // The first tap anywhere else only hides the definition — including a
 // tap on another played word. A second tap on a word opens that word's
@@ -3374,7 +3421,29 @@ async function showDefinition(r, c) {
   await Promise.all(words.map(async (w) => {
     try {
       let d = defCache.get(w);
-      if (!d) { d = await api('/api/define?word=' + encodeURIComponent(w)); defCache.set(w, d); }
+      if (!d) {
+        // Local bundle first (v115): instant and offline. A
+        // Wiktionary-sourced entry is a modern first sense, so it is
+        // final; any other entry shows at once and is refreshed from
+        // the server in the background when online, so the live
+        // most-common sense still wins where it exists.
+        const local = await localDefinition(w);
+        if (local) {
+          d = { word: w, pos: local.pos || '', definition: local.def };
+          defCache.set(w, d);
+          if (local.s !== 'w' && !isOffline()) {
+            api('/api/define?word=' + encodeURIComponent(w)).then(live => {
+              if (live && live.definition && live.definition !== d.definition) {
+                defCache.set(w, live);
+                const el = pop.querySelector(`[data-def-word="${w}"]`);
+                if (el) el.textContent = `${w} ${live.pos ? '(' + live.pos + ') ' : ''}— ${live.definition}`;
+              }
+            }).catch(() => {});
+          }
+        } else {
+          d = await api('/api/define?word=' + encodeURIComponent(w)); defCache.set(w, d);
+        }
+      }
       const el = pop.querySelector(`[data-def-word="${w}"]`);
       if (el) el.textContent = `${w} ${d.pos ? '(' + d.pos + ') ' : ''}— ${d.definition}`;
     } catch { const el = pop.querySelector(`[data-def-word="${w}"]`); if (el) el.textContent = `${w} — Could not load definition.`; }
@@ -3386,12 +3455,42 @@ async function showDefinition(r, c) {
 // tap called renderGame() in pointerup, which destroyed the tapped element
 // before its click event could fire, so click-to-place selection never stuck.
 function cellAtPoint(x, y) {
+  // A drop counts if the point is inside a cell — or just beside one.
+  // The board has 3px gaps between cells, so a pointer in a gap (or a
+  // finger a few px off a cell) used to cancel the drop outright. The
+  // nearest cell within 12px (about a third of a cell) now counts.
   const cells = [...document.querySelectorAll('#board .cell')];
+  let best = null, bestDist = 12;
   for (let i = 0; i < cells.length; i++) {
     const rect = cells[i].getBoundingClientRect();
     if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return { row: Math.floor(i / 10), col: i % 10, el: cells[i] };
+    const dx = Math.max(rect.left - x, 0, x - rect.right);
+    const dy = Math.max(rect.top - y, 0, y - rect.bottom);
+    const d = Math.hypot(dx, dy);
+    if (d <= bestDist) { bestDist = d; best = { row: Math.floor(i / 10), col: i % 10, el: cells[i] }; }
   }
-  return null;
+  return best;
+}
+function dropCellForPointer(x, y) {
+  // The drag ghost floats above the finger (translate -90%), so the
+  // cell the tile *looks* like it is over sits about a cell above the
+  // cell under the finger — aiming the ghost at a cell used to drop
+  // the tile a row lower. Aim the drop at the ghost's centre instead:
+  // the tile lands where it appears to be. The finger still decides
+  // whether this is a board drop at all — if it is not on (or just
+  // beside) the board, there is no board drop, so a ghost hanging over
+  // the board while the finger is on the rack cannot steal a rack
+  // drop. And a finger on the top row still lands on the top row: the
+  // ghost point is clamped into the board before the lookup.
+  const boardEl = $('board'); if (!boardEl) return null;
+  const b = boardEl.getBoundingClientRect();
+  const TOL = 12;
+  if (x < b.left - TOL || x > b.right + TOL || y < b.top - TOL || y > b.bottom + TOL) return null;
+  const ghost = $('dragGhost');
+  const gr = ghost && ghost.getBoundingClientRect ? ghost.getBoundingClientRect() : null;
+  const gx = gr ? Math.max(b.left, Math.min(b.right, gr.left + gr.width / 2)) : x;
+  const gy = gr ? Math.max(b.top, Math.min(b.bottom, gr.top + gr.height / 2)) : y;
+  return cellAtPoint(gx, gy);
 }
 function isCellFree(r, c) {
   if (!game || game.board[r][c]) return false;
@@ -3469,7 +3568,7 @@ function enableRackDrag(el, idx) {
     el.style.opacity = '0';
     showGhost(game.humanRack[idx], e.clientX, e.clientY);
     clearDropHighlights();
-    const hit = cellAtPoint(e.clientX, e.clientY);
+    const hit = dropCellForPointer(e.clientX, e.clientY);
     if (hit) {
       clearRackShift();
       // Snaps to the cell under the pointer if free; if dragged over a placed
@@ -3556,7 +3655,7 @@ function enablePlacedDrag(el, pend) {
     suppressNextClick = true;
     showGhost(pend.letter, e.clientX, e.clientY);
     clearDropHighlights(); clearRackSlot(); clearRackShift();
-    const hit = cellAtPoint(e.clientX, e.clientY);
+    const hit = dropCellForPointer(e.clientX, e.clientY);
     if (!hit) {
       // Not over the board: check the rack (deck). The whole deck is
       // never highlighted. Two different cases:

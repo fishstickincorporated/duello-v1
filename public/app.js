@@ -77,7 +77,10 @@ const API_BASE = (typeof window !== 'undefined' && window.Capacitor) ? 'https://
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(j.error || 'Request failed'); if (j.invalidWords) e.invalidWords = j.invalidWords; throw e; }
+  if (!r.ok) { const e = new Error(j.error || 'Request failed'); e.status = r.status; if (j.invalidWords) e.invalidWords = j.invalidWords; throw e; }
+  // A successful call means we are online: if finished offline games are
+  // waiting, drain them in the background (see scheduleDrain/drainOutbox).
+  scheduleDrain();
   return j;
 }
 function show(id) {
@@ -912,9 +915,13 @@ async function loadMe() {
   // Real /api/me, but cached: the scoreboard Elo comes from game.player
   // on each game response, so call sites must not pay a request per play.
   if (me) return true;
-  try { const d = await api('/api/me'); me = d.user; return true; }
+  try { const d = await api('/api/me'); me = d.user; persistMe(); return true; }
   catch (err) {
     if (deadSession(err)) return false;
+    // Offline (v106): fall back to the persisted user, so bot games can
+    // still start and the local Elo is known without a round-trip.
+    const stored = loadPersistedMe();
+    if (stored) { me = stored; return true; }
     return !!token;
   }
 }
@@ -1054,9 +1061,12 @@ function enterGameScreen() {
   // A fetch from a previous game may still be in flight: invalidate
   // it, so its response cannot overwrite this game with old state.
   gameAppliedSeq = gameFetchSeq;
+  // A stale offline-play message never survives into a game.
+  const om = $('offlineMsg'); if (om) om.classList.add('hidden');
   // Display 4:00 during the countdown, not the server's create-round-trip
   // value (3:59): the clocks only start when the countdown ends (see /start).
-  game.clocks.human = 240000; game.clocks.bot = 240000;
+  // A resumed offline game keeps its persisted clocks instead (v106).
+  if (!(game.offline && resumeSkipCountdown)) { game.clocks.human = 240000; game.clocks.bot = 240000; }
   gameFetchAt = Date.now(); pending = []; selectedRack = null; armed = {};
   clearStatDelay(); statShownGameId = null;
   // A rematch accepted from the stat window (or a challenge that
@@ -1101,6 +1111,19 @@ function enterGameScreen() {
       waitingForSync = false;
       startCountdown(Date.now() + 5000);
     }, 15000);
+    return;
+  }
+  if (resumeSkipCountdown) {
+    // Resuming a persisted offline game: skip the countdown — the game
+    // was already in progress when the app closed, and its clocks were
+    // settled at pause, so they restart from here, not from 4:00.
+    resumeSkipCountdown = false;
+    countdownActive = false;
+    $('gameScreen').classList.remove('counting');
+    $('countdownOverlay').classList.add('hidden');
+    clockHoldUntil = Date.now() + 1000;
+    renderGame();
+    if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
     return;
   }
   startCountdown(Date.now() + 5000);
@@ -1155,6 +1178,13 @@ async function startGame(bot, personaId) {
     // sends the user to the auth screen; anything else is a transient
     // failure and another tap retries.
     if (e && e.message === 'Not signed in.') { token = ''; storeDel('duello_token'); me = null; setAuthMode('signin'); show('authScreen'); return; }
+    // Offline (v106): a bot game that cannot reach the server starts
+    // locally instead of dying silently. In airplane mode the POST
+    // above throws a network error, and the tap must still do
+    // something — that is exactly the gap v106 closes. Personas and
+    // real-player games have no local version, so they keep the old
+    // behaviour (tap again to retry).
+    if (bot === 'competitive' || bot === 'fishstick') { await startOfflineGame(bot); return; }
     return;
   }
   enterGameScreen();
@@ -1168,6 +1198,15 @@ async function endCountdown() {
   // Now the overlay hides but countdownActive (and the hidden rack)
   // stay until /start returns and gameFetchAt is reset to that moment.
   $('countdownOverlay').classList.add('hidden');
+  if (game && game.offline) {
+    // Offline games never POST /start: the clocks start locally.
+    countdownActive = false;
+    $('gameScreen').classList.remove('counting');
+    clockHoldUntil = Date.now() + 1000;
+    gameFetchAt = Date.now(); game.clocks.turnStartedAt = Date.now(); pending = []; selectedRack = null; renderGame();
+    if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
+    return;
+  }
   try {
     try { game = await api(`/api/games/${game.id}/start`, { method: 'POST' }); }
     catch { game = await api(`/api/games/${game.id}`); }
@@ -1413,6 +1452,7 @@ let countdownInterval = null, countdownActive = false;
 let clockHoldUntil = 0;
 function canPlaceTiles() { return !!game && game.status === 'active' && game.clocks.turn === 'human' && !playInFlight && !countdownActive; }
 async function handleTimeoutFetch() {
+  if (game && game.offline) return; // offline games have no server to fetch
   if (!game || game.status !== 'active' || timeoutFetching || playInFlight) return;
   timeoutFetching = true; timeoutLastAttempt = Date.now();
   try {
@@ -1480,17 +1520,35 @@ function tickClocks() {
       game.clocks.turn = 'bot'; gameFetchAt = Date.now(); timeoutFlipUnconfirmed = true;
       renderGame();
     }
-    if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch();
+    if (game.offline) {
+      // No server to confirm the flip: start the local bot turn.
+      timeoutFlipUnconfirmed = false;
+      if (game.status === 'active' && !playInFlight && game.clocks.turn === 'bot') { startLocalBotTurn(); beginBotTurn(); }
+    } else if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch();
   }
   // Optimistic flip done but the server has not confirmed it yet (the
   // fetch failed or is still out): retry it, so the bot's turn starts
   // instead of the game sitting on a locally-flipped turn.
-  if (game.status === 'active' && timeoutFlipUnconfirmed && !timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch();
+  if (game.status === 'active' && timeoutFlipUnconfirmed && !game.offline && !timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch();
   // Opponent clock hit 0: fetch at once instead of waiting for the
   // next scheduled poll. A persona's think can run 30s, so the board
   // sat on 0:00 with the turn never coming. The fetch flips the
   // server to my turn (or finishes the game if my clock is 0 too).
-  if (game.status === 'active' && game.clocks.turn === 'bot' && b <= 0 && !timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch();
+  if (game.status === 'active' && game.clocks.turn === 'bot' && b <= 0) {
+    if (game.offline) {
+      // The bot is out of time: no think, the turn returns to the
+      // human at once (same as the server's out-of-time skip).
+      if (botTimer) { clearTimeout(botTimer); botTimer = null; }
+      game.clocks.bot = 0; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); game.botThinkUntil = null; game.botThinkMs = null;
+      // Both clocks at 0: end at once instead of flipping the turn
+      // back to the human — the flip would re-fire this branch on the
+      // next render and ping-pong with the human-timeout branch
+      // forever (renderGame ends in tickClocks, so a branch that
+      // leaves its own condition true recurses to a stack overflow).
+      if (game.clocks.human <= 0) { gameFetchAt = Date.now(); finishLocalIfNeeded(); renderGame(); }
+      else { game.clocks.turn = 'human'; renderGame(); finishLocalIfNeeded(); }
+    } else if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch();
+  }
   // Both clocks at 0: the game is over, end it at once. The old code
   // only fetched on the human's turn, so when the second clock ran
   // out during the bot's think (up to 30s for a persona) the board
@@ -1498,7 +1556,10 @@ function tickClocks() {
   // A fetch settles the clocks server-side and finishes the game,
   // so the stat window comes up within ~1s of the second clock
   // hitting 0, whichever turn it is.
-  if (game.status === 'active' && h <= 0 && b <= 0 && !timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch();
+  if (game.status === 'active' && h <= 0 && b <= 0) {
+    if (game.offline) { game.clocks.human = 0; game.clocks.bot = 0; gameFetchAt = Date.now(); finishLocalIfNeeded(); }
+    else if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch();
+  }
   botWatchdog();
 }
 setInterval(tickClocks, 100);
@@ -1598,6 +1659,7 @@ function openGameStream() {
 }
 function closeGameStream() { if (gameStream) { try { gameStream.close(); } catch {} gameStream = null; gameStreamGameId = null; } }
 async function pollBotTurn() {
+  if (game && game.offline) return; // offline bot turns never poll
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot' || playInFlight) return;
   lastBotPollAt = Date.now(); botTimer = null;
   try {
@@ -1676,6 +1738,8 @@ function beginBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
   $('status').textContent = waitingStatus();
   if (botTimer) clearTimeout(botTimer);
+  // Offline games drive the local bot instead of polling the server.
+  if (game.offline) { scheduleLocalBotTurn(); return; }
   // A real opponent has no think time: poll at once, then every 2s
   // (see pollBotTurn), instead of waiting out a bot think that
   // does not exist.
@@ -1706,13 +1770,672 @@ let localWords = null, localWordsPromise = null;
 function ensureLocalWords() {
   if (localWords) return Promise.resolve(localWords);
   if (!localWordsPromise) {
-    localWordsPromise = fetch(API_BASE + '/api/words').then(r => { if (!r.ok) throw new Error('words'); return r.text(); }).then(txt => {
+    // iOS bundles the dictionary (v106, Jeff's decision 3): under
+    // Capacitor the words come from the bundled words.txt, never the
+    // network, so offline play works on first launch. On the web the
+    // dictionary is still fetched (and cached by the service worker).
+    const url = (typeof window !== 'undefined' && window.Capacitor) ? 'words.txt' : API_BASE + '/api/words';
+    localWordsPromise = fetch(url).then(r => { if (!r.ok) throw new Error('words'); return r.text(); }).then(txt => {
       const set = new Set();
       for (const line of txt.split('\n')) { const w = line.trim().toUpperCase(); if (w) set.add(w); }
-      localWords = set; return set;
+      localWords = set;
+      // The shared engine, built once the words are in: the worker
+      // fallback and local validation/scoring run through it.
+      try { if (typeof DuelloEngine !== 'undefined' && DuelloEngine.createEngine) { localEngine = DuelloEngine.createEngine(localWords); ensureSolverWorker(); } } catch {}
+      return set;
     }).catch(() => { localWordsPromise = null; return null; });
   }
   return localWordsPromise;
+}
+
+// ---------- v106 offline play ----------
+// Local game runner + solver worker + IndexedDB persistence + sync drain.
+// Online play is untouched: everything below only runs when game.offline
+// is true, and the server stays authoritative for every online game.
+let localEngine = null;
+let offlineBotRack = [];
+let offlinePlays = [];
+let offlineMeta = null; // {offlineId, playerEloAtStart, startedAt, finishedAt, eloDelta, botType, botElo}
+let pendingEloSum = 0; // deltas from finished-but-unsynced offline games
+let pendingGamesCount = 0; // finished offline games waiting to sync
+let outboxMayBeNonEmpty = false;
+let drainRunning = false, drainScheduled = false;
+let resumeSkipCountdown = false;
+let solverWorker = null, solverWorkerReady = false, solverSeq = 0;
+const solverPending = new Map();
+
+// Persisted user (localStorage 'duello_me'): the signed-in user, kept so
+// offline play knows the id, name, and Elo without a round-trip.
+function persistMe() {
+  if (!me) return;
+  try { storeSet('duello_me', JSON.stringify({ id: me.id, username: me.username, firstName: me.firstName, elo: me.elo })); } catch {}
+}
+function loadPersistedMe() {
+  try {
+    const raw = storeGet('duello_me');
+    if (!raw) return null;
+    const u = JSON.parse(raw);
+    if (!u || typeof u.username !== 'string' || typeof u.elo !== 'number') return null;
+    return u;
+  } catch { return null; }
+}
+// The Elo Competitive matches against and deltas are computed from: the
+// persisted Elo plus every finished-but-unsynced offline game's delta.
+function localElo() {
+  const base = (me && typeof me.elo === 'number') ? me.elo : 1000;
+  return base + (pendingEloSum || 0);
+}
+
+// ---------- IndexedDB outbox (localStorage fallback) ----------
+// Database 'duello-offline', one store 'games' keyed by offlineId.
+// Value: {offlineId, status:'active'|'finished'|'rejected', game, plays,
+// playerEloAtStart, eloDelta, startedAt, finishedAt, botType, botElo}.
+// If IndexedDB is unavailable, the same records live in localStorage
+// under 'duello_offline_games' (best effort, same shape).
+let offlineDbPromise = null, offlineUseLocalStorage = false;
+function offlineDb() {
+  if (offlineUseLocalStorage) return Promise.resolve(null);
+  if (typeof indexedDB === 'undefined') { offlineUseLocalStorage = true; return Promise.resolve(null); }
+  if (!offlineDbPromise) {
+    offlineDbPromise = new Promise((resolve) => {
+      let req;
+      try { req = indexedDB.open('duello-offline', 1); }
+      catch { offlineUseLocalStorage = true; resolve(null); return; }
+      req.onupgradeneeded = (e) => { try { e.target.result.createObjectStore('games', { keyPath: 'offlineId' }); } catch {} };
+      req.onsuccess = (e) => resolve(e.target.result);
+      req.onerror = () => { offlineUseLocalStorage = true; resolve(null); };
+      req.onblocked = () => { offlineUseLocalStorage = true; resolve(null); };
+    });
+  }
+  return offlineDbPromise;
+}
+function offlineIdbOp(mode, fn) {
+  return offlineDb().then((db) => {
+    if (!db) return null;
+    return new Promise((resolve, reject) => {
+      let tx;
+      try { tx = db.transaction('games', mode); } catch (e) { reject(e); return; }
+      let req;
+      try { req = fn(tx.objectStore('games')); } catch (e) { reject(e); return; }
+      req.onsuccess = (e) => resolve(e.target.result);
+      req.onerror = () => reject(req.error || new Error('IndexedDB error'));
+    });
+  });
+}
+function offlineLsGetAll() {
+  try { const raw = storeGet('duello_offline_games'); const obj = raw ? JSON.parse(raw) : {}; return Object.values(obj); } catch { return []; }
+}
+function offlineLsPut(rec) {
+  try { const raw = storeGet('duello_offline_games'); const obj = raw ? JSON.parse(raw) : {}; obj[rec.offlineId] = rec; storeSet('duello_offline_games', JSON.stringify(obj)); } catch {}
+}
+function offlineLsDel(id) {
+  try { const raw = storeGet('duello_offline_games'); const obj = raw ? JSON.parse(raw) : {}; delete obj[id]; storeSet('duello_offline_games', JSON.stringify(obj)); } catch {}
+}
+async function offlineStorePut(rec) {
+  let done = false;
+  try {
+    const db = await offlineDb();
+    if (db) { await offlineIdbOp('readwrite', (s) => s.put(rec)); done = true; }
+  } catch {}
+  if (!done) offlineLsPut(rec);
+}
+async function offlineStoreGetAll() {
+  let idb = [];
+  try {
+    const db = await offlineDb();
+    if (db) idb = (await offlineIdbOp('readonly', (s) => s.getAll())) || [];
+  } catch {}
+  const ls = offlineLsGetAll();
+  const seen = new Set(idb.map((r) => r.offlineId));
+  return [...idb, ...ls.filter((r) => !seen.has(r.offlineId))];
+}
+async function offlineStoreDel(id) {
+  try {
+    const db = await offlineDb();
+    if (db) await offlineIdbOp('readwrite', (s) => s.delete(id));
+  } catch {}
+  offlineLsDel(id);
+}
+async function refreshOfflineTotals() {
+  let recs = [];
+  try { recs = await offlineStoreGetAll(); } catch { recs = []; }
+  const finished = recs.filter((r) => r.status === 'finished');
+  pendingGamesCount = finished.length;
+  pendingEloSum = finished.reduce((s, r) => s + (r.eloDelta || 0), 0);
+  outboxMayBeNonEmpty = finished.length > 0;
+  // The profile count line updates with the totals (renderStatsList
+  // no-ops when no profile is loaded).
+  try { renderStatsList(); } catch {}
+  return { pendingGamesCount, pendingEloSum };
+}
+
+// The record for the current offline game, in the persisted shape.
+// The board is stored plain (no __premiums — structured clone/JSON drops
+// custom array props); premiums travel in their own field and are
+// re-attached on load. The bot rack rides along here (local persistence
+// only); the sync payload carries botRackCount instead.
+function offlineRecord() {
+  if (!game || !game.offline || !offlineMeta) return null;
+  const g = { ...game };
+  g.board = game.board.map((row) => row.slice());
+  g.botRack = offlineBotRack.slice();
+  return {
+    offlineId: offlineMeta.offlineId,
+    status: game.status === 'finished' ? 'finished' : 'active',
+    game: g,
+    plays: offlinePlays.map((p) => ({ side: p.side, rack: p.rack.slice(), placements: p.placements.map((q) => ({ row: q.row, col: q.col, letter: q.letter })) })),
+    playerEloAtStart: offlineMeta.playerEloAtStart,
+    eloDelta: offlineMeta.eloDelta != null ? offlineMeta.eloDelta : null,
+    startedAt: offlineMeta.startedAt,
+    finishedAt: offlineMeta.finishedAt || null,
+    botType: game.botType,
+    botElo: offlineMeta.botElo,
+  };
+}
+async function persistOfflineGame() {
+  const rec = offlineRecord();
+  if (!rec) return;
+  try { await offlineStorePut(rec); } catch {}
+  if (rec.status === 'finished') outboxMayBeNonEmpty = true;
+}
+
+// ---------- Solver worker ----------
+// The worker owns the dictionary + solver index; the main thread owns the
+// UI and the game state. If the worker cannot be built, the same engine
+// runs synchronously on the main thread during the bot think.
+function ensureSolverWorker() {
+  if (solverWorker) return solverWorker;
+  if (typeof Worker === 'undefined') return null;
+  try {
+    const w = new Worker('engine-worker.js');
+    w.onmessage = (e) => {
+      const d = (e && e.data) || {};
+      if (d.type === 'ready') { solverWorkerReady = true; return; }
+      if (d.type === 'solved' && d.requestId != null) {
+        const p = solverPending.get(d.requestId);
+        if (p) { solverPending.delete(d.requestId); p(d.moves || []); }
+      }
+    };
+    w.onerror = () => { solverWorker = null; solverWorkerReady = false; };
+    solverWorker = w;
+    if (localWords) { try { w.postMessage({ type: 'init', words: [...localWords] }); } catch {} }
+    return w;
+  } catch { solverWorker = null; return null; }
+}
+function solveMovesLocal(board, rack, isFirst, wantAll) {
+  if (!localEngine) return [];
+  if (!board.__premiums) board.__premiums = (game && game.premiums) || {};
+  try { return localEngine.findMoves(board, rack, isFirst, !!wantAll) || []; } catch { return []; }
+}
+function solveMoves(board, rack, isFirst, wantAll) {
+  const w = ensureSolverWorker();
+  if (w && solverWorkerReady) {
+    return new Promise((resolve) => {
+      const id = ++solverSeq;
+      const to = setTimeout(() => {
+        if (solverPending.has(id)) { solverPending.delete(id); resolve(solveMovesLocal(board, rack, isFirst, wantAll)); }
+      }, 10000);
+      solverPending.set(id, (moves) => { clearTimeout(to); resolve(moves); });
+      try {
+        // Structured clone drops custom props on arrays, so premiums
+        // travel separately and the board is sent plain.
+        w.postMessage({ type: 'solve', requestId: id, board: board.map((row) => row.slice()), rack: rack.slice(), isFirst: !!isFirst, premiums: board.__premiums || (game && game.premiums) || {}, wantAll: !!wantAll });
+      } catch { solverPending.delete(id); clearTimeout(to); resolve(solveMovesLocal(board, rack, isFirst, wantAll)); }
+    });
+  }
+  return Promise.resolve(solveMovesLocal(board, rack, isFirst, wantAll));
+}
+
+// ---------- Offline game construction ----------
+// Mirrors server newGame, in serializeGame shape (board plain 2D,
+// premiums, humanRack, botRackCount, scores, clocks, turn, botThink*,
+// status, reason, last*, eloDelta*/eloAfter*, isFirst, player) plus the
+// local-only moves lists the stat payload needs. The real bot rack lives
+// in offlineBotRack, never in the synced state.
+function buildOfflineGame(botType) {
+  const startElo = localElo();
+  // Competitive's bot Elo IS the player's Elo at creation — the sync
+  // endpoint requires botElo === playerEloAtStart for competitive, and
+  // exactly 3000 for Fishstick, so both come from one value each.
+  const botElo = botType === 'fishstick' ? 3000 : startElo;
+  const premiums = localEngine.makePremiums();
+  const board = localEngine.emptyBoard();
+  board.__premiums = premiums;
+  const humanRack = localEngine.drawRack();
+  const botRack = localEngine.drawRack();
+  const offlineId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('off-' + Math.random().toString(16).slice(2) + Date.now().toString(16));
+  const turn = Math.random() < 0.5 ? 'human' : 'bot';
+  offlineBotRack = botRack;
+  offlinePlays = [];
+  offlineMeta = { offlineId, playerEloAtStart: startElo, startedAt: new Date().toISOString(), finishedAt: null, eloDelta: null, botType, botElo };
+  game = {
+    id: 'offline-' + offlineId, offline: true, botType, botElo,
+    premiums, board, humanRack, botRackCount: botRack.length,
+    scores: { human: 0, bot: 0 },
+    clocks: { human: 240000, bot: 240000, turn, turnStartedAt: Date.now() },
+    botThinkUntil: null, botThinkRemainingMs: null, botThinkMs: null,
+    status: 'active', reason: null, winner: null,
+    consecutivePasses: 0, consecutiveNoMoves: 0,
+    moves: { human: [], bot: [] },
+    lastCells: [], lastWord: null, lastScore: null, lastBy: null,
+    lastHuman: null, lastBot: null,
+    eloDeltaHuman: null, eloDeltaBot: null, eloAfterHuman: null, eloAfterBot: null,
+    isFirst: true,
+    player: { firstName: me.firstName, username: me.username, elo: startElo },
+  };
+  if (turn === 'bot') { game.botThinkMs = 5000; game.botThinkUntil = Date.now() + 5000; }
+  return game;
+}
+async function startOfflineGame(botType) {
+  try {
+    await ensureLocalWords();
+    if (!localWords || !localEngine) throw new Error('dictionary');
+    if (!me) { try { await loadMe(); } catch {} }
+    if (!me) throw new Error('nouser');
+    buildOfflineGame(botType);
+    persistOfflineGame();
+    enterGameScreen();
+    return true;
+  } catch (err) {
+    showOfflineUnavailable(err);
+    return false;
+  }
+}
+function showOfflineUnavailable(err) {
+  // Never fail silently: the bot screen says why offline play is not
+  // available right now, in plain words.
+  let msg = 'Offline play is not available right now — connect once and try again.';
+  if (err && err.message === 'dictionary') msg = 'Offline play needs the dictionary — connect once to download it, then try again.';
+  else if (err && err.message === 'nouser') msg = 'Offline play needs your profile — sign in once while online, then try again.';
+  else if (err && err.message) msg = 'Offline play is not available right now (' + String(err.message).slice(0, 80) + ') — connect once and try again.';
+  try {
+    let el = $('offlineMsg');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'offlineMsg';
+      el.className = 'offline-msg';
+      el.style.textAlign = 'center';
+      el.style.padding = '12px 20px';
+      el.style.color = '#ffd166';
+      const screen = $('botScreen');
+      if (screen) screen.appendChild(el);
+    }
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  } catch {}
+  try { show('botScreen'); } catch {}
+}
+
+// ---------- Local clock / turn engine (mirrors the server) ----------
+// The display math in tickClocks is unchanged: clocks derive from
+// gameFetchAt + game.clocks. Settling folds the elapsed turn time into
+// the stored clocks and restarts the timer — the same shape as the
+// server's settleClock, using the client's tap-time elapsed.
+function settleLocalClock() {
+  if (!game || game.status !== 'active') return;
+  const now = Date.now();
+  const elapsed = Math.max(0, now - gameFetchAt);
+  if (game.clocks.turn === 'human') game.clocks.human = Math.max(0, game.clocks.human - elapsed);
+  else game.clocks.bot = Math.max(0, game.clocks.bot - elapsed);
+  game.clocks.turnStartedAt = now; gameFetchAt = now;
+}
+function startLocalBotTurn() {
+  game.clocks.turn = 'bot'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now();
+  // Think is 5s normally, 2s once the human clock is at 0 (same rule as
+  // botThinkMsFor for non-persona bots).
+  game.botThinkMs = game.clocks.human <= 0 ? 2000 : 5000;
+  game.botThinkUntil = Date.now() + game.botThinkMs;
+}
+function stepLocalBotClock() {
+  if (game.clocks.bot > 0) game.clocks.bot = Math.floor((game.clocks.bot - 1) / 20000) * 20000;
+  else game.clocks.bot = 0;
+}
+function winnerByScore() {
+  return game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';
+}
+// Mirrors server applyMove + updateStatsForMove: board, in-place rack
+// refill (unplayed tiles never move), score, last play, and the moves
+// entry the stat payload and the sync replay read.
+function applyLocalMove(side, move, bestScore) {
+  const isHuman = side === 'human';
+  for (const p of move.placements) game.board[p.row][p.col] = p.letter;
+  const applyRack = (rack) => {
+    const usedIndices = [];
+    const remaining = rack.slice();
+    for (const p of move.placements) { const idx = remaining.indexOf(p.letter); if (idx >= 0) { usedIndices.push(idx); remaining[idx] = null; } }
+    return localEngine.refillRack(rack, usedIndices);
+  };
+  if (isHuman) game.humanRack = applyRack(game.humanRack);
+  else { offlineBotRack = applyRack(offlineBotRack); game.botRackCount = offlineBotRack.length; }
+  game.scores[side] += move.score;
+  game.lastCells = move.highlightCells;
+  game.lastWord = move.mainWord; game.lastScore = move.score; game.lastBy = side;
+  const allWords = (move.words || []).map((w) => w.word);
+  if (isHuman) game.lastHuman = { word: move.mainWord, points: move.score, bonus: move.bonus, isDuello: move.isDuello, bingo: move.bingo, words: allWords };
+  else game.lastBot = { word: move.mainWord, points: move.score, bonus: move.bonus, isDuello: move.isDuello, bingo: move.bingo, words: allWords };
+  const isOptimal = bestScore !== null && bestScore !== undefined && move.score === bestScore;
+  game.moves[side].push({ words: (move.words || []).map((w) => ({ word: w.word, score: w.score })), score: move.score, isOptimal, mainWord: move.mainWord, bingo: !!move.bingo });
+  game.consecutivePasses = 0; game.consecutiveNoMoves = 0;
+  game.isFirst = localEngine.boardIsEmpty(game.board);
+}
+function finishLocalIfNeeded() {
+  if (!game || game.status !== 'active') return false;
+  if (game._pendingNoMovesEnd) { delete game._pendingNoMovesEnd; endLocalGame('No playable moves left', winnerByScore()); return true; }
+  if (game.clocks.human <= 0 && game.clocks.bot <= 0) { endLocalGame('Final score', winnerByScore()); return true; }
+  return false;
+}
+function endLocalGame(reason, winnerSide) {
+  game.status = 'finished'; game.reason = reason; game.winner = winnerSide;
+  const actual = winnerSide === 'human' ? 1 : winnerSide === 'bot' ? 0 : 0.5;
+  // The delta is computed from the Elo at game start (playerEloAtStart),
+  // never recomputed from a later Elo — same rule the sync endpoint
+  // enforces server-side.
+  const delta = localEngine.eloDelta(offlineMeta.playerEloAtStart, game.botElo, actual);
+  game.eloDeltaHuman = delta; game.eloDeltaBot = -delta;
+  game.eloAfterHuman = offlineMeta.playerEloAtStart + delta;
+  game.eloAfterBot = game.botElo - delta;
+  game.botElo = game.eloAfterBot;
+  game.offlinePending = true;
+  game.stats = localEngine.gameStatsPayload(game, false);
+  offlineMeta.eloDelta = delta; offlineMeta.finishedAt = new Date().toISOString();
+  pendingEloSum += delta;
+  outboxMayBeNonEmpty = true;
+  persistOfflineGame().then(() => refreshOfflineTotals()).catch(() => {});
+  renderGame();
+}
+async function doLocalPlay() {
+  if (!localEngine) { $('status').textContent = 'Offline play needs the dictionary — connect once to download it.'; return; }
+  playInFlight = true;
+  try {
+    const placements = pending.map((p) => ({ row: p.row, col: p.col, letter: p.letter }));
+    const rackBefore = game.humanRack.slice();
+    const preBoard = game.board.map((row) => row.slice());
+    preBoard.__premiums = game.premiums;
+    const isFirst = game.isFirst;
+    // Local validatePlay is authoritative offline — not the status-line
+    // mirror, and no server call.
+    const v = localEngine.validatePlay(game.board, game.humanRack, placements, game.premiums, isFirst);
+    if (!v.valid) {
+      $('status').textContent = (v.invalidWords && v.invalidWords.length) ? invalidWordsStatus(v.invalidWords) : sentence(String(v.error || 'Invalid play').slice(0, 48));
+      renderGame();
+      return;
+    }
+    // Best-move scan on the pre-move board/rack, the same comparison
+    // the server runs deferred after a play (isOptimal = played the best).
+    let bestScore = null;
+    try { const best = await solveMoves(preBoard, rackBefore, isFirst, false); if (best.length) bestScore = best[0].score; } catch {}
+    settleLocalClock();
+    offlinePlays.push({ side: 'human', rack: rackBefore, placements: placements.map((p) => ({ row: p.row, col: p.col, letter: p.letter })) });
+    applyLocalMove('human', v, bestScore);
+    pending = []; selectedRack = null;
+    if (game.clocks.bot <= 0) { game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); }
+    else startLocalBotTurn();
+    botTurnTapTime = Date.now();
+    persistOfflineGame();
+    renderGame();
+    if (finishLocalIfNeeded()) return;
+    if (game.status === 'active' && game.clocks.turn === 'human') {
+      await applyHumanNoMovePassLocal();
+      if (finishLocalIfNeeded()) return;
+    }
+    if (game.status === 'active' && game.clocks.turn === 'bot') beginBotTurn();
+  } finally { playInFlight = false; }
+}
+async function doLocalPass() {
+  if (!game || !game.offline || game.status !== 'active' || game.clocks.turn !== 'human') return;
+  // No passing in a one-sided stretch (same rule as the server).
+  if (game.clocks.human <= 0 || game.clocks.bot <= 0) return;
+  const fromHuman = game.clocks.human;
+  settleLocalClock();
+  game.clocks.human = Math.max(0, game.clocks.human - 30000);
+  game.consecutivePasses++; game.consecutiveNoMoves = 0;
+  game.lastHuman = { word: null, points: 0, passed: true };
+  game.lastBy = 'human'; game.lastCells = [];
+  if (game.consecutivePasses >= 2) { endLocalGame('Final score', winnerByScore()); return; }
+  startLocalBotTurn();
+  persistOfflineGame(); renderGame();
+  animateHumanRunoff(fromHuman, game.clocks.human);
+  if (finishLocalIfNeeded()) return;
+  if (game.status === 'active' && game.clocks.turn === 'bot') beginBotTurn();
+}
+function doLocalForfeit() {
+  if (!game || !game.offline) return;
+  const wasOutOfTime = humanOutOfTime();
+  // Exit (out of time): the loss is recorded, but there is no stat
+  // window — leave straight to the main menu, like the online path.
+  if (wasOutOfTime) statShownGameId = game.id;
+  endLocalGame('By forfeit', 'bot');
+  if (wasOutOfTime) goHome();
+}
+function scheduleLocalBotTurn() {
+  if (botTimer) clearTimeout(botTimer);
+  const delay = game.botThinkUntil ? Math.max(0, game.botThinkUntil - Date.now()) : (game.botThinkMs || 5000);
+  botTimer = setTimeout(runLocalBotTurn, delay);
+}
+async function runLocalBotTurn() {
+  botTimer = null;
+  if (!game || !game.offline || game.status !== 'active' || game.clocks.turn !== 'bot') return;
+  const fromMs = Math.max(0, game.clocks.bot - (Date.now() - gameFetchAt));
+  settleLocalClock();
+  if (game.clocks.bot <= 0) {
+    game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); game.botThinkUntil = null; game.botThinkMs = null;
+    renderGame(); finishLocalIfNeeded(); return;
+  }
+  if (!localEngine) { $('status').textContent = 'Offline play needs the dictionary — connect once to download it.'; return; }
+  const isFirst = game.isFirst;
+  let moves = [];
+  try { moves = await solveMoves(game.board, offlineBotRack, isFirst, true); } catch { moves = []; }
+  if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
+  // The clock may have hit 0 during the solve: the bot never moves then.
+  if (Math.max(0, game.clocks.bot - (Date.now() - gameFetchAt)) <= 0) {
+    game.clocks.bot = 0; game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); game.botThinkUntil = null; game.botThinkMs = null;
+    renderGame(); finishLocalIfNeeded(); return;
+  }
+  if (!moves.length) {
+    // No-move auto-pass, -30s (mirrors runBotTurn's no-moves branch):
+    // if neither side has a move the game ends at once.
+    game.consecutivePasses++; game.consecutiveNoMoves++;
+    game.clocks.bot = Math.max(0, game.clocks.bot - 30000);
+    game.lastBot = { word: null, points: 0, passed: true, auto: true, noMoves: true };
+    game.lastBy = 'bot'; game.lastCells = [];
+    game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); game.botThinkUntil = null; game.botThinkMs = null;
+    const humanMoves = await solveMoves(game.board, game.humanRack, isFirst, false).catch(() => []);
+    if (!humanMoves.length || game.consecutiveNoMoves >= 2) game._pendingNoMovesEnd = true;
+    persistOfflineGame(); renderGame();
+    if (finishLocalIfNeeded()) return;
+    await applyHumanNoMovePassLocal();
+    if (finishLocalIfNeeded()) return;
+    if (game.status === 'active' && game.clocks.turn === 'bot') beginBotTurn();
+    return;
+  }
+  const bestScore = moves[0].score;
+  const move = game.botType === 'fishstick' ? moves[0] : localEngine.pickCompetitiveMove(moves, game.botElo);
+  offlinePlays.push({ side: 'bot', rack: offlineBotRack.slice(), placements: move.placements.map((p) => ({ row: p.row, col: p.col, letter: p.letter })) });
+  applyLocalMove('bot', move, bestScore);
+  stepLocalBotClock();
+  game.botThinkUntil = null; game.botThinkMs = null;
+  game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now();
+  persistOfflineGame(); renderGame();
+  animateClockRunoff(fromMs, game.clocks.bot);
+  if (finishLocalIfNeeded()) return;
+  await applyHumanNoMovePassLocal();
+  if (finishLocalIfNeeded()) return;
+  // Human clock at 0: the bot keeps playing — start the next bot turn
+  // at once instead of handing the turn to a player who cannot move.
+  if (game.status === 'active' && game.clocks.turn === 'human' && game.clocks.human <= 0 && game.clocks.bot > 0) { startLocalBotTurn(); beginBotTurn(); }
+}
+async function applyHumanNoMovePassLocal() {
+  if (!game || !game.offline || game.status !== 'active' || game.clocks.turn !== 'human') return false;
+  if (!localEngine) return false;
+  const isFirst = game.isFirst;
+  const hm = await solveMoves(game.board, game.humanRack, isFirst, false).catch(() => []);
+  if (hm.length) return false;
+  const bm = await solveMoves(game.board, offlineBotRack, isFirst, false).catch(() => []);
+  if (!bm.length || game.clocks.bot <= 0) { game._pendingNoMovesEnd = true; return true; }
+  game.clocks.human = Math.max(0, game.clocks.human - 30000);
+  game.consecutivePasses++; game.consecutiveNoMoves++;
+  game.lastHuman = { word: null, points: 0, passed: true, auto: true, noMoves: true };
+  game.lastBy = 'human'; game.lastCells = [];
+  startLocalBotTurn();
+  persistOfflineGame(); renderGame();
+  return false;
+}
+
+// ---------- Pause on close / resume on return ----------
+// Offline clocks PAUSE when the app is closed (Jeff's decision 1): the
+// elapsed turn time is folded into the stored clocks at pause, and on
+// return the turn timer restarts from now — no wall-clock time while
+// closed is ever charged.
+function pauseOfflineClocks() {
+  if (!game || !game.offline || game.status !== 'active') return;
+  settleLocalClock();
+  persistOfflineGame();
+}
+function resumeOfflineClocks() {
+  if (!game || !game.offline || game.status !== 'active') return;
+  gameFetchAt = Date.now(); game.clocks.turnStartedAt = Date.now();
+  renderGame();
+  if (game.clocks.turn === 'bot' && !botTimer) beginBotTurn();
+}
+async function maybeResumeOfflineGame() {
+  if (game && game.status === 'active') return false;
+  let recs = [];
+  try { recs = await offlineStoreGetAll(); } catch { return false; }
+  const rec = recs.filter((r) => r.status === 'active').sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt))[0];
+  if (!rec || !rec.game) return false;
+  if (!localWords) { try { await ensureLocalWords(); } catch {} }
+  const g = rec.game;
+  // Re-attach what persistence strips: the solver premiums and the bot rack.
+  g.board.__premiums = g.premiums;
+  offlineBotRack = (g.botRack || []).slice();
+  delete g.botRack;
+  game = g;
+  game.offline = true;
+  offlinePlays = (rec.plays || []).map((p) => ({ side: p.side, rack: p.rack.slice(), placements: p.placements.map((q) => ({ row: q.row, col: q.col, letter: q.letter })) }));
+  offlineMeta = { offlineId: rec.offlineId, playerEloAtStart: rec.playerEloAtStart, startedAt: rec.startedAt, finishedAt: rec.finishedAt || null, eloDelta: rec.eloDelta, botType: rec.botType, botElo: rec.botElo };
+  if (!game.moves) game.moves = { human: [], bot: [] };
+  game.clocks.turnStartedAt = Date.now();
+  if (game.clocks.turn === 'bot') { game.botThinkMs = game.clocks.human <= 0 ? 2000 : 5000; game.botThinkUntil = Date.now() + game.botThinkMs; }
+  resumeSkipCountdown = true;
+  currentBot = game.botType;
+  enterGameScreen();
+  return true;
+}
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('visibilitychange', () => {
+    try {
+      if (document.visibilityState === 'hidden') pauseOfflineClocks();
+      else { resumeOfflineClocks(); drainOutbox(); }
+    } catch {}
+  });
+}
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('online', () => { try { drainOutbox(); } catch {} });
+  window.addEventListener('pagehide', () => { try { pauseOfflineClocks(); } catch {} });
+  window.addEventListener('beforeunload', () => { try { pauseOfflineClocks(); } catch {} });
+}
+
+// ---------- Sync drain ----------
+// The exact payload the server's POST /api/games/sync replays:
+// {offlineId, botType, botElo, playerEloAtStart, eloDelta, startedAt,
+// finishedAt, state, plays}. state is the finished game in serializeGame
+// shape (board plain 2D, premiums, humanRack, botRackCount — never
+// botRack — scores, clocks, turn, botThink*, status, reason, winner,
+// moves, last*, Elo fields, isFirst, player), with botElo taken from
+// the offline meta: endLocalGame rewrites game.botElo to the after-Elo,
+// and the endpoint requires the ORIGINAL bot Elo (3000 for Fishstick,
+// playerEloAtStart for Competitive).
+function buildSyncPayload(rec) {
+  const st = rec.game;
+  const board = st.board.map((row) => row.slice());
+  return {
+    offlineId: rec.offlineId,
+    botType: rec.botType,
+    botElo: rec.botElo,
+    playerEloAtStart: rec.playerEloAtStart,
+    eloDelta: rec.eloDelta,
+    startedAt: rec.startedAt,
+    finishedAt: rec.finishedAt,
+    state: {
+      id: st.id, botType: st.botType, botElo: rec.botElo,
+      board, premiums: { ...st.premiums },
+      humanRack: st.humanRack.slice(), botRackCount: st.botRackCount,
+      scores: { human: st.scores.human, bot: st.scores.bot },
+      clocks: { human: st.clocks.human, bot: st.clocks.bot, turn: st.clocks.turn, turnStartedAt: st.clocks.turnStartedAt },
+      botThinkUntil: st.botThinkUntil || null, botThinkRemainingMs: st.botThinkRemainingMs || null, botThinkMs: st.botThinkMs || null,
+      status: st.status, reason: st.reason, winner: st.winner,
+      moves: {
+        human: (st.moves.human || []).map((m) => ({ ...m, words: (m.words || []).map((w) => ({ ...w })) })),
+        bot: (st.moves.bot || []).map((m) => ({ ...m, words: (m.words || []).map((w) => ({ ...w })) })),
+      },
+      lastCells: (st.lastCells || []).map((c) => c.slice()),
+      lastWord: st.lastWord, lastScore: st.lastScore, lastBy: st.lastBy,
+      lastHuman: st.lastHuman ? { ...st.lastHuman } : null,
+      lastBot: st.lastBot ? { ...st.lastBot } : null,
+      eloDeltaHuman: st.eloDeltaHuman, eloDeltaBot: st.eloDeltaBot,
+      eloAfterHuman: st.eloAfterHuman, eloAfterBot: st.eloAfterBot,
+      isFirst: !!st.isFirst,
+      player: st.player ? { ...st.player } : null,
+    },
+    plays: (rec.plays || []).map((p) => ({ side: p.side, rack: p.rack.slice(), placements: p.placements.map((q) => ({ row: q.row, col: q.col, letter: q.letter })) })),
+  };
+}
+function scheduleDrain() {
+  if (drainScheduled || drainRunning || !outboxMayBeNonEmpty) return;
+  drainScheduled = true;
+  setTimeout(() => { drainScheduled = false; drainOutbox(); }, 0);
+}
+async function drainOutbox() {
+  if (drainRunning) return;
+  drainRunning = true;
+  try {
+    // navigator.onLine alone lies; the /api/me below is the real check.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    try { await api('/api/me'); } catch { return; } // offline: stay queued
+    let recs = [];
+    try { recs = await offlineStoreGetAll(); } catch { return; }
+    // Sequential, finishedAt order — never parallel.
+    const finished = recs.filter((r) => r.status === 'finished').sort((a, b) => new Date(a.finishedAt || 0) - new Date(b.finishedAt || 0));
+    for (const rec of finished) {
+      let res;
+      try {
+        res = await api('/api/games/sync', { method: 'POST', body: JSON.stringify(buildSyncPayload(rec)) });
+      } catch (e) {
+        // 422: the server replay rejected this game — mark it rejected
+        // and roll its delta out of the local Elo. Never retry it.
+        if (e && e.status === 422) {
+          try { rec.status = 'rejected'; await offlineStorePut(rec); } catch {}
+          pendingEloSum -= (rec.eloDelta || 0);
+          if (game && game.offline && game.id === 'offline-' + rec.offlineId) game.offlinePending = false;
+          continue;
+        }
+        // Anything else (network down, dead session): stop the drain
+        // and keep the rest queued. A dead session must not bounce
+        // the user to sign-in from a background sync.
+        return;
+      }
+      // 200 (including an idempotent duplicate): clear the outbox entry.
+      try { await offlineStoreDel(rec.offlineId); } catch {}
+      pendingEloSum -= (rec.eloDelta || 0);
+      // The delta is now on the server: fold it into the persisted Elo
+      // (the response carries the new Elo, except on a duplicate
+      // re-submit, where the delta is added to the persisted copy —
+      // a duplicate only happens when the first response was lost, so
+      // the persisted copy does not have it yet).
+      const newElo = res && typeof res.eloAfter === 'number' ? res.eloAfter : null;
+      if (me) {
+        me.elo = newElo != null ? newElo : (typeof me.elo === 'number' ? me.elo + (rec.eloDelta || 0) : me.elo);
+        persistMe();
+      } else if (newElo != null) {
+        const stored = loadPersistedMe();
+        if (stored) { stored.elo = newElo; try { storeSet('duello_me', JSON.stringify(stored)); } catch {} }
+      }
+      if (game && game.offline && game.id === 'offline-' + rec.offlineId) game.offlinePending = false;
+    }
+    await refreshOfflineTotals();
+  } finally {
+    drainRunning = false;
+  }
 }
 const LOCAL_VALUES = { A:1,B:4,C:4,D:3,E:1,F:5,G:3,H:4,I:1,J:9,K:6,L:2,M:4,N:2,O:1,P:4,Q:10,R:1,S:1,T:1,U:2,V:6,W:5,X:8,Y:5,Z:9 };
 const SIZE = 10;
@@ -1879,7 +2602,9 @@ async function updateStatus() {
     // with Play greyed, so an invalid word never got named until the user
     // tapped Play. Retry once for a transient failure (Render waking up);
     // if that also fails, Play stays tappable and its server verdict
-    // names the words (see doPlay catch).
+    // names the words (see doPlay catch). Offline games never reach the
+    // server path — doLocalPlay validates authoritatively instead.
+    if (game && game.offline) { $('status').textContent = 'Offline play needs the dictionary — connect once to download it.'; return; }
     setPlayState('invalid');
     const retrySnapshot = JSON.stringify(pending.map(p => [p.row, p.col, p.letter]));
     setTimeout(async () => {
@@ -1976,6 +2701,9 @@ $('shuffleBtn').onclick = async () => {
   };
   fold([...rackEl.querySelectorAll('.tile')]);
   await new Promise(r => setTimeout(r, 60));
+  // Offline games shuffle locally: the rack is the player's own, and
+  // there is no server rack to agree with.
+  if (game.offline) { game.humanRack = rack; renderGame(); shuffling = false; return; }
   try {
     game = await api(`/api/games/${game.id}/shuffle`, { method: 'POST', body: JSON.stringify({ rack }) }); gameFetchAt = Date.now(); renderGame();
     // Fold out: new tiles start collapsed at the centre and expand to
@@ -2012,6 +2740,8 @@ function armButton(btn, label, fn, penalty) {
   };
 }
 $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => {
+  // Offline games pass locally: -30s, no server round-trip.
+  if (game && game.offline) { await doLocalPass(); return; }
   // Same tap-time clock switch as Play: freeze human, start bot now.
   const tapAt = Date.now(); const clientElapsedMs = Math.max(0, tapAt - gameFetchAt);
   const prevHuman = game.clocks.human, prevFetchAt = gameFetchAt;
@@ -2021,6 +2751,8 @@ $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => {
   catch { game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt; renderGame(); }
 }, '-30s');
 $('forfeitBtn').onclick = armButton($('forfeitBtn'), () => humanOutOfTime() ? 'Exit' : 'Forfeit', async () => {
+  // Offline games forfeit locally: the forfeiter loses, no server call.
+  if (game && game.offline) { doLocalForfeit(); return; }
   const wasOutOfTime = humanOutOfTime();
   game = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' }); gameAppliedSeq = gameFetchSeq; gameFetchAt = Date.now(); pending = [];
   if (wasOutOfTime) {
@@ -2041,6 +2773,8 @@ async function doPlay() {
   // validation round-trip to show any feedback.
   cleanupStuckDrag(); suppressNextClick = false;
   if (!game || game.clocks.turn !== 'human' || !pending.length || playInFlight) return;
+  // Offline games play locally: authoritative local validation, no POST.
+  if (game.offline) { await doLocalPlay(); return; }
   // A Play tap with no valid word does nothing: when the verdict for
   // these exact placements is known and invalid, return before any clock
   // switch, rack change, render, or server call. When the verdict is
@@ -2186,6 +2920,12 @@ function showStatWindow(stats) {
     $('eloMoveBot').textContent = '';
     $('eloMoveBot').className = 'elo-move';
   }
+  // Offline game, not yet synced: the Elo move is local-only until the
+  // server confirms it — mark it pending instead of hiding it (v106).
+  // A Fishstick +0 stays blank, as online: there is no move to mark.
+  if (game && game.offline && game.offlinePending && $('eloMoveHuman').textContent) {
+    $('eloMoveHuman').textContent += ' · pending sync';
+  }
   // A blank Elo move takes no space: the pfp column is just the
   // pfp, so the pfp sits vertically centred with the score instead
   // of riding high over an empty 20px row. (Fishstick games show
@@ -2262,7 +3002,7 @@ async function refreshLeaderboards() {
   // friends refetch below. Ranks moved too, so the rank cache
   // goes with them.
   profileData = null; rankCache.clear();
-  try { const d = await api('/api/me'); me = d.user; } catch (err) { deadSession(err); return; }
+  try { const d = await api('/api/me'); me = d.user; persistMe(); } catch (err) { deadSession(err); return; }
   globalRows = null;
   await loadServerFriends(true);
 }
@@ -2611,14 +3351,22 @@ function enablePlacedDrag(el, pend) {
   meReq.catch(() => {});
   try {
     const d = await Promise.race([meReq, new Promise(res => setTimeout(() => res(null), 10000))]);
-    if (d) me = d.user;
+    if (d) { me = d.user; persistMe(); }
   }
   catch (err) {
     // Only a rejected session bounces to auth; a transient network
     // failure still shows Home and lets the next call surface the error.
     if (err && err.message === 'Not signed in.') { token = ''; storeDel('duello_token'); me = null; setAuthMode('signin'); show('authScreen'); return; }
   }
-  show('homeScreen');
+  // Offline (v106): no network, no problem — the persisted user stands
+  // in until the next successful /api/me overwrites it.
+  if (!me) { const stored = loadPersistedMe(); if (stored) me = stored; }
+  // Refresh the pending offline totals and, if a game was left in
+  // progress, resume it into the game screen instead of Home.
+  try { await refreshOfflineTotals(); } catch {}
+  let resumed = false;
+  try { resumed = await maybeResumeOfflineGame(); } catch {}
+  if (!resumed) show('homeScreen');
 })();
 
 // ---------- Profile tab + real accounts ----------
@@ -2658,7 +3406,7 @@ async function renderProfileUI(prefetched) {
     if (err && err.message === 'Not signed in.') { token = ''; storeDel('duello_token'); me = null; profileData = null; setAuthMode('signin'); show('authScreen'); }
     return;
   }
-  profileData = d; me = d.user;
+  profileData = d; me = d.user; persistMe();
   const u = profileData.user;
   $('profilePfp').innerHTML = usablePhoto(u) ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44); $('profilePfp').classList.toggle('no-photo', !usablePhoto(u));
   $('profileName').textContent = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
@@ -2698,6 +3446,9 @@ function renderStatsList() {
     ['Games played', st.gamesPlayed], ['Lifetime record', st.record || '0W-0L'],
     ['Optimal move %', fmt1(st.optimalPct) + '%'], ['Unique words played', st.uniqueWords],
   ];
+  // Offline games waiting to sync (v106): shown while the outbox is
+  // non-empty, cleared when it drains.
+  if (pendingGamesCount > 0) lines.push(['Games waiting to sync', pendingGamesCount]);
   $('statsList').innerHTML = lines.map(([k, v]) => `<div class="stat-line"${k === '10 letter words' ? ' data-ten-letter="1"' : ''}><span>${k}</span><b>${numify(v)}</b></div>`).join('');
   const tenRow = $('statsList').querySelector('[data-ten-letter]');
   if (tenRow) tenRow.onclick = () => openTenLetterModal(st.tenLetterWords || []);
@@ -2850,7 +3601,7 @@ $('profileEditForm').onsubmit = async e => {
     if (em) body.email = em;
     if (editPhotoData !== undefined) body.photoData = editPhotoData;
     const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify(body) });
-    me = d.user; profileData = null;
+    me = d.user; persistMe(); profileData = null;
     show('profileScreen'); renderProfileUI();
   } catch (err) { $('editError').textContent = err.message || 'Could not save.'; }
 };
@@ -2980,7 +3731,7 @@ $('authForm').onsubmit = async e => {
   const email = $('authEmail').value.trim(), password = $('authPassword').value;
   try {
     const d = await api('/api/signin', { method: 'POST', body: JSON.stringify({ email, password }) });
-    token = d.token; storeSet('duello_token', token); me = d.user; profileData = null;
+    token = d.token; storeSet('duello_token', token); me = d.user; persistMe(); profileData = null;
     show('homeScreen');
   } catch (err) { $('authError').textContent = err.message || 'Something went wrong.'; }
 };
@@ -3018,7 +3769,7 @@ $('suCreateBtn').onclick = async () => {
     if (!/^[a-z0-9_]{3,}$/.test(username)) throw new Error('Username: lowercase letters, numbers, and underscores only, at least 3 characters.');
     if (!pwPolicyOk(password)) throw new Error('Password needs 8+ characters, a capital letter, a lowercase letter, and a number.');
     const d = await api('/api/signup', { method: 'POST', body: JSON.stringify({ firstName, lastName, username, email: suEmail, password, verifiedToken: suVerifiedToken }) });
-    token = d.token; storeSet('duello_token', token); me = d.user; profileData = null;
+    token = d.token; storeSet('duello_token', token); me = d.user; persistMe(); profileData = null;
     show('homeScreen');
   } catch (err) { $('suError3').textContent = err.message || 'Something went wrong.'; }
 };

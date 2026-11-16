@@ -17,8 +17,10 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS games (
   id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
   bot_type TEXT NOT NULL, bot_elo INTEGER NOT NULL, state JSONB NOT NULL,
+  client_game_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS games_client_game_id_unique ON games (client_game_id);
 CREATE TABLE IF NOT EXISTS elo_history (
   id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), game_id INTEGER,
   elo_after INTEGER NOT NULL, delta INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()

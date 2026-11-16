@@ -135,6 +135,11 @@ async function initDb() {
     CHECK (from_user_id <> to_user_id)
   )`);
   await pool.query('ALTER TABLE games ADD COLUMN IF NOT EXISTS opponent_id INT REFERENCES users(id)');
+  // Offline sync (v106): client_game_id is the idempotency key for a
+  // finished offline game (POST /api/games/sync). A re-submit with the
+  // same key is a no-op 200, so a retry after a dropped response is safe.
+  await pool.query('ALTER TABLE games ADD COLUMN IF NOT EXISTS client_game_id TEXT');
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS games_client_game_id_unique ON games (client_game_id)');
   await seedPersonas();
 }
 async function seedPersonas() {
@@ -826,6 +831,131 @@ async function finishIfNeeded(game, user) {
   }
   return false;
 }
+// Offline sync validation (v106): a finished game played on the device
+// is only trusted after a full replay against the server engine. The
+// client sends the per-move rack log (`plays`) because state.moves
+// carries words/scores but no placements, and the state alone cannot be
+// replayed. Pure function (no DB): returns {ok:true} or
+// {ok:false, error}. With opts.shapeOnly it runs only the cheap shape
+// checks, so the endpoint can do shape -> idempotency check -> replay
+// in that order. Never throws on a malformed payload: anything the
+// replay cannot make sense of is a 422, not a 500.
+function validateOfflineSync(eng, payload, opts = {}) {
+  const fail = (error) => ({ ok: false, error });
+  if (!payload || typeof payload !== 'object') return fail('Missing game payload.');
+  const { offlineId, botType, botElo, playerEloAtStart, eloDelta: delta, state, plays } = payload;
+  if (typeof offlineId !== 'string' || !offlineId.trim()) return fail('offlineId is required.');
+  if (botType !== 'competitive' && botType !== 'fishstick') return fail('botType must be competitive or fishstick.');
+  if (!Number.isFinite(playerEloAtStart)) return fail('playerEloAtStart must be a number.');
+  if (!Number.isFinite(delta)) return fail('eloDelta must be a number.');
+  if (!Number.isFinite(botElo)) return fail('botElo must be a number.');
+  if (botType === 'fishstick' && botElo !== 3000) return fail('Fishstick botElo must be 3000.');
+  if (botType === 'competitive' && botElo !== playerEloAtStart) return fail('Competitive botElo must equal playerEloAtStart.');
+  if (!state || typeof state !== 'object') return fail('state is required.');
+  if (state.status !== 'finished') return fail('state.status must be finished.');
+  if (state.winner !== 'human' && state.winner !== 'bot' && state.winner !== 'draw') return fail('state.winner must be human, bot, or draw.');
+  // A forfeit before any move is a real game (the human forfeited at
+  // once): plays is empty, the board is empty, scores are 0-0, and the
+  // bot wins. Bots never forfeit, so a no-move forfeit with the human
+  // as winner (or any points on the board) is not a real game.
+  if (!Array.isArray(plays)) return fail('plays must be an array.');
+  if (plays.length === 0) {
+    const noMoveForfeit = state.reason === 'By forfeit' && state.winner === 'bot'
+      && state.scores && state.scores.human === 0 && state.scores.bot === 0
+      && state.moves && Array.isArray(state.moves.human) && state.moves.human.length === 0
+      && Array.isArray(state.moves.bot) && state.moves.bot.length === 0;
+    if (!noMoveForfeit) return fail('plays must be a non-empty array.');
+  }
+  if (!Array.isArray(state.board) || state.board.length !== eng.SIZE || state.board.some((r) => !Array.isArray(r) || r.length !== eng.SIZE)) return fail('state.board must be a 10x10 board.');
+  if (!state.premiums || typeof state.premiums !== 'object') return fail('state.premiums is required.');
+  if (!state.scores || !Number.isFinite(state.scores.human) || !Number.isFinite(state.scores.bot)) return fail('state.scores must have human and bot numbers.');
+  if (!state.moves || !Array.isArray(state.moves.human) || !Array.isArray(state.moves.bot)) return fail('state.moves must have human and bot arrays.');
+  if (opts.shapeOnly) return { ok: true };
+  try {
+    return replayOfflineSync(eng, payload);
+  } catch (e) {
+    return fail('Replay failed: ' + (e && e.message ? e.message : String(e)));
+  }
+}
+function replayOfflineSync(eng, payload) {
+  const fail = (error) => ({ ok: false, error });
+  const { botType, botElo, playerEloAtStart, eloDelta: delta, state, plays } = payload;
+  const premiums = state.premiums;
+  const board = eng.emptyBoard();
+  board.__premiums = premiums; // solver reads premiums from here
+  const scores = { human: 0, bot: 0 };
+  const moveIdx = { human: 0, bot: 0 };
+  // Last play per side, for the rack-evolution check: unplayed tiles
+  // never move, so the next rack for a side may differ from the last
+  // only at the indices its last move vacated.
+  const lastPlay = {};
+  const placementsKey = (ps) => ps.map((p) => `${p.row},${p.col},${p.letter}`).sort().join('|');
+  for (const play of plays) {
+    if (!play || (play.side !== 'human' && play.side !== 'bot')) return fail('Each play needs side human or bot.');
+    const side = play.side;
+    if (!Array.isArray(play.rack) || play.rack.length !== 6 || play.rack.some((l) => typeof l !== 'string' || l.length !== 1)) return fail('Each play needs a 6-letter rack.');
+    if (!Array.isArray(play.placements) || play.placements.length === 0 || play.placements.some((p) => !p || !Number.isInteger(p.row) || !Number.isInteger(p.col) || typeof p.letter !== 'string' || p.letter.length !== 1)) return fail('Each play needs placements with row, col, and a single letter.');
+    const prev = lastPlay[side];
+    if (prev) {
+      const used = new Set(prev.usedIndices);
+      for (let i = 0; i < 6; i++) {
+        if (!used.has(i) && play.rack[i] !== prev.rack[i]) return fail(`Rack changed at an unplayed index before a ${side} move.`);
+      }
+      const multiset = (rack, skip) => { const c = {}; rack.forEach((l, i) => { if (!skip.has(i)) c[l] = (c[l] || 0) + 1; }); return c; };
+      if (JSON.stringify(multiset(prev.rack, used)) !== JSON.stringify(multiset(play.rack, used))) return fail(`Unplayed tiles changed before a ${side} move.`);
+    }
+    const isFirst = eng.boardIsEmpty(board);
+    const res = eng.validatePlay(board, play.rack, play.placements, premiums, isFirst);
+    if (!res.valid) return fail(`Invalid ${side} play: ${res.error || 'rejected'}${res.invalidWords ? ' (' + res.invalidWords.join(', ') + ')' : ''}`);
+    const rec = state.moves[side][moveIdx[side]];
+    if (!rec) return fail(`More ${side} plays than recorded moves.`);
+    if (res.score !== rec.score) return fail(`${side} move ${moveIdx[side] + 1}: replayed score ${res.score} does not match recorded ${rec.score}.`);
+    if (res.mainWord !== rec.mainWord) return fail(`${side} move ${moveIdx[side] + 1}: replayed main word ${res.mainWord} does not match recorded ${rec.mainWord}.`);
+    moveIdx[side]++;
+    if (side === 'bot') {
+      // Bot moves are checked against the solver on the board BEFORE
+      // this play. Fishstick is deterministic (exactly moves[0]);
+      // Competitive is a dice roll inside the legal list, so only
+      // membership in the list (with the recorded score) is checked.
+      const moves = eng.findMoves(board, play.rack, isFirst, true);
+      if (!moves.length) return fail('Bot has no legal move here.');
+      const key = placementsKey(play.placements);
+      if (botType === 'fishstick') {
+        if (placementsKey(moves[0].placements) !== key || moves[0].score !== res.score) return fail('Fishstick move is not the best move.');
+      } else {
+        if (!moves.some((m) => placementsKey(m.placements) === key && m.score === res.score)) return fail('Competitive move is not in the legal move list.');
+      }
+    }
+    // Which rack indices this play vacated (first-match, same as
+    // applyMove), for the next rack-evolution check on this side.
+    const remaining = play.rack.slice();
+    const usedIndices = [];
+    for (const p of play.placements) {
+      const idx = remaining.indexOf(p.letter);
+      if (idx < 0) return fail('Placed letter is not in the rack.');
+      usedIndices.push(idx);
+      remaining[idx] = null;
+    }
+    lastPlay[side] = { rack: play.rack.slice(), usedIndices };
+    for (const p of play.placements) board[p.row][p.col] = p.letter;
+    scores[side] += res.score;
+  }
+  if (moveIdx.human !== state.moves.human.length || moveIdx.bot !== state.moves.bot.length) return fail('Recorded moves do not match the play log.');
+  for (let r = 0; r < eng.SIZE; r++) {
+    for (let c = 0; c < eng.SIZE; c++) {
+      if ((board[r][c] || '') !== (state.board[r][c] || '')) return fail('Replayed board does not match the recorded board.');
+    }
+  }
+  if (scores.human !== state.scores.human || scores.bot !== state.scores.bot) return fail('Replayed scores do not match the recorded scores.');
+  if (state.reason !== 'By forfeit') {
+    const expectedWinner = scores.human > scores.bot ? 'human' : scores.bot > scores.human ? 'bot' : 'draw';
+    if (state.winner !== expectedWinner) return fail('Winner does not match the scores.');
+  }
+  const actual = state.winner === 'human' ? 1 : state.winner === 'bot' ? 0 : 0.5;
+  const expectedDelta = eng.eloDelta(playerEloAtStart, botElo, actual);
+  if (delta !== expectedDelta) return fail(`eloDelta ${delta} does not match the expected ${expectedDelta}.`);
+  return { ok: true };
+}
 const DEF_PLACEHOLDER = 'a valid word in the Duello word list';
 function isRealDef(entry) { return entry && entry.def && entry.def !== DEF_PLACEHOLDER; }
 function stemCandidates(w) {
@@ -1179,13 +1309,13 @@ const server = http.createServer(async (req, res) => {
     // preflight (OPTIONS) answers with the same headers.
     if (req.method === 'OPTIONS') { res.writeHead(204, CORS_HEADERS); return res.end(); }
     // Static files
-    if (req.method === 'GET' && (pathname === '/' || pathname === '/privacy.html' || pathname.startsWith('/app.js') || pathname.startsWith('/engine.js') || pathname.startsWith('/style.css') || pathname.startsWith('/favicon') || pathname.startsWith('/assets/'))) {
+    if (req.method === 'GET' && (pathname === '/' || pathname === '/privacy.html' || pathname.startsWith('/app.js') || pathname.startsWith('/engine.js') || pathname.startsWith('/sw.js') || pathname.startsWith('/words.txt') || pathname.startsWith('/style.css') || pathname.startsWith('/favicon') || pathname.startsWith('/assets/'))) {
       const file = pathname === '/' ? 'index.html' : pathname.slice(1);
       const safe = path.join(ROOT, 'public', file);
       if (!safe.startsWith(path.join(ROOT, 'public'))) { res.writeHead(403); return res.end(); }
       if (!fs.existsSync(safe)) { res.writeHead(404); return res.end('Not found'); }
       const ext = path.extname(safe);
-      const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'text/html';
+      const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.txt' ? 'text/plain' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'text/html';
       res.writeHead(200, { 'Content-Type': type });
       return fs.createReadStream(safe).pipe(res);
     }
@@ -1710,6 +1840,55 @@ const server = http.createServer(async (req, res) => {
       const out = serializeGame(game, user);
       if (game.status === 'finished') out.stats = gameStatsPayload(game);
       return sendJson(res, 200, out);
+    }
+    // Offline sync (v106): a finished game played on the device, submitted
+    // whole for replay validation. The delta is a property of the game
+    // (computed from the Elo at game start), so the STORED, validated
+    // delta is applied to the CURRENT server Elo — never recomputed
+    // from it (endGame is not used here: it recomputes the delta and
+    // saves via saveGameRow, which knows nothing of client_game_id).
+    // Idempotent on offlineId: a re-submit is a no-op 200.
+    if (pathname === '/api/games/sync' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const shape = validateOfflineSync(engine, b, { shapeOnly: true });
+      if (!shape.ok) return sendJson(res, 422, { error: shape.error });
+      const dup = await q('SELECT id FROM games WHERE client_game_id=$1', [b.offlineId]);
+      if (dup.rows[0]) return sendJson(res, 200, { synced: true, gameId: Number(dup.rows[0].id), duplicate: true });
+      const check = validateOfflineSync(engine, b);
+      if (!check.ok) return sendJson(res, 422, { error: check.error });
+      const delta = b.eloDelta;
+      // The stored state is the client's serializeGame shape plus the
+      // fields a normal stored row carries: userId/botType (profile
+      // stats read the state to tell which side the row owner played)
+      // and the Elo fields below, overwritten once the new Elo is known.
+      const storedState = JSON.parse(JSON.stringify(b.state));
+      storedState.userId = user.id;
+      storedState.botType = b.botType;
+      let gameId;
+      try {
+        const ins = await q('INSERT INTO games (user_id, bot_type, bot_elo, state, client_game_id, created_at) VALUES ($1,$2,$3,$4::jsonb,$5,$6) RETURNING id', [user.id, b.botType, b.botElo, JSON.stringify(storedState), b.offlineId, b.finishedAt || new Date().toISOString()]);
+        gameId = Number(ins.rows[0].id);
+      } catch (e) {
+        // A duplicate racing in between the check above and this
+        // insert is a no-op 200, not a 500.
+        if (e && e.code === '23505') {
+          const raced = await q('SELECT id FROM games WHERE client_game_id=$1', [b.offlineId]);
+          if (raced.rows[0]) return sendJson(res, 200, { synced: true, gameId: Number(raced.rows[0].id), duplicate: true });
+        }
+        throw e;
+      }
+      const eloRow = await q('UPDATE users SET elo = elo + $1, elo_high = GREATEST(elo_high, elo + $1) WHERE id = $2 RETURNING elo', [delta, user.id]);
+      const newElo = Number(eloRow.rows[0].elo);
+      storedState.eloDeltaHuman = delta;
+      storedState.eloDeltaBot = -delta;
+      storedState.eloAfterHuman = newElo;
+      storedState.eloAfterBot = b.botElo - delta;
+      storedState.botElo = b.botElo - delta;
+      await q('UPDATE games SET state=$1::jsonb WHERE id=$2', [JSON.stringify(storedState), gameId]);
+      await q('INSERT INTO elo_history (user_id, game_id, elo_after, delta) VALUES ($1,$2,$3,$4)', [user.id, gameId, newElo, delta]);
+      return sendJson(res, 200, { synced: true, gameId, eloAfter: newElo, delta });
     }
     // Live updates for real-player games (SSE): EventSource cannot send
     // an Authorization header, so the session token travels as a query

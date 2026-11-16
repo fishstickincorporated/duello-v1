@@ -1309,13 +1309,13 @@ const server = http.createServer(async (req, res) => {
     // preflight (OPTIONS) answers with the same headers.
     if (req.method === 'OPTIONS') { res.writeHead(204, CORS_HEADERS); return res.end(); }
     // Static files
-    if (req.method === 'GET' && (pathname === '/' || pathname === '/privacy.html' || pathname.startsWith('/app.js') || pathname.startsWith('/engine.js') || pathname.startsWith('/sw.js') || pathname.startsWith('/words.txt') || pathname.startsWith('/style.css') || pathname.startsWith('/favicon') || pathname.startsWith('/assets/'))) {
+    if (req.method === 'GET' && (pathname === '/' || pathname === '/privacy.html' || pathname.startsWith('/app.js') || pathname.startsWith('/engine.js') || pathname.startsWith('/sw.js') || pathname.startsWith('/words.txt') || pathname.startsWith('/style.css') || pathname.startsWith('/favicon') || pathname.startsWith('/definitions/') || pathname.startsWith('/assets/'))) {
       const file = pathname === '/' ? 'index.html' : pathname.slice(1);
       const safe = path.join(ROOT, 'public', file);
       if (!safe.startsWith(path.join(ROOT, 'public'))) { res.writeHead(403); return res.end(); }
       if (!fs.existsSync(safe)) { res.writeHead(404); return res.end('Not found'); }
       const ext = path.extname(safe);
-      const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.txt' ? 'text/plain' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'text/html';
+      const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.txt' ? 'text/plain' : ext === '.json' ? 'application/json' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'text/html';
       res.writeHead(200, { 'Content-Type': type });
       return fs.createReadStream(safe).pipe(res);
     }

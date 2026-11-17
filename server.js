@@ -61,15 +61,12 @@ for (const line of fs.readFileSync(path.join(DATA_DIR, 'words.txt'), 'utf8').spl
   if (w) WORDS.add(w);
 }
 let DEFS = {};
-// Which file each bundled definition came from, so getDefinition can
-// tell a modern first-sense entry from a single-gloss pick that may
-// be a rare sense. Measured Nov 13, 2026: the base file is WordNet
-// (43,732 entries, 0 archaic markers); extras a-c are Webster's
-// 1913 (~18,400 entries, ~950 with [Obs.]/[Prov.] tags, ~2,000
-// numbered multi-sense glosses, ~700 starting "One who/He who");
-// extras d-g are the Wiktionary dump (~22,900 entries, modern
-// first senses). Later files override earlier ones, so the last
-// writer wins — exactly like DEFS itself.
+// Which file each bundled definition came from. v118: every bundled
+// entry is curated (src 'curated') — one short, most-common-sense
+// definition per word, picked at build time by
+// expanded/build-curated-dictionary.js from every source (WordNet,
+// Webster's 1913, Wiktionary, dictionaryapi.dev). The old base file
+// and extras a-g stay on disk as raw material but are not loaded.
 const DEFS_SRC = {};
 function loadDefsFile(file, src) {
   try {
@@ -77,14 +74,14 @@ function loadDefsFile(file, src) {
     for (const w of Object.keys(chunk)) { DEFS[w] = chunk[w]; DEFS_SRC[w] = src; }
   } catch (e) { /* chunk absent, ignore */ }
 }
-try { DEFS = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'definitions.json'), 'utf8')); } catch (e) { DEFS = {}; }
-for (const w of Object.keys(DEFS)) DEFS_SRC[w] = 'wordnet';
-// Extra definitions (expanded dictionary + Webster) are split into small
-// chunk files because a single 5.8 MB definitions file cannot be pushed
-// through the GitHub MCP tool (413). Chunks override the base file, so
-// placeholder entries in the base file are replaced by real definitions.
-for (const extraFile of ['definitions-extra-a.json', 'definitions-extra-b.json', 'definitions-extra-c.json']) loadDefsFile(extraFile, 'webster');
-for (const extraFile of ['definitions-extra-d.json', 'definitions-extra-e.json', 'definitions-extra-f.json', 'definitions-extra-g.json']) loadDefsFile(extraFile, 'wiktionary');
+// Curated dictionary (v118): one short, most-common-sense definition
+// per word, built by expanded/build-curated-dictionary.js. The curated
+// chunks are the ONLY bundled source now — the old base file and
+// extras a-g stay on disk as raw material but are not loaded, so a
+// rejected gloss (a rare sense, a pointer, a proper name) can never
+// resurface through the base file.
+try { DEFS = {}; } catch (e) { DEFS = {}; }
+for (const extraFile of ['definitions-curated-a.json', 'definitions-curated-b.json', 'definitions-curated-c.json', 'definitions-curated-d.json', 'definitions-curated-e.json', 'definitions-curated-f.json', 'definitions-curated-g.json', 'definitions-curated-h.json', 'definitions-curated-i.json', 'definitions-curated-j.json']) loadDefsFile(extraFile, 'curated');
 
 // ---------- Shared engine (public/engine.js) ----------
 // The pure game logic (solver, validation, scoring, pickers, rack
@@ -1187,10 +1184,10 @@ async function resolveLiveMorph(live, depth) {
   const core = coreWordFromDef(live.definition);
   if (!core) return null;
   const bundledCore = bundledDefinition(core);
-  // A Wiktionary-bundled core is a modern first sense: use it at
-  // once. A WordNet/Webster's core may be a rare sense, so try the
-  // live core first and keep the bundled one only as a fallback.
-  if (bundledCore && bundledCore.src === 'wiktionary') return { pos: bundledCore.pos || '', definition: bundledCore.definition };
+  // A curated core is final (v118): use it at once. A pre-curated
+  // core may be a rare sense, so try the live core first and keep the
+  // bundled one only as a fallback.
+  if (bundledCore && (bundledCore.src === 'wiktionary' || bundledCore.src === 'curated')) return { pos: bundledCore.pos || '', definition: bundledCore.definition };
   try {
     const coreLive = await fetchLiveRaw(core.toLowerCase());
     if (coreLive) return await resolveLiveMorph(coreLive, depth + 1);
@@ -1229,15 +1226,12 @@ function shortenDefinition(def) {
 async function getDefinition(word) {
   const w = String(word || '').toUpperCase();
   const bundled = bundledDefinition(w);
-  // A Wiktionary-bundled entry is a modern first sense: serve it at
-  // once, with no network. A WordNet or Webster's 1913 entry holds a
-  // single gloss that is often a rare sense (RUN: the baseball score;
-  // CRANE: the writer Stephen Crane), so the live chain — modern
-  // dictionaries, most-common first — gets the first try, and the
-  // bundled gloss is the fallback when the network has nothing
-  // better. The src marker stays server-side: the response is still
-  // just {word, pos, definition}.
-  if (bundled && bundled.src === 'wiktionary') return { word: w, pos: bundled.pos || '', definition: shortenDefinition(bundled.definition) };
+  // A curated entry is final (v118): it is the shortest, most-common
+  // sense, picked at build time from every source, and already short
+  // (hard cap 150 chars). No live fetch overrides it — the live chain
+  // below runs only for words with no curated entry. The src marker
+  // stays server-side: the response is still just {word, pos, definition}.
+  if (bundled) return { word: w, pos: bundled.pos || '', definition: bundled.definition };
   if (DEF_CACHE.has(w)) return DEF_CACHE.get(w);
   let live = await fetchLiveRaw(w.toLowerCase());
   if (live) live = await resolveLiveMorph(live, 0);
@@ -1246,7 +1240,6 @@ async function getDefinition(word) {
     DEF_CACHE.set(w, out);
     return out;
   }
-  if (bundled) return { word: w, pos: bundled.pos || '', definition: shortenDefinition(bundled.definition) };
   // Stemmed forms through Wiktionary: plurals / inflections that are
   // not themselves Wiktionary headwords (e.g. ABOILS -> ABOIL).
   // Return the core definition directly, with no "form of" prefix.

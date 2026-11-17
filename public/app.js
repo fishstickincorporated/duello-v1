@@ -77,7 +77,7 @@ const API_BASE = (typeof window !== 'undefined' && window.Capacitor) ? 'https://
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 117;
+const APP_VERSION = 118;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -319,7 +319,14 @@ function preloadHomeTabs() {
     // first bot tap paid the whole dictionary load.
     try { ensureLocalWords(); } catch {}
     let d = null;
-    try { d = await api('/api/me'); } catch { return; }
+    // A failed /api/me must not kill the whole preload (v118 fix, Nov
+    // 17, 2026): the old `catch { return; }` left profileData null and
+    // the photo undecided whenever the boot-time fetch hiccuped, and
+    // the homeTabsPreloaded latch meant it never retried — so the pic
+    // was never preloaded that session. Fall through instead:
+    // renderProfileUI retries the fetch and falls back to the cached
+    // profile, and the photo warm below uses me when the fetch failed.
+    try { d = await api('/api/me'); } catch {}
     try { await renderProfileUI(d); } catch {}
     // Warm the user's photo so it paints instantly when the Profile
     // tab is tapped: an <img> inside a hidden screen is only decoded
@@ -327,7 +334,7 @@ function preloadHomeTabs() {
     // the cached image paints at once. This is the same photoData the
     // leaderboard row uses, so it covers that row too.
     try {
-      const u = d && d.user;
+      const u = (d && d.user) || me;
       if (u && u.photoData) {
         const im = new Image();
         im.src = u.photoData;
@@ -3458,7 +3465,7 @@ async function showDefinition(r, c) {
       let d = defCache.get(w);
       if (!d) {
         // Local bundle first (v115): instant and offline. A curated
-        // entry is final (v117) — no background refresh from the
+        // entry is final (v118) — no background refresh from the
         // server; /api/define is only a fallback for words the bundle
         // does not hold.
         const local = await localDefinition(w);
@@ -3783,6 +3790,19 @@ function enablePlacedDrag(el, pend) {
   // Offline (v106): no network, no problem — the persisted user stands
   // in until the next successful /api/me overwrites it.
   if (!me) { const stored = loadPersistedMe(); if (stored) me = stored; }
+  // Warm the user's photo at once (v118 fix, Nov 17, 2026): the pic is
+  // a data URL already in hand (me.photoData from /api/me), so decode
+  // it now — during the intro — instead of waiting for the preload's
+  // idle callback and a second /api/me fetch. If the preload loses the
+  // race to a Profile tap, the pic is still decoded and paints
+  // instantly. Fire and forget: a slow decode must never stall boot.
+  try {
+    if (me && me.photoData) {
+      const im = new Image();
+      im.src = me.photoData;
+      if (typeof im.decode === 'function') im.decode().catch(() => {});
+    }
+  } catch {}
   // Refresh the pending offline totals and, if a game was left in
   // progress, resume it into the game screen instead of Home.
   try { await refreshOfflineTotals(); } catch {}
@@ -3819,6 +3839,20 @@ async function renderProfileUI(prefetched) {
   // Sign-in is required: no token, or a rejected session, goes to auth.
   if (!token) { setAuthMode('signin'); show('authScreen'); return; }
   blankProfileUI();
+  // Paint the photo at once from me (v118 fix, Nov 17, 2026): me
+  // already carries photoData from the boot /api/me, and the image is
+  // decoded during the intro, so the pic is there the moment the tab
+  // opens instead of waiting for the fetch below. The fetch still
+  // fills the name/Elo/stats and refreshes the photo if it changed
+  // since boot. This is what makes the preload a guarantee rather
+  // than a race: even if the user taps Profile before the background
+  // preload finishes, the pic is already painted.
+  try {
+    if (me && me.photoData) {
+      $('profilePfp').innerHTML = `<img src="${me.photoData}" alt="">`;
+      $('profilePfp').classList.remove('no-photo');
+    }
+  } catch {}
   // The background preload (preloadHomeTabs) passes the /api/me
   // payload it already fetched for the session check, so the profile
   // is not fetched twice at boot.

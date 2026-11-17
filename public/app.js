@@ -74,10 +74,13 @@ const fmtClock = ms => { ms = Math.max(0, Math.ceil(ms / 1000) * 1000); if (ms =
 // to the live server instead. On the web the base is empty, so nothing
 // changes there. Capacitor exposes window.Capacitor in the shell.
 const API_BASE = (typeof window !== 'undefined' && window.Capacitor) ? 'https://duellogame.com' : '';
+// The iOS shell is a Capacitor app; the web is not. Push
+// notifications (v120) only exist in the shell.
+const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 118;
+const APP_VERSION = 121;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -920,6 +923,147 @@ async function checkIncomingChallenges() {
   maybeShowChallengeModal(list);
 }
 startChallengePoll();
+
+// ---------- Push notifications (v120) ----------
+// iOS only (Capacitor shell): a match challenge arrives as a push
+// when the app is closed or backgrounded, reading "@<challenger>
+// challenged you to a match!". Tapping it opens the accept/decline
+// window. The toggle lives in Settings (gear); it gates sending
+// server-side (push_enabled) and registers the device token. Web
+// has no push — the row stays hidden there (see refreshPushToggle).
+// The plugin is reached through the Capacitor bridge
+// (window.Capacitor.Plugins.PushNotifications); no bundler, no
+// import — the native shell registers it.
+function pushPlugin() {
+  try {
+    return (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.Plugins) ? (window.Capacitor.Plugins.PushNotifications || null) : null;
+  } catch { return null; }
+}
+let pushDeviceToken = null; // this device's APNs token, once registered
+let pushInitDone = false;
+function pushPrefOn() {
+  // The server defaults the preference on; an older cached `me`
+  // has no pushEnabled field, which also reads as on.
+  return !me || me.pushEnabled !== false;
+}
+function refreshPushToggle() {
+  const row = $('pushSettingRow'); if (!row) return;
+  // Web: no push at all — the row stays hidden.
+  row.classList.toggle('hidden', !IS_CAPACITOR || !pushPlugin());
+  const t = $('pushToggle'); if (!t) return;
+  const on = pushPrefOn();
+  t.classList.toggle('on', on);
+  t.setAttribute('aria-checked', on ? 'true' : 'false');
+  // A denied iOS permission means nothing can arrive even with the
+  // preference on — say so instead of showing a live-looking toggle
+  // with no explanation.
+  const P = pushPlugin();
+  if (P && on) {
+    P.checkPermissions().then((perm) => {
+      if (perm && perm.receive === 'denied') setPushNote('Notifications are off — turn them on in iOS Settings to get challenge alerts.');
+    }).catch(() => {});
+  }
+}
+function setPushNote(msg) {
+  const n = $('pushSettingNote'); if (!n) return;
+  n.textContent = msg || '';
+  n.classList.toggle('hidden', !msg);
+}
+async function registerPushToken() {
+  // Ask iOS for a device token (only after the user has granted
+  // permission) and hand it to the server. The 'registration'
+  // listener below does the actual send; this just starts it.
+  const P = pushPlugin(); if (!P) return false;
+  try { await P.register(); return true; } catch { return false; }
+}
+async function setPushEnabled(on) {
+  const P = pushPlugin();
+  if (on) {
+    // Turning on asks iOS first: without permission there is no
+    // token and nothing to send. A denied permission leaves the
+    // toggle off and says where to fix it.
+    if (!P) { setPushNote('Push notifications need the Duello app.'); return; }
+    let perm = null;
+    try { perm = await P.requestPermissions(); } catch { perm = null; }
+    if (!perm || perm.receive !== 'granted') {
+      setPushNote('Notifications are off — turn them on in iOS Settings to get challenge alerts.');
+      refreshPushToggle();
+      return;
+    }
+    try { await api('/api/push/preference', { method: 'POST', body: JSON.stringify({ enabled: true }) }); } catch {}
+    if (me) { me.pushEnabled = true; persistMe(); }
+    setPushNote('');
+    refreshPushToggle();
+    await registerPushToken();
+    return;
+  }
+  // Turning off: the server stops sending for this user, and this
+  // device's token is removed so a stale token can never fire.
+  try { await api('/api/push/preference', { method: 'POST', body: JSON.stringify({ enabled: false }) }); } catch {}
+  if (pushDeviceToken) { try { await api('/api/push/token/delete', { method: 'POST', body: JSON.stringify({ token: pushDeviceToken }) }); } catch {} }
+  if (me) { me.pushEnabled = false; persistMe(); }
+  setPushNote('');
+  refreshPushToggle();
+}
+$('pushToggle').onclick = async () => {
+  // The switch shows the current preference; tapping flips it.
+  // setPushEnabled re-reads the real state (and can refuse the
+  // flip when iOS permission is denied), then refreshes the UI.
+  await setPushEnabled(!pushPrefOn());
+};
+async function openChallengeFromPush(challengeId) {
+  // A push tap opens the accept/decline window for that challenge.
+  // The challenge may already be gone (declined, cancelled, timed
+  // out) — then the Friends page is the right landing spot, where
+  // the row sits if it is still waiting.
+  if (!token || challengeId == null) return;
+  let list = null;
+  try { list = await fetchIncomingChallenges(); } catch { list = null; }
+  if (!list) return;
+  const c = list.find(x => Number(x.id) === Number(challengeId));
+  if (!c) { show('friendsScreen'); return; }
+  maybeShowChallengeModal([c]);
+  // maybeShowChallengeModal holds the window while a game is active;
+  // the tap still lands on the Friends page, where the row is.
+  if (!challengeModalChallenge) show('friendsScreen');
+}
+function initPushNotifications() {
+  // Runs once, after sign-in: registers the plugin listeners and,
+  // when the preference is on and iOS permission is already
+  // granted, (re-)registers the token — tokens can change between
+  // launches. Never prompts on its own: a never-asked permission
+  // waits for the Settings toggle.
+  if (pushInitDone || !IS_CAPACITOR) return;
+  const P = pushPlugin();
+  if (!P) return;
+  pushInitDone = true;
+  try {
+    P.addListener('registration', async (t) => {
+      pushDeviceToken = (t && t.value) || null;
+      if (!pushDeviceToken || !token) return;
+      try { await api('/api/push/token', { method: 'POST', body: JSON.stringify({ token: pushDeviceToken, platform: 'ios' }) }); } catch {}
+    });
+    P.addListener('registrationError', () => {});
+    P.addListener('pushNotificationReceived', () => {
+      // Foreground: the 5s poll already shows the window, but a
+      // fresh fetch makes it appear at once instead of on the
+      // next tick.
+      try { checkIncomingChallenges(); } catch {}
+    });
+    P.addListener('pushNotificationActionPerformed', (action) => {
+      const d = (action && action.notification && action.notification.data) || {};
+      if (d.type === 'challenge' && d.challengeId != null) openChallengeFromPush(d.challengeId);
+    });
+  } catch {}
+  // Re-register when the preference is on and permission is already
+  // granted — this is what refreshes a rotated token. A 'prompt'
+  // (never asked) result means: wait for the toggle, don't prompt.
+  if (pushPrefOn() && token) {
+    P.checkPermissions().then((perm) => {
+      if (perm && perm.receive === 'granted') registerPushToken();
+    }).catch(() => {});
+  }
+}
 function showFriendsTab() {
   lbScope = 'friends';
   $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active');
@@ -3809,6 +3953,11 @@ function enablePlacedDrag(el, pend) {
   let resumed = false;
   try { resumed = await maybeResumeOfflineGame(); } catch {}
   if (!resumed) show('homeScreen');
+  // Push notifications (v120): register the listeners and, when the
+  // preference is on and iOS permission is already granted,
+  // (re-)register the device token. Fire and forget — a push setup
+  // failure must never stall boot.
+  try { initPushNotifications(); } catch {}
 })();
 
 // ---------- Profile tab + real accounts ----------
@@ -3969,6 +4118,8 @@ $('gearBtn').onclick = async () => {
   $('editCurrentPassword').value = ''; $('editNewPassword').value = ''; $('editNewPassword2').value = '';
   $('editPasswordError').textContent = ''; $('editPasswordDone').textContent = '';
   $('editPasswordFields').classList.add('hidden'); renderPwReqs('editPwReqs', '');
+  setPushNote('');
+  refreshPushToggle();
   show('profileEditScreen');
 };
 let editPhotoData;

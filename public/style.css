@@ -278,6 +278,17 @@ same 52px column, right-aligned, on every row including your own
 .edit-delete{margin-top:12px}
 .privacy-link{text-align:center}
 .privacy-link a{color:#03eaff}
+/* Settings (gear) rows — v120 push toggle. iOS-style switch in Duello
+   blue when on; the row itself is hidden on the web, where there is
+   no push, and shown only under Capacitor. */
+.settings-section{margin-top:18px;border-top:1px solid #2a2f3a;padding-top:14px}
+.setting-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 2px}
+.setting-label{font-size:15px;font-weight:700;color:#e8ecf1}
+.setting-sub{font-size:12px;color:#8a8f9c;margin-top:2px;line-height:1.35}
+.switch{flex:0 0 auto;width:52px;height:30px;border:0;border-radius:999px;background:#3a3f4b;cursor:pointer;padding:0;position:relative;transition:background .15s}
+.switch .switch-knob{position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:left .15s}
+.switch.on{background:#03eaff}
+.switch.on .switch-knob{left:25px}
 .btn.blue-border{background:transparent;color:#03eaff;border:2px solid #03eaff;padding:12px;width:100%;font-size:17px;margin-top:10px}
 .mini-btn{background:#03eaff;color:#1a1d24;border:0;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px}
 .mini-btn.grey{background:#3a3f4b}

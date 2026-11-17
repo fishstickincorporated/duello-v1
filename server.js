@@ -137,6 +137,18 @@ async function initDb() {
   // same key is a no-op 200, so a retry after a dropped response is safe.
   await pool.query('ALTER TABLE games ADD COLUMN IF NOT EXISTS client_game_id TEXT');
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS games_client_game_id_unique ON games (client_game_id)');
+  // Push notifications (v120): per-user device tokens for APNs, and a
+  // per-user on/off preference the Settings toggle writes. Tokens are
+  // keyed by (user_id, token) so one user can hold several devices
+  // and a re-register is an upsert, not a duplicate.
+  await pool.query(`CREATE TABLE IF NOT EXISTS push_tokens (
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token TEXT NOT NULL,
+    platform TEXT NOT NULL DEFAULT 'ios',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, token)
+  )`);
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS push_enabled BOOLEAN NOT NULL DEFAULT TRUE');
   await seedPersonas();
 }
 async function seedPersonas() {
@@ -189,7 +201,7 @@ async function getUserById(id) { const r = await q('SELECT * FROM users WHERE id
 function publicUser(u) {
   if (!u) return null;
   const created = u.created_at instanceof Date ? u.created_at.toISOString() : u.created_at;
-  return { id: u.id, email: u.email, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, eloHigh: u.elo_high, createdAt: created, hasPhoto: !!u.photo_data, photoData: u.photo_data || null };
+  return { id: u.id, email: u.email, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, eloHigh: u.elo_high, createdAt: created, hasPhoto: !!u.photo_data, photoData: u.photo_data || null, pushEnabled: u.push_enabled !== false };
 }
 async function authUser(req) {
   const h = req.headers.authorization || '';
@@ -204,6 +216,119 @@ async function authUser(req) {
 }
 
 function isGuestUser(u) { return !!u && typeof u.email === 'string' && u.email.endsWith('@guest.local'); }
+
+// ---------- Push notifications (APNs, v120) ----------
+// A match challenge reaches the recipient as a push when the app is
+// closed or backgrounded; while the app is open the 5s poll already
+// shows it. Sending uses APNs token-based auth (ES256 JWT, .p8 key)
+// over HTTP/2 with Node's built-in http2 — no new dependency.
+// Config (all env, never hardcoded):
+//   APNS_KEY_ID    — Key ID of the APNs auth key (Apple Developer →
+//                     Certificates, Identifiers & Profiles → Keys)
+//   APNS_TEAM_ID   — Team ID (defaults to JP6TX47769)
+//   APNS_KEY       — the .p8 key contents (PEM, BEGIN/END lines incl.)
+//   APNS_KEY_FILE  — path to the .p8 file (used if APNS_KEY is absent)
+// Without a key the server still runs and challenges still work;
+// notifyChallengePush just reports 'apns-not-configured' and nothing
+// is sent. The .p8 in ~/workspace/user/files/ is the App Store
+// Connect API key ('Duello CI') — it is NOT an APNs key and must
+// never be used here: an APNs key needs the Apple Push Notifications
+// service enabled on the key itself.
+const APNS_TEAM_ID = process.env.APNS_TEAM_ID || 'JP6TX47769';
+const APNS_BUNDLE_ID = 'com.duellogame.app';
+const APNS_HOST = 'api.push.apple.com';
+let apnsJwtCache = null; // { token, exp }
+function apnsKeyPem() {
+  if (process.env.APNS_KEY) return process.env.APNS_KEY;
+  if (process.env.APNS_KEY_FILE) {
+    try { return fs.readFileSync(process.env.APNS_KEY_FILE, 'utf8'); } catch { return null; }
+  }
+  return null;
+}
+function apnsConfigured() {
+  return !!(process.env.APNS_KEY_ID && apnsKeyPem());
+}
+function apnsJwt() {
+  // Token-based auth: one ES256 JWT, good for 60 minutes, reused
+  // until near expiry. Header carries the Key ID; payload carries
+  // the Team ID as issuer.
+  const now = Math.floor(Date.now() / 1000);
+  if (apnsJwtCache && apnsJwtCache.exp > now + 60) return apnsJwtCache.token;
+  const keyPem = apnsKeyPem();
+  if (!keyPem || !process.env.APNS_KEY_ID) return null;
+  const header = Buffer.from(JSON.stringify({ alg: 'ES256', kid: process.env.APNS_KEY_ID, typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ iss: APNS_TEAM_ID, iat: now })).toString('base64url');
+  const data = header + '.' + payload;
+  const key = crypto.createPrivateKey(keyPem);
+  const sig = crypto.sign('sha256', Buffer.from(data), { key, dsaEncoding: 'ieee-p1363' });
+  const token = data + '.' + Buffer.from(sig).toString('base64url');
+  apnsJwtCache = { token, exp: now + 50 * 60 };
+  return token;
+}
+async function sendApnsPush(deviceToken, payload) {
+  // One APNs HTTP/2 POST. Returns { ok, status, reason }. A 410
+  // (device token no longer valid) is the caller's cue to drop the
+  // token. Throws only on a transport failure.
+  const jwt = apnsJwt();
+  if (!jwt) return { ok: false, status: 0, reason: 'apns-not-configured' };
+  const http2 = require('http2');
+  const client = http2.connect('https://' + APNS_HOST);
+  try {
+    const req = client.request({
+      ':method': 'POST',
+      ':path': '/3/device/' + deviceToken,
+      'authorization': 'bearer ' + jwt,
+      'apns-topic': APNS_BUNDLE_ID,
+      'apns-push-type': 'alert',
+      'apns-priority': '10',
+      'apns-expiration': String(Math.floor(Date.now() / 1000) + 300),
+    });
+    req.setEncoding('utf8');
+    let body = '';
+    req.on('data', c => { body += c; });
+    const done = new Promise((resolve, reject) => {
+      req.on('end', () => resolve({ status: req.headers[':status'], body }));
+      req.on('error', reject);
+    });
+    req.end(JSON.stringify(payload));
+    const r = await done;
+    if (r.status === 200) return { ok: true, status: 200 };
+    let reason = 'apns-' + r.status;
+    try { const j = JSON.parse(r.body || '{}'); if (j.reason) reason = j.reason; } catch {}
+    return { ok: false, status: r.status, reason };
+  } finally {
+    client.close();
+  }
+}
+async function notifyChallengePush(challenger, target, challengeId) {
+  // Gate order: real user → preference on → has a token → APNs
+  // configured → send. Returns a small result the caller logs; it
+  // never throws, so a push failure can never break the challenge.
+  // Personas can never reach here as a target: the challenge
+  // endpoint looks the target up in users, and personas live in
+  // the separate personas table — but the guard is explicit anyway.
+  try {
+    if (!target || !target.id || target.isPersona) return { sent: false, reason: 'not-a-user' };
+    if (target.push_enabled === false) return { sent: false, reason: 'disabled' };
+    const toks = await q('SELECT token FROM push_tokens WHERE user_id=$1', [target.id]);
+    const tokens = (toks.rows || []).map(r => r.token).filter(Boolean);
+    if (!tokens.length) return { sent: false, reason: 'no-token' };
+    if (!apnsConfigured()) return { sent: false, reason: 'apns-not-configured' };
+    const body = '@' + challenger.username + ' challenged you to a match!';
+    const payload = { aps: { alert: { title: 'Duello', body }, sound: 'default', 'content-available': 1 }, type: 'challenge', challengeId: Number(challengeId) };
+    const results = [];
+    for (const t of tokens) {
+      const r = await sendApnsPush(t, payload);
+      results.push({ ok: r.ok, status: r.status, reason: r.reason || null });
+      if (r.status === 410) { try { await q('DELETE FROM push_tokens WHERE user_id=$1 AND token=$2', [target.id, t]); } catch {} }
+    }
+    const sentCount = results.filter(r => r.ok).length;
+    return { sent: sentCount > 0, attempted: tokens.length, sentCount, results };
+  } catch (e) {
+    console.error('Challenge push failed:', e.message);
+    return { sent: false, reason: 'error' };
+  }
+}
 
 // ---------- Email verification (Resend) ----------
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -1507,6 +1632,39 @@ const server = http.createServer(async (req, res) => {
       const hist = await q('SELECT elo_after, created_at FROM elo_history WHERE user_id=$1 ORDER BY id', [user.id]);
       return sendJson(res, 200, { user: publicUser(user), stats: { eloHistory: hist.rows }, profileStats: await profileStatsFor(user.id) });
     }
+    // ---------- Push notifications (v120) ----------
+    // The Settings toggle writes the preference; the device token is
+    // registered by the iOS app after the user grants permission.
+    // Web has no push: the toggle is hidden outside the Capacitor
+    // shell, so these endpoints only ever see iOS tokens.
+    if (pathname === '/api/push/preference' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const enabled = !!b.enabled;
+      await q('UPDATE users SET push_enabled=$1 WHERE id=$2', [enabled, user.id]);
+      return sendJson(res, 200, { ok: true, pushEnabled: enabled });
+    }
+    if (pathname === '/api/push/token' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const token = String(b.token || '').trim();
+      if (!token || token.length > 256) return sendJson(res, 400, { error: 'A device token is required.' });
+      const platform = String(b.platform || 'ios').trim().toLowerCase() === 'web' ? 'web' : 'ios';
+      await q(`INSERT INTO push_tokens (user_id, token, platform) VALUES ($1,$2,$3)
+        ON CONFLICT (user_id, token) DO UPDATE SET platform=EXCLUDED.platform, updated_at=now()`, [user.id, token, platform]);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/push/token/delete' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const token = String(b.token || '').trim();
+      if (token) await q('DELETE FROM push_tokens WHERE user_id=$1 AND token=$2', [user.id, token]);
+      else await q('DELETE FROM push_tokens WHERE user_id=$1', [user.id]);
+      return sendJson(res, 200, { ok: true });
+    }
     if (pathname === '/api/me/update' && req.method === 'POST') {
       const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
@@ -1735,9 +1893,10 @@ const server = http.createServer(async (req, res) => {
     // waits on the searching screen while the recipient sees it at
     // the top of their Friends page and accepts or declines. Accept
     // creates the game (challenger is the 'human' side, recipient
-    // the 'bot' side); decline, cancel, or timeout ends it. The
-    // recipient's page polls for incoming challenges, so no push
-    // notification is needed while the app is open.
+    // the 'bot' side); decline, cancel, or timeout ends it. While
+    // the app is open the recipient's page polls for incoming
+    // challenges every 5s; when it is closed or backgrounded the
+    // push (v120) carries the same invitation instead.
     async function expireStaleChallenges() {
       await q("UPDATE challenges SET status='expired' WHERE status='pending' AND created_at < now() - interval '5 minutes'");
     }
@@ -1756,6 +1915,15 @@ const server = http.createServer(async (req, res) => {
       const existing = (await q("SELECT * FROM challenges WHERE ((from_user_id=$1 AND to_user_id=$2) OR (from_user_id=$2 AND to_user_id=$1)) AND status='pending'", [user.id, target.id])).rows[0];
       if (existing) return sendJson(res, 400, { error: 'A challenge is already waiting between you.' });
       const ins = await q('INSERT INTO challenges (from_user_id, to_user_id) VALUES ($1,$2) RETURNING id', [user.id, target.id]);
+      // Push (v120): the recipient's phone gets "@<you> challenged
+      // you to a match!" when the app is closed or backgrounded.
+      // Fire and forget — the challenge response must not wait on
+      // APNs, and a push failure never breaks the challenge.
+      // Personas can never be the target here: the lookup above is
+      // in users, and personas live in the separate personas table.
+      notifyChallengePush(user, target, ins.rows[0].id).then(r => {
+        if (!r.sent) console.log('Challenge push not sent:', r.reason || ('attempted ' + (r.attempted || 0) + ', sent ' + (r.sentCount || 0)), 'challenge', ins.rows[0].id);
+      }).catch(() => {});
       return sendJson(res, 200, { id: Number(ins.rows[0].id), status: 'pending' });
     }
     if (pathname === '/api/challenges/incoming' && req.method === 'GET') {

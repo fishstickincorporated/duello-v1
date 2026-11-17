@@ -77,7 +77,7 @@ const API_BASE = (typeof window !== 'undefined' && window.Capacitor) ? 'https://
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 115;
+const APP_VERSION = 116;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -1288,13 +1288,20 @@ $('fishstickBtn').onclick = () => startGame('fishstick');
 let currentPersonaId = null;
 async function startGame(bot, personaId) {
   currentBot = bot; currentPersonaId = personaId || null; botTurnTapTime = Date.now();
+  // Bot games are always native (Jeff, Nov 16, 2026): Fishstick and
+  // Competitive run on the local engine in the app, online or offline.
+  // A game started online broke when the network dropped mid-game —
+  // Forfeit and the bot turn are server-driven on a server game, so
+  // they died silently offline. Local games sync the finished result
+  // to the server for Elo/stats. Personas and real-player games still
+  // need the server (no local version).
+  if (bot === 'competitive' || bot === 'fishstick') { await startOfflineGame(bot); return; }
   // v113: when the device reports no network, don't attempt a server
   // game at all. The POST is guaranteed to fail, and on iOS the
   // failure can take seconds to surface — that hang, not the
   // dictionary, is the delay Jeff still saw on build 29. Go straight
   // to the local game.
   if (isOffline()) {
-    if (bot === 'competitive' || bot === 'fishstick') { await startOfflineGame(bot); return; }
     return;
   }
   // The device thinks it is online, but the connection may still be
@@ -1318,13 +1325,9 @@ async function startGame(bot, personaId) {
     // sends the user to the auth screen; anything else is a transient
     // failure and another tap retries.
     if (e && e.message === 'Not signed in.') { token = ''; storeDel('duello_token'); me = null; setAuthMode('signin'); show('authScreen'); return; }
-    // Offline (v106): a bot game that cannot reach the server starts
-    // locally instead of dying silently. In airplane mode the POST
-    // above throws a network error, and the tap must still do
-    // something — that is exactly the gap v106 closes. Personas and
-    // real-player games have no local version, so they keep the old
-    // behaviour (tap again to retry).
-    if (bot === 'competitive' || bot === 'fishstick') { await startOfflineGame(bot); return; }
+    // Personas and real-player games have no local version, so they
+    // keep the old behaviour (tap again to retry). Bot games never
+    // reach here — they always start locally (see startGame above).
     return;
   }
   enterGameScreen();
@@ -2333,6 +2336,11 @@ function endLocalGame(reason, winnerSide) {
   pendingEloSum += delta;
   outboxMayBeNonEmpty = true;
   persistOfflineGame().then(() => refreshOfflineTotals()).catch(() => {});
+  // Sync the finished game promptly when online (v116): bot games are
+  // always native now, so the server only learns the result through
+  // the outbox. drainOutbox bails safely when offline, so this is a
+  // no-op there and the 'online' event still drains it later.
+  try { scheduleDrain(); } catch {}
   renderGame();
 }
 async function doLocalPlay() {
@@ -3067,7 +3075,19 @@ $('forfeitBtn').onclick = armButton($('forfeitBtn'), () => humanOutOfTime() ? 'E
   // Offline games forfeit locally: the forfeiter loses, no server call.
   if (game && game.offline) { doLocalForfeit(); return; }
   const wasOutOfTime = humanOutOfTime();
-  game = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' }); gameAppliedSeq = gameFetchSeq; gameFetchAt = Date.now(); pending = [];
+  let forfeitOk = true;
+  try {
+    game = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' });
+  } catch {
+    // Offline mid-game (v116): a server game cannot forfeit without
+    // the server — say so instead of dying silently. Bot games never
+    // reach here (always native).
+    forfeitOk = false;
+    $('status').textContent = 'Forfeit needs a connection — reconnect to forfeit.';
+    renderGame();
+  }
+  if (!forfeitOk) return;
+  gameAppliedSeq = gameFetchSeq; gameFetchAt = Date.now(); pending = [];
   if (wasOutOfTime) {
     // Exit: the loss and Elo move are recorded server-side, but there
     // is no stat window — leave straight to the main menu. Marking the
@@ -3422,24 +3442,14 @@ async function showDefinition(r, c) {
     try {
       let d = defCache.get(w);
       if (!d) {
-        // Local bundle first (v115): instant and offline. A
-        // Wiktionary-sourced entry is a modern first sense, so it is
-        // final; any other entry shows at once and is refreshed from
-        // the server in the background when online, so the live
-        // most-common sense still wins where it exists.
+        // Local bundle first (v115): instant and offline. A curated
+        // entry is final (v116) — no background refresh from the
+        // server; /api/define is only a fallback for words the bundle
+        // does not hold.
         const local = await localDefinition(w);
         if (local) {
           d = { word: w, pos: local.pos || '', definition: local.def };
           defCache.set(w, d);
-          if (local.s !== 'w' && !isOffline()) {
-            api('/api/define?word=' + encodeURIComponent(w)).then(live => {
-              if (live && live.definition && live.definition !== d.definition) {
-                defCache.set(w, live);
-                const el = pop.querySelector(`[data-def-word="${w}"]`);
-                if (el) el.textContent = `${w} ${live.pos ? '(' + live.pos + ') ' : ''}— ${live.definition}`;
-              }
-            }).catch(() => {});
-          }
         } else {
           d = await api('/api/define?word=' + encodeURIComponent(w)); defCache.set(w, d);
         }

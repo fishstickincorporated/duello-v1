@@ -77,7 +77,7 @@ const API_BASE = (typeof window !== 'undefined' && window.Capacitor) ? 'https://
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 116;
+const APP_VERSION = 117;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -86,6 +86,20 @@ async function api(path, opts = {}) {
   // waiting, drain them in the background (see scheduleDrain/drainOutbox).
   scheduleDrain();
   return j;
+}
+// Play Online and Play Friends need the server, so they are greyed
+// out when there is no connection (Jeff, Nov 16, 2026). Bot games
+// stay available — they are always native (v116). Reuses the
+// existing .mode.greyed style. Called whenever the Home screen shows
+// and on every online/offline change, so the buttons follow
+// connectivity live.
+function refreshOnlineButtons() {
+  const offline = isOffline();
+  for (const id of ['playOnlineBtn', 'playFriendsBtn']) {
+    const b = $(id); if (!b) continue;
+    b.disabled = offline;
+    b.classList.toggle('greyed', offline);
+  }
 }
 function show(id) {
   // Leaving the board closes the live game stream (a new game opens
@@ -113,7 +127,7 @@ function show(id) {
   if (id === 'friendsScreen' && $('tabFriends')) $('tabFriends').classList.add('active');
   if ((id === 'profileScreen' || id === 'profileEditScreen') && $('tabProfile')) $('tabProfile').classList.add('active');
   // First Home render warms the Profile + Leaderboard caches (below).
-  if (id === 'homeScreen') preloadHomeTabs();
+  if (id === 'homeScreen') { preloadHomeTabs(); refreshOnlineButtons(); }
 }
 function silhouetteSVG(size) { return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#b3b2b1"/></svg>`; }
 function pfpHTML(userLike) {
@@ -2635,7 +2649,8 @@ if (typeof document !== 'undefined' && document.addEventListener) {
   });
 }
 if (typeof window !== 'undefined' && window.addEventListener) {
-  window.addEventListener('online', () => { try { drainOutbox(); } catch {} });
+  window.addEventListener('online', () => { try { drainOutbox(); refreshOnlineButtons(); } catch {} });
+  window.addEventListener('offline', () => { try { refreshOnlineButtons(); } catch {} });
   window.addEventListener('pagehide', () => { try { pauseOfflineClocks(); } catch {} });
   window.addEventListener('beforeunload', () => { try { pauseOfflineClocks(); } catch {} });
 }
@@ -3443,7 +3458,7 @@ async function showDefinition(r, c) {
       let d = defCache.get(w);
       if (!d) {
         // Local bundle first (v115): instant and offline. A curated
-        // entry is final (v116) — no background refresh from the
+        // entry is final (v117) — no background refresh from the
         // server; /api/define is only a fallback for words the bundle
         // does not hold.
         const local = await localDefinition(w);
@@ -3482,25 +3497,19 @@ function cellAtPoint(x, y) {
   return best;
 }
 function dropCellForPointer(x, y) {
-  // The drag ghost floats above the finger (translate -90%), so the
-  // cell the tile *looks* like it is over sits about a cell above the
-  // cell under the finger — aiming the ghost at a cell used to drop
-  // the tile a row lower. Aim the drop at the ghost's centre instead:
-  // the tile lands where it appears to be. The finger still decides
-  // whether this is a board drop at all — if it is not on (or just
-  // beside) the board, there is no board drop, so a ghost hanging over
-  // the board while the finger is on the rack cannot steal a rack
-  // drop. And a finger on the top row still lands on the top row: the
-  // ghost point is clamped into the board before the lookup.
+  // The drop follows the finger, not the tile (Jeff, Nov 16, 2026):
+  // the drag ghost floats above the finger (translate -90%), so its
+  // centre sits about a cell above the cell under the finger — aiming
+  // at the ghost dropped the tile a row higher than the player was
+  // pointing. The finger decides the cell, and it also decides whether
+  // this is a board drop at all — if it is not on (or just beside)
+  // the board, there is no board drop, so a ghost hanging over the
+  // board while the finger is on the rack cannot steal a rack drop.
   const boardEl = $('board'); if (!boardEl) return null;
   const b = boardEl.getBoundingClientRect();
   const TOL = 12;
   if (x < b.left - TOL || x > b.right + TOL || y < b.top - TOL || y > b.bottom + TOL) return null;
-  const ghost = $('dragGhost');
-  const gr = ghost && ghost.getBoundingClientRect ? ghost.getBoundingClientRect() : null;
-  const gx = gr ? Math.max(b.left, Math.min(b.right, gr.left + gr.width / 2)) : x;
-  const gy = gr ? Math.max(b.top, Math.min(b.bottom, gr.top + gr.height / 2)) : y;
-  return cellAtPoint(gx, gy);
+  return cellAtPoint(x, y);
 }
 function isCellFree(r, c) {
   if (!game || game.board[r][c]) return false;

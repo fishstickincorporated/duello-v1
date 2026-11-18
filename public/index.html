@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=127"></head>
+<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=128"></head>
 <body><div id="introOverlay"><div id="introFlicker"></div><div id="introInner"><div id="introLogoZoom"><img id="introLogo" src="/assets/logo.png?v=2" alt="DUELLO"></div></div></div><div id="bootError" style="display:none;position:fixed;top:12px;left:12px;right:12px;z-index:9999;background:#ffd166;color:#1a1d24;padding:12px;border-radius:10px;font-size:14px;line-height:1.4" onclick="this.style.display='none'"></div><div id="app">
   <noscript><p style="color:#e8ecf1;text-align:center;padding:40px 20px">Duello needs JavaScript enabled to run. Turn JavaScript on in your browser settings and reload.</p></noscript>
 
@@ -78,11 +78,17 @@
     <button class="menu-btn" id="pastGamesBtn" style="margin-top:16px">Game History</button>
   </section>
 
-  <!-- Game History list (v123, renamed v124). -->
+  <!-- Game History list (v123, renamed v124). Filter tabs (v128) match the stats screen; Load more (v128) sits below the list, above Back to Profile. -->
   <section id="pastGamesScreen" class="screen hidden">
     <h1 class="auth-heading">Game History</h1>
     <div id="pastGamesUser" class="past-games-user"></div>
+    <div class="history-tabs">
+      <button class="history-tab active" data-scope="aggregate">Aggregate</button>
+      <button class="history-tab" data-scope="vsHumans">Vs Humans</button>
+      <button class="history-tab" data-scope="vsBots">Vs Bots</button>
+    </div>
     <div id="pastGamesList" class="past-games-list"></div>
+    <button class="menu-btn hidden" id="pastGamesMoreBtn">Load more</button>
     <button class="menu-btn" id="pastGamesBackBtn">Back to Profile</button>
   </section>
 
@@ -134,7 +140,7 @@
     <div class="settings-section">
       <p class="small privacy-link"><a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a></p>
       <div class="setting-row hidden" id="pushSettingRow">
-        <div class="setting-text"><div class="setting-label">Push notifications</div><div class="setting-sub">Get notified when someone challenges you to a match.</div></div>
+        <div class="setting-text"><div class="setting-label">Push notifications</div></div>
         <button class="switch" id="pushToggle" type="button" role="switch" aria-checked="false" aria-label="Push notifications"><span class="switch-knob"></span></button>
       </div>
       <p class="small hidden" id="pushSettingNote"></p>
@@ -322,5 +328,5 @@
   } catch (e) {}
 })();
 </script>
-<script src="/engine.js?v=127" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
-<script src="/app.js?v=127" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>
+<script src="/engine.js?v=128" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
+<script src="/app.js?v=128" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>

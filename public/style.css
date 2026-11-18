@@ -255,6 +255,16 @@ same 52px column, right-aligned, on every row including your own
 .stats-list .stat-line{display:flex;justify-content:space-between;border-bottom:1px solid #333}
 .stats-list .stat-line:last-child{border-bottom:0}
 .stats-list .stat-line[data-ten-letter]{cursor:pointer}
+/* A record word with a stored game/move (v128, item 6): the row is
+   tappable, and its value is Duello blue so it reads as a link to
+   that game's board at that move. */
+.stats-list .stat-line-clickable{cursor:pointer}
+.stats-list .stat-line-clickable b{color:#03eaff}
+/* Game History filter tabs (v128, item 4): the same three buttons as
+   the stats screen, same size and same active highlight. */
+.history-tabs{display:flex;gap:6px}
+.history-tab{flex:1;padding:9px;border:0;border-radius:10px;background:#1a1d24;color:#e8ecf1;cursor:pointer;font-weight:800;font-size:13px}
+.history-tab.active{background:#03eaff;color:#1a1d24}
 /* Past Games list (v123, item 6): one row per finished game. */
 .past-games-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .past-game-row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#1e222b;border:1px solid #333;border-radius:10px;padding:10px 12px;color:#fff;font-family:"Comfortaa",sans-serif;font-size:15px;cursor:pointer}
@@ -273,6 +283,11 @@ same 52px column, right-aligned, on every row including your own
 .past-game-opp-win{color:#03eaff}
 .past-game-opp-loss{color:#fff}
 .past-game-score{flex:0 0 auto}
+/* The score, not the username, carries the result colour (v128,
+   item 3): Duello blue for a win, white for a loss. Usernames stay
+   white in both cases. */
+.past-game-score-win{color:#03eaff;font-weight:800}
+.past-game-score-loss{color:#fff}
 .past-game-date{flex:0 0 auto;color:#b3b2b1;font-size:13px}
 .past-games-note{text-align:center;color:#b3b2b1;padding:16px 0}
 /* Game History (v124): the username under the heading, and the
@@ -299,6 +314,9 @@ same 52px column, right-aligned, on every row including your own
 .ten-letter-list{text-align:left;font-size:16px;line-height:2;max-height:50vh;overflow-y:auto;margin-top:8px}
 .ten-letter-word{border-bottom:1px solid #333}
 .ten-letter-word:last-child{border-bottom:0}
+/* A 10-letter word with a stored game/move (v128, item 6): tappable,
+   Duello blue, opens that game's board at that move. */
+.ten-letter-word-clickable{cursor:pointer;color:#03eaff}
 .email-row{display:flex;align-items:center;gap:8px}
 .email-row input{flex:1}
 .verified{font-size:18px}

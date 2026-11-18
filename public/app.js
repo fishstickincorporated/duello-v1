@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 127;
+const APP_VERSION = 128;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -367,12 +367,13 @@ function preloadHomeTabs() {
         api('/api/users/rank?username=' + encodeURIComponent(f.username)).then(d => setRank(f.username, d.rank)).catch(() => {});
       }
     } catch {}
-    // Warm the Game History list in the background (v126): the list
-    // is fetched once here so it is already in hand when the profile
-    // tab's Game History button is tapped — no Loading note, no wait.
-    // Fire-and-forget; a failure (offline) just leaves the cache
-    // empty and openPastGames fetches on tap as before.
-    try { api('/api/games').then(r => { if (r && Array.isArray(r.games)) pastGamesCache = r.games; }).catch(() => {}); } catch {}
+    // Warm the Game History list in the background (v126): the first
+    // page (25, Aggregate) is fetched once here so it is already in
+    // hand when the profile tab's Game History button is tapped — no
+    // Loading note, no wait. Fire-and-forget; a failure (offline)
+    // just leaves the cache empty and openPastGames fetches on tap
+    // as before.
+    try { api('/api/games?limit=25&offset=0&scope=aggregate').then(r => { if (r && Array.isArray(r.games)) historyState.aggregate = { games: r.games, hasMore: !!r.hasMore }; }).catch(() => {}); } catch {}
   };
   // Idle-scheduled (v93): the 2s timeout bounds the wait, and the
   // intro now gives it a 3.4s head start, so the profile is ready
@@ -1676,6 +1677,30 @@ function replayStateAt(n) {
 function replayCanStep() {
   return !!(game && game.status === 'finished' && Array.isArray(game.moveLog) && game.moveLog.length > 0);
 }
+// Per-player clock rewind (v128, item 1): each side's remaining
+// time at replay step n, taken independently from that side's own
+// most recent move. The mover's clock comes from the move just
+// applied; the other player's from their last move before it —
+// their clock never ticks on the mover's turn, so it is unchanged
+// since then. Step 0 is the start, the final step is the game's
+// actual final clocks, and a log with no clocks at all (pre-v126)
+// falls back to the final clocks.
+function replayClocksAt(n) {
+  const log = (game && game.moveLog) || [];
+  const total = log.length;
+  if (n === 0) return { human: 240000, bot: 240000 };
+  if (n >= total) return { human: game.clocks.human, bot: game.clocks.bot };
+  let ch = 240000, cb = 240000, found = false;
+  for (let i = 0; i < n; i++) {
+    const e = log[i];
+    if (!e || !e.clocks) continue;
+    found = true;
+    if (e.side === 'human') ch = e.clocks.human;
+    else cb = e.clocks.bot;
+  }
+  if (!found) return { human: game.clocks.human, bot: game.clocks.bot };
+  return { human: ch, bot: cb };
+}
 function renderReplay() {
   if (replayIndex === null || !game) return;
   const log = game.moveLog || [];
@@ -1698,18 +1723,19 @@ function renderReplay() {
   }
   $('scoreHuman').textContent = String(st.human);
   $('scoreBot').textContent = String(st.bot);
-  // Clocks rewind to the move (v126): the step shows the remaining
-  // time as it was when that move was played. Step 0 is the start
-  // (4:00 each); the final board shows the game's actual final
-  // clocks; a step in between uses the clocks stored with that move.
-  // Entries logged before v126 carry no clocks — fall back to the
-  // final clocks rather than showing a wrong time.
-  let ch = 240000, cb = 240000;
-  if (n === 0) { ch = 240000; cb = 240000; }
-  else if (n === total) { ch = game.clocks.human; cb = game.clocks.bot; }
-  else { const cc = (log[n - 1] && log[n - 1].clocks) || null; if (cc) { ch = cc.human; cb = cc.bot; } else { ch = game.clocks.human; cb = game.clocks.bot; } }
-  $('clockHuman').textContent = fmtClock(ch);
-  $('clockBot').textContent = fmtClock(cb);
+  // Clocks rewind to the move (v126, per-player in v128): each
+  // player's clock shows their own remaining time at the viewed
+  // move, independently. A side's clock only ever changes on that
+  // side's own moves, so walk the log to step n and take each
+  // side's clock from their most recent move — the mover's clock
+  // from the move just applied, the other player's from their last
+  // move before it. Step 0 is the start (4:00 each); the final
+  // board shows the game's actual final clocks. Entries logged
+  // before v126 carry no clocks — if no entry up to step n has
+  // clocks, fall back to the final clocks rather than a wrong time.
+  const rc = replayClocksAt(n);
+  $('clockHuman').textContent = fmtClock(rc.human);
+  $('clockBot').textContent = fmtClock(rc.bot);
   // The point bubble rides with the move just applied (v124): the
   // same +score bubble the live board shows on the last play, so
   // scrolling through the replay shows what each play was worth. A
@@ -4325,17 +4351,67 @@ function renderStatsList() {
   // Offline games waiting to sync (v106): shown while the outbox is
   // non-empty, cleared when it drains.
   if (pendingGamesCount > 0) lines.push(['Games waiting to sync', pendingGamesCount]);
-  $('statsList').innerHTML = lines.map(([k, v]) => `<div class="stat-line"${k === '10 letter words' ? ' data-ten-letter="1"' : ''}><span>${k}</span><b>${numify(v)}</b></div>`).join('');
+  $('statsList').innerHTML = lines.map(([k, v]) => `<div class="stat-line"${k === '10 letter words' ? ' data-ten-letter="1"' : ''}${k === 'Highest word score' ? ' data-highest-word="1"' : ''}${k === 'Longest word' ? ' data-longest-word="1"' : ''}><span>${k}</span><b>${numify(v)}</b></div>`).join('');
   const tenRow = $('statsList').querySelector('[data-ten-letter]');
   if (tenRow) tenRow.onclick = () => openTenLetterModal(st.tenLetterWords || []);
+  // Click a record word to open its board (v128, item 6): the stats
+  // know which game and move each record word came from, so the row
+  // opens the board at that move with the same arrows as a Game
+  // History review. A word with no stored game/move (pre-v128
+  // games) stays plain text — never a dead tap.
+  const hiRow = $('statsList').querySelector('[data-highest-word]');
+  if (hiRow && st.highestWordGameId && st.highestWordMoveIndex) {
+    hiRow.classList.add('stat-line-clickable');
+    hiRow.onclick = () => openStatWordBoard(st.highestWordGameId, st.highestWordMoveIndex, st.highestWord);
+  }
+  const loRow = $('statsList').querySelector('[data-longest-word]');
+  if (loRow && st.longestWordGameId && st.longestWordMoveIndex) {
+    loRow.classList.add('stat-line-clickable');
+    loRow.onclick = () => openStatWordBoard(st.longestWordGameId, st.longestWordMoveIndex, st.longestWord);
+  }
 }
 // The 10-letter words list: a plain modal reusing the person-modal
 // shell. The row that opens it looks like any other stat line.
 function openTenLetterModal(words) {
+  // Each word is clickable when it carries its game/move (v128,
+  // item 6): tapping it opens that game's board at that move, the
+  // same as the Highest/Longest rows. Entries may be plain strings
+  // (old shape) or {word, gameId, moveIndex} objects; a word with
+  // no stored game/move stays plain text, never a dead tap.
   $('tenLetterList').innerHTML = words.length
-    ? words.map((w) => `<div class="ten-letter-word">${w}</div>`).join('')
+    ? words.map((w) => {
+      const word = typeof w === 'string' ? w : (w && w.word) || '';
+      const gid = w && w.gameId; const midx = w && w.moveIndex;
+      if (gid && midx) return `<div class="ten-letter-word ten-letter-word-clickable" data-game="${gid}" data-move="${midx}">${word}</div>`;
+      return `<div class="ten-letter-word">${word}</div>`;
+    }).join('')
     : '<div class="ten-letter-word">No 10-letter words yet.</div>';
+  $('tenLetterList').querySelectorAll('.ten-letter-word-clickable').forEach((el) => {
+    el.onclick = () => { closeTenLetterModal(); openStatWordBoard(Number(el.dataset.game), Number(el.dataset.move), el.textContent); };
+  });
   $('tenLetterModal').classList.remove('hidden');
+}
+// Open the board for a record word (v128, item 6): fetch the game
+// the word came from and drop into the same review window Game
+// History uses, starting AT that move (moveIndex is 1-based, so
+// replayIndex is set to it directly). The review row (Exit, ←, →,
+// Game Stats) and the clock rewind behave exactly as if the game
+// had been opened from the history list. A missing game falls
+// back to the Game History list instead of crashing.
+async function openStatWordBoard(gameId, moveIndex, word) {
+  if (!gameId || !moveIndex) return;
+  if (isOffline()) { $('status').textContent = 'Game History needs a connection.'; return; }
+  try {
+    const g = await api(`/api/games/${gameId}`);
+    if (!g) { openPastGames(); return; }
+    game = g; gameFetchAt = Date.now(); pending = []; selectedRack = null;
+    reviewMode = true;
+    replayIndex = (g.moveLog && g.moveLog.length) ? Math.min(moveIndex, g.moveLog.length) : null;
+    statShownGameId = g.id;
+    enterReviewScreen();
+  } catch (e) {
+    openPastGames();
+  }
 }
 function closeTenLetterModal() { $('tenLetterModal').classList.add('hidden'); }
 $('tenLetterCloseBtn').onclick = closeTenLetterModal;
@@ -4365,13 +4441,39 @@ $('tabProfile').onclick = () => { show('profileScreen'); if (!profileData) rende
 // the list (v124) — the list is rebuilt on every open, so this resets
 // there; it keeps a repeated failed tap from stacking duplicate notes.
 let openFailNoteShown = false;
-// The last fetched history list (v125): Exit from a review renders
-// this at once instead of re-fetching — the list was just on screen
-// seconds ago, so there is nothing to load.
-let pastGamesCache = null;
+// Game History filter + paging (v128, items 4+5): the same three
+// filter tabs as the stats screen (Aggregate, Vs Humans, Vs Bots)
+// sit at the top of the list, and the list pages 25 games at a
+// time with a Load more button. historyState holds, per scope, the
+// games loaded so far and whether more remain server-side; a scope
+// with games: null has not been fetched yet. Vs Humans is personas
+// + real players (they count as human stats, same as the stats
+// screen); Vs Bots is Fishstick + Competitive Bot only.
+let historyScope = 'aggregate';
+let historyState = {
+  aggregate: { games: null, hasMore: true },
+  vsHumans: { games: null, hasMore: true },
+  vsBots: { games: null, hasMore: true },
+};
+function historyScopeState() { return historyState[historyScope] || historyState.aggregate; }
+async function fetchHistoryPage(scope, offset) {
+  const r = await api('/api/games?limit=25&offset=' + offset + '&scope=' + scope);
+  return { games: (r && r.games) || [], hasMore: !!(r && r.hasMore) };
+}
+// The Load more button lives below the list, above Back to Profile.
+// It shows only while the active filter still has games on the
+// server; once the last page lands it hides itself.
+function renderHistoryMore() {
+  const btn = $('pastGamesMoreBtn');
+  if (!btn) return;
+  const st = historyScopeState();
+  btn.classList.toggle('hidden', !(st && st.hasMore && st.games && st.games.length > 0));
+}
 // One row per finished game (v125): the opponent's profile pic and
 // username, the score, and the date. The W/L badge is gone. The
-// username is Duello blue when you won, white when they won.
+// username is always white (v128); the SCORE is Duello blue when
+// you won, white when you lost. The bot emoji sits straight on the
+// black (v128), same as the Fishstick pic — no grey circle.
 function pastGameRowEl(g) {
   const row = document.createElement('button');
   row.className = 'past-game-row';
@@ -4379,13 +4481,13 @@ function pastGameRowEl(g) {
   const picEl = document.createElement('span');
   picEl.className = 'past-game-pic';
   if (g.opponentKind === 'fishstick') { picEl.classList.add('past-game-pic-plain'); picEl.innerHTML = '<img src="/assets/fishstick.png?v=1" alt="Fishstick">'; }
-  else if (g.opponentKind === 'competitive') picEl.textContent = '🤖';
+  else if (g.opponentKind === 'competitive') { picEl.classList.add('past-game-pic-plain'); picEl.textContent = '🤖'; }
   else if (g.opponentPhoto) picEl.innerHTML = `<img src="${g.opponentPhoto}" alt="">`;
   else picEl.innerHTML = silhouetteSVG(28);
   const oppEl = document.createElement('span');
-  oppEl.className = 'past-game-opp ' + (g.result === 'win' ? 'past-game-opp-win' : 'past-game-opp-loss');
+  oppEl.className = 'past-game-opp';
   oppEl.textContent = g.opponentUsername || g.opponentName || 'Opponent';
-  const scoreEl = document.createElement('span'); scoreEl.className = 'past-game-score num'; scoreEl.textContent = `${g.myScore}–${g.oppScore}`;
+  const scoreEl = document.createElement('span'); scoreEl.className = 'past-game-score num ' + (g.result === 'win' ? 'past-game-score-win' : 'past-game-score-loss'); scoreEl.textContent = `${g.myScore}–${g.oppScore}`;
   const dateEl = document.createElement('span'); dateEl.className = 'past-game-date'; dateEl.textContent = date;
   row.append(picEl, oppEl, scoreEl, dateEl);
   row.onclick = () => openPastGameDetail(g.id);
@@ -4393,9 +4495,54 @@ function pastGameRowEl(g) {
 }
 function renderPastGamesList(games) {
   const list = $('pastGamesList');
-  if (!games.length) { list.innerHTML = '<div class="past-games-note">No finished games yet.</div>'; return; }
+  if (!games.length) { list.innerHTML = '<div class="past-games-note">No finished games yet.</div>'; renderHistoryMore(); return; }
   list.innerHTML = '';
   games.forEach((g) => list.appendChild(pastGameRowEl(g)));
+  renderHistoryMore();
+}
+// Switch the history filter (v128, item 4): the active tab is
+// highlighted like the stats tabs, and the list shows that scope's
+// cached games at once — or fetches its first page if it has not
+// been loaded yet. Paging is per-scope: each filter keeps its own
+// loaded games and hasMore.
+function setHistoryScope(scope) {
+  if (!historyState[scope]) scope = 'aggregate';
+  historyScope = scope;
+  document.querySelectorAll('.history-tab').forEach(x => x.classList.toggle('active', x.dataset.scope === scope));
+  const st = historyState[scope];
+  if (st.games) { renderPastGamesList(st.games); return; }
+  const list = $('pastGamesList');
+  list.innerHTML = '<div class="past-games-note">Loading…</div>';
+  renderHistoryMore();
+  if (isOffline()) { list.innerHTML = '<div class="past-games-note">Game History needs a connection.</div>'; return; }
+  fetchHistoryPage(scope, 0).then(({ games, hasMore }) => {
+    historyState[scope] = { games, hasMore };
+    if (historyScope === scope) renderPastGamesList(games);
+  }).catch(() => {
+    if (historyScope === scope) list.innerHTML = '<div class="past-games-note">Could not load game history.</div>';
+  });
+}
+// Load more (v128, item 5): append the next 25 games for the active
+// filter. The button disables while the fetch is in flight and
+// stays up on a failure so the user can retry.
+async function loadMoreHistory() {
+  const st = historyScopeState();
+  if (!st || !st.hasMore || !st.games) return;
+  if (isOffline()) return;
+  const scope = historyScope;
+  const btn = $('pastGamesMoreBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const { games, hasMore } = await fetchHistoryPage(scope, st.games.length);
+    if (historyScope !== scope) return;
+    st.games = st.games.concat(games);
+    st.hasMore = hasMore;
+    renderPastGamesList(st.games);
+  } catch (e) {
+    // Keep the button so the user can retry.
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 async function openPastGames() {
   show('pastGamesScreen');
@@ -4403,37 +4550,43 @@ async function openPastGames() {
   // The username under the heading (v124): whose history this is.
   const un = (me && me.username) || (profileData && profileData.user && profileData.user.username) || '';
   $('pastGamesUser').textContent = un ? '@' + un : '';
+  document.querySelectorAll('.history-tab').forEach(x => x.classList.toggle('active', x.dataset.scope === historyScope));
   const list = $('pastGamesList');
+  const st = historyScopeState();
   // Already warmed in the background (v126): show at once, then
   // refresh quietly so a game finished since the warm still appears.
-  if (pastGamesCache) {
-    renderPastGamesList(pastGamesCache);
+  if (st.games) {
+    renderPastGamesList(st.games);
     refreshPastGamesCache();
     return;
   }
   list.innerHTML = '<div class="past-games-note">Loading…</div>';
+  renderHistoryMore();
   if (isOffline()) { list.innerHTML = '<div class="past-games-note">Game History needs a connection.</div>'; return; }
   try {
-    const r = await api('/api/games');
-    const games = (r && r.games) || [];
-    pastGamesCache = games;
+    const { games, hasMore } = await fetchHistoryPage(historyScope, 0);
+    historyState[historyScope] = { games, hasMore };
     renderPastGamesList(games);
   } catch (e) {
     list.innerHTML = '<div class="past-games-note">Could not load game history.</div>';
   }
 }
-// Quiet refresh (v126): re-fetch the list in the background and
-// re-render only if it changed (a game finished since the warm).
-// Never shows a Loading note; a no-change refresh leaves the
-// screen — and its scroll — untouched.
+// Quiet refresh (v126): re-fetch the first page in the background
+// and re-render only if it changed (a game finished since the
+// list loaded). Never shows a Loading note; a no-change refresh
+// leaves the screen — and its scroll — untouched. A changed first
+// page resets the scope to that fresh page; the user can Load more
+// again from there.
 function refreshPastGamesCache() {
   if (isOffline()) return;
-  api('/api/games').then(r => {
-    const games = (r && r.games) || [];
-    const oldIds = (pastGamesCache || []).map(g => g.id).join(',');
+  const scope = historyScope;
+  fetchHistoryPage(scope, 0).then(({ games, hasMore }) => {
+    if (historyScope !== scope) return;
+    const st = historyState[scope];
+    const oldIds = (st && st.games ? st.games.slice(0, games.length) : []).map(g => g.id).join(',');
     const newIds = games.map(g => g.id).join(',');
     if (oldIds === newIds) return;
-    pastGamesCache = games;
+    historyState[scope] = { games, hasMore };
     renderPastGamesList(games);
   }).catch(() => {});
 }
@@ -4445,7 +4598,9 @@ function showPastGamesCached() {
   openFailNoteShown = false;
   const un = (me && me.username) || (profileData && profileData.user && profileData.user.username) || '';
   $('pastGamesUser').textContent = un ? '@' + un : '';
-  if (pastGamesCache) renderPastGamesList(pastGamesCache);
+  document.querySelectorAll('.history-tab').forEach(x => x.classList.toggle('active', x.dataset.scope === historyScope));
+  const st = historyScopeState();
+  if (st.games) renderPastGamesList(st.games);
   else openPastGames();
 }
 async function openPastGameDetail(gameId) {
@@ -4495,6 +4650,8 @@ function enterReviewScreen() {
 }
 $('pastGamesBtn').onclick = openPastGames;
 $('pastGamesBackBtn').onclick = () => show('profileScreen');
+document.querySelectorAll('.history-tab').forEach(x => { x.onclick = () => setHistoryScope(x.dataset.scope); });
+$('pastGamesMoreBtn').onclick = loadMoreHistory;
 document.querySelectorAll('.stats-tab').forEach(b => b.onclick = () => { statsScope = b.dataset.scope; document.querySelectorAll('.stats-tab').forEach(x => x.classList.toggle('active', x === b)); renderStatsList(); });
 document.querySelectorAll('.chart-toggle').forEach(b => b.onclick = () => { chartRange = b.dataset.range; document.querySelectorAll('.chart-toggle').forEach(x => x.classList.toggle('active', x === b)); drawEloChart(); });
 $('gearBtn').onclick = async () => {

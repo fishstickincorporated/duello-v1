@@ -361,8 +361,22 @@ function sendResendEmail(to, subject, text) {
 // recipient's games are the rows where they are opponent_id, and every
 // per-side stat below is read from that player's own side.
 async function profileStatsFor(userId) {
-  const rows = (await q("SELECT state, bot_type FROM games WHERE (user_id=$1 OR opponent_id=$1) AND state->>'status'='finished'", [userId])).rows;
-  function empty() { return { gamesPlayed: 0, wins: 0, losses: 0, draws: 0, avgGameScore: 0, highestGameScore: 0, avgWordScore: 0, highestWordScore: 0, highestWord: '', longestWord: '', longestWordLen: 0, optimalMoves: 0, totalMoves: 0, optimalPct: 0, uniqueWords: 0, wordsOver50: 0, wordsOver100: 0, bingos: 0, tenLetterWords: [], tenLetterWordCount: 0 }; }
+  const rows = (await q("SELECT id, state, bot_type FROM games WHERE (user_id=$1 OR opponent_id=$1) AND state->>'status'='finished'", [userId])).rows;
+  function empty() { return { gamesPlayed: 0, wins: 0, losses: 0, draws: 0, avgGameScore: 0, highestGameScore: 0, avgWordScore: 0, highestWordScore: 0, highestWord: '', highestWordGameId: null, highestWordMoveIndex: null, longestWord: '', longestWordLen: 0, longestWordGameId: null, longestWordMoveIndex: null, optimalMoves: 0, totalMoves: 0, optimalPct: 0, uniqueWords: 0, wordsOver50: 0, wordsOver100: 0, bingos: 0, tenLetterWords: [], tenLetterWordCount: 0 }; }
+  // Record-word provenance (v128, item 6): which game and which move
+  // a record word came from, so tapping it can open that board at
+  // that move. The replay index is 1-based (moveLog[i] is replay
+  // step i+1). A game with no moveLog (pre-v123) yields null, and
+  // the client leaves that word unclickable instead of crashing.
+  function findMoveIndex(g, mySide, pred) {
+    const log = g && Array.isArray(g.moveLog) ? g.moveLog : null;
+    if (!log) return null;
+    for (let i = 0; i < log.length; i++) {
+      const e = log[i];
+      if (e && e.side === mySide && pred(e)) return i + 1;
+    }
+    return null;
+  }
   // Personas and real players both count as humans everywhere stats
   // split by opponent: vsHumans is persona + real-player games,
   // vsBots excludes both, and aggregate counts them like any other
@@ -370,12 +384,13 @@ async function profileStatsFor(userId) {
   function scope(mode) {
     const isHumanGame = (g) => g.botType === 'persona' || g.botType === 'human';
     const skip = (g) => (mode === 'vsHumans' && !isHumanGame(g)) || (mode === 'vsBots' && isHumanGame(g));
-    const st = empty(); let wordScoreSum = 0, wordCount = 0; const uniq = new Set(); const tenLetter = new Set();
+    const st = empty(); let wordScoreSum = 0, wordCount = 0; const uniq = new Set(); const tenLetter = new Map();
     const gs = [];
     for (const r of rows) {
       let g = r.state;
       if (typeof g === 'string') { try { g = JSON.parse(g); } catch { continue; } }
       if (!g.botType && r.bot_type) g.botType = r.bot_type;
+      if (!g.id) g.id = r.id;
       gs.push(g);
     }
     for (const g of gs) {
@@ -407,10 +422,23 @@ async function profileStatsFor(userId) {
         wordScoreSum += ms; wordCount++;
         if (ms >= 50) st.wordsOver50++;
         if (ms >= 100) st.wordsOver100++;
-        if (ms > st.highestWordScore) { st.highestWordScore = ms; st.highestWord = m.mainWord || ''; }
+        if (ms > st.highestWordScore) {
+          st.highestWordScore = ms; st.highestWord = m.mainWord || '';
+          const idx = findMoveIndex(g, mySide, (e) => e.mainWord === m.mainWord && (e.score || 0) === ms);
+          st.highestWordGameId = idx ? g.id : null;
+          st.highestWordMoveIndex = idx;
+        }
         for (const w of (m.words || [])) {
-          if (w.word && w.word.length > st.longestWordLen) { st.longestWordLen = w.word.length; st.longestWord = w.word; }
-          if (w.word && w.word.length === 10) tenLetter.add(w.word);
+          if (w.word && w.word.length > st.longestWordLen) {
+            st.longestWordLen = w.word.length; st.longestWord = w.word;
+            const idx = findMoveIndex(g, mySide, (e) => (e.words || []).some((x) => x.word === w.word));
+            st.longestWordGameId = idx ? g.id : null;
+            st.longestWordMoveIndex = idx;
+          }
+          if (w.word && w.word.length === 10 && !tenLetter.has(w.word)) {
+            const idx = findMoveIndex(g, mySide, (e) => (e.words || []).some((x) => x.word === w.word));
+            tenLetter.set(w.word, { gameId: idx ? g.id : null, moveIndex: idx });
+          }
           uniq.add(w.word);
         }
       }
@@ -425,7 +453,7 @@ async function profileStatsFor(userId) {
     st.avgWordScore = wordCount ? Math.round(wordScoreSum / wordCount * 10) / 10 : 0;
     st.optimalPct = st.totalMoves ? Math.round(st.optimalMoves / st.totalMoves * 1000) / 10 : 0;
     st.uniqueWords = uniq.size;
-    st.tenLetterWords = [...tenLetter].sort();
+    st.tenLetterWords = [...tenLetter.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([word, prov]) => ({ word, gameId: prov.gameId, moveIndex: prov.moveIndex }));
     st.tenLetterWordCount = tenLetter.size;
     st.record = `${st.wins}W-${st.losses}L` + (st.draws ? `-${st.draws}D` : '');
     return st;
@@ -556,7 +584,13 @@ function serializeGame(game, user) {
     // Replay (v123): the chronological move log, only once the game
     // is finished — the replay is a post-game view, and sending the
     // log on every 1s poll would bloat it. Old games have no log.
-    moveLog: game.status === 'finished' ? (game.moveLog || []) : undefined,
+    // Per-player clock rewind (v128, item 1): the log is flipped
+    // for the opponent viewer, same rule as the scores and clocks
+    // above — each entry's side and clocks are in viewer terms, so
+    // the replay attributes every move (and its clock) to the right
+    // player whichever side is viewing. Placements and words are
+    // board data and need no flip.
+    moveLog: game.status === 'finished' ? (game.moveLog || []).map((e) => isOpponent ? { ...e, side: e.side === 'human' ? 'bot' : 'human', clocks: e.clocks ? { human: e.clocks.bot, bot: e.clocks.human } : e.clocks } : e) : undefined,
     // Presence (v123, item 2): whether the real opponent is
     // currently connected (seen within 10s). The client fades their
     // pfp grey while they are gone. Human games only.
@@ -2172,11 +2206,25 @@ const server = http.createServer(async (req, res) => {
     // the profile's Past Games screen. The full game (final board +
     // moveLog for replay) comes from GET /api/games/:id. Only
     // finished games are listed — an active game is not a past game.
+    // Paging + filter (v128, items 4+5): limit/offset page 25 at a
+    // time (limit capped at 50) and scope filters by opponent kind
+    // (aggregate = all, vsHumans = personas + real players, vsBots =
+    // Fishstick + Competitive Bot). The scope filter runs in SQL on
+    // bot_type, which is set at INSERT for every game. One extra row
+    // is fetched so hasMore is exact without a second count query.
     if (pathname === '/api/games' && req.method === 'GET') {
       const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      const r = await q("SELECT id, user_id, opponent_id, bot_type, state, created_at, updated_at FROM games WHERE (user_id=$1 OR opponent_id=$1) AND state->>'status'='finished' ORDER BY updated_at DESC LIMIT 50", [user.id]);
-      const games = r.rows.map((row) => {
+      const limit = Math.max(1, Math.min(50, parseInt(url.searchParams.get('limit') || '25', 10) || 25));
+      const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
+      const scope = url.searchParams.get('scope') || 'aggregate';
+      let scopeSql = '';
+      if (scope === 'vsHumans') scopeSql = " AND bot_type IN ('persona','human')";
+      else if (scope === 'vsBots') scopeSql = " AND bot_type IN ('fishstick','competitive')";
+      const r = await q("SELECT id, user_id, opponent_id, bot_type, state, created_at, updated_at FROM games WHERE (user_id=$1 OR opponent_id=$1) AND state->>'status'='finished'" + scopeSql + " ORDER BY updated_at DESC LIMIT $2 OFFSET $3", [user.id, limit + 1, offset]);
+      const hasMore = r.rows.length > limit;
+      const pageRows = hasMore ? r.rows.slice(0, limit) : r.rows;
+      const games = pageRows.map((row) => {
         const g = loadGameRow(row);
         const { isOpp, mySide, oppSide } = gameSides(g, user);
         const oppName = g.botType === 'persona' && g.persona ? (g.persona.firstName + ' ' + g.persona.lastName) : g.botType === 'competitive' ? 'Competitive Bot' : g.botType === 'fishstick' ? 'Fishstick' : (isOpp ? ((g.challenger && g.challenger.firstName) || (g.challenger && g.challenger.username) || 'Opponent') : ((g.opponent && g.opponent.firstName) || (g.opponent && g.opponent.username) || 'Opponent'));
@@ -2192,7 +2240,7 @@ const server = http.createServer(async (req, res) => {
         const result = g.winner === 'draw' ? 'draw' : g.winner === mySide ? 'win' : g.winner === oppSide ? 'loss' : 'loss';
         return { id: g.id, botType: g.botType, opponentName: oppName, opponentUsername, opponentPhoto, opponentKind, myScore: g.scores[mySide], oppScore: g.scores[oppSide], result, reason: g.reason || null, createdAt: row.created_at, finishedAt: row.updated_at };
       });
-      return sendJson(res, 200, { games });
+      return sendJson(res, 200, { games, hasMore });
     }
     // Play Online matchmaking (v123, item 4): the client polls this
     // once a second for up to 7s. A searcher is paired with the

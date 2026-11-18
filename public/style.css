@@ -258,11 +258,15 @@ same 52px column, right-aligned, on every row including your own
 /* Past Games list (v123, item 6): one row per finished game. */
 .past-games-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .past-game-row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#1e222b;border:1px solid #333;border-radius:10px;padding:10px 12px;color:#fff;font-family:"Comfortaa",sans-serif;font-size:15px;cursor:pointer}
+.past-game-pic{flex:0 0 28px;width:28px;height:28px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#262a33;font-size:18px}
+.past-game-pic img{width:100%;height:100%;object-fit:cover;display:block}
 .past-game-result{flex:0 0 26px;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px}
 .past-game-result.win{background:#1cff03;color:#111}
 .past-game-result.loss{background:#ff1303;color:#fff}
 .past-game-result.draw{background:#b3b2b1;color:#111}
-.past-game-opp{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.past-game-opp{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800}
+.past-game-opp-win{color:#03eaff}
+.past-game-opp-loss{color:#fff}
 .past-game-score{flex:0 0 auto}
 .past-game-date{flex:0 0 auto;color:#b3b2b1;font-size:13px}
 .past-games-note{text-align:center;color:#b3b2b1;padding:16px 0}
@@ -271,13 +275,21 @@ same 52px column, right-aligned, on every row including your own
    Aggregate stats tab (padding 9px, 13px, 800 weight, 10px radius)
    and Duello blue, so they read as on-brand buttons instead of the
    unstyled default buttons they were. */
-.past-games-user{text-align:center;color:#b3b2b1;font-size:14px;font-weight:700;margin-top:4px}
+.past-games-user{text-align:center;color:#b3b2b1;font-size:14px;font-weight:800;margin:0}
+/* Game History screen (v125): the heading, the @username line and the
+   game log are evenly spaced — one flex gap instead of ad-hoc margins. */
+#pastGamesScreen{display:flex;flex-direction:column;gap:16px}
+#pastGamesScreen.hidden{display:none!important}
+#pastGamesScreen .auth-heading{margin:0}
+#pastGamesScreen .past-games-list{margin-top:0}
+#pastGamesScreen .menu-btn{margin-top:0}
 .menu-btn{display:block;width:100%;padding:9px;border:0;border-radius:10px;background:#03eaff;color:#1a1d24;cursor:pointer;font-weight:800;font-size:13px;font-family:"Comfortaa",sans-serif}
 /* Replay arrows (v124): the shared back/forward row that sits in the
    deck's place once the game is finished, above the buttons. Same
    46px height and Duello-blue border as the game controls. */
 .replay-arrows{display:flex;gap:6px;margin-top:10px}
-.replay-arrows .replay-btn{flex:1;height:46px;padding:4px;display:flex;align-items:center;justify-content:center;background:#3a3f4b;color:#e8ecf1;border:2px solid #03eaff;font-size:20px;font-weight:700;cursor:pointer;touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent}
+.replay-arrows .replay-btn{flex:1;height:46px;padding:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#3a3f4b;color:#e8ecf1;border:2px solid transparent;border-radius:14px;font-size:20px;font-weight:700;cursor:pointer;touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent}
+.replay-arrows .replay-btn:not(:disabled){border-color:#03eaff}
 .replay-arrows .replay-btn:disabled{background:#3a3f4b;color:#b3b2b1;border-color:transparent}
 .ten-letter-list{text-align:left;font-size:16px;line-height:2;max-height:50vh;overflow-y:auto;margin-top:8px}
 .ten-letter-word{border-bottom:1px solid #333}

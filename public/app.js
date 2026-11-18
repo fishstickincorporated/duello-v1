@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 124;
+const APP_VERSION = 125;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -1913,6 +1913,16 @@ function renderGame() {
   // landing, the stat window dismissing) rebuilds the board from the
   // final state — re-apply the replay step on top so the arrows keep
   // showing the step the player is on.
+  // Replay entry (v125): a finished game with a log starts at the
+  // final board, so the arrows are live from the first render. The
+  // disabled flag is sticky across games — renderReplay is the only
+  // thing that sets it, and it only runs while replayIndex is set —
+  // so a previous no-log game (or a replay left at an end) left both
+  // arrows dead for the next finished game that has a log, which is
+  // why Fishstick's arrows did nothing. Initialising the index here
+  // makes renderReplay run and set the arrows (back live, forward
+  // off at the final board) the moment the game ends.
+  if (finished && replayIndex === null && replayCanStep()) replayIndex = game.moveLog.length;
   if (replayIndex !== null && game.status === 'finished') renderReplay();
   // No replay possible (no moveLog): the arrows stay disabled
   // instead of looking live and doing nothing (v124).
@@ -3716,7 +3726,7 @@ $('replayBackBtn').onclick = () => stepReplay(-1);
 $('replayFwdBtn').onclick = () => stepReplay(1);
 // Game History review (v123, item 6; renamed v124): Exit returns to
 // the list; Game Stats opens the stat window for that game.
-$('reviewExitBtn').onclick = () => { reviewMode = false; clearReplay(); openPastGames(); };
+$('reviewExitBtn').onclick = () => { reviewMode = false; clearReplay(); showPastGamesCached(); };
 $('reviewStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
 const defCache = new Map();
 // Local definitions bundle (v115): the client copy of every bundled
@@ -4313,13 +4323,45 @@ function drawEloChart() {
 }
 $('tabProfile').onclick = () => { show('profileScreen'); if (!profileData) renderProfileUI(); };
 // Game History (v123, item 6; renamed v124): the finished games list, from the
-// server (GET /api/games). Each row shows the opponent, the result,
-// the score, and the date; tapping one opens its final board in
+// server (GET /api/games). Each row shows the opponent's pic and
+// username, the score, and the date; tapping one opens its final board in
 // review mode (Exit, replay arrows, Game Stats).
 // Whether the "Could not open that game." note is already showing in
 // the list (v124) — the list is rebuilt on every open, so this resets
 // there; it keeps a repeated failed tap from stacking duplicate notes.
 let openFailNoteShown = false;
+// The last fetched history list (v125): Exit from a review renders
+// this at once instead of re-fetching — the list was just on screen
+// seconds ago, so there is nothing to load.
+let pastGamesCache = null;
+// One row per finished game (v125): the opponent's profile pic and
+// username, the score, and the date. The W/L badge is gone. The
+// username is Duello blue when you won, white when they won.
+function pastGameRowEl(g) {
+  const row = document.createElement('button');
+  row.className = 'past-game-row';
+  const date = g.finishedAt ? new Date(g.finishedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+  const picEl = document.createElement('span');
+  picEl.className = 'past-game-pic';
+  if (g.opponentKind === 'fishstick') picEl.innerHTML = '<img src="/assets/fishstick.png?v=1" alt="Fishstick">';
+  else if (g.opponentKind === 'competitive') picEl.textContent = '🤖';
+  else if (g.opponentPhoto) picEl.innerHTML = `<img src="${g.opponentPhoto}" alt="">`;
+  else picEl.innerHTML = silhouetteSVG(28);
+  const oppEl = document.createElement('span');
+  oppEl.className = 'past-game-opp ' + (g.result === 'win' ? 'past-game-opp-win' : 'past-game-opp-loss');
+  oppEl.textContent = g.opponentUsername || g.opponentName || 'Opponent';
+  const scoreEl = document.createElement('span'); scoreEl.className = 'past-game-score num'; scoreEl.textContent = `${g.myScore}–${g.oppScore}`;
+  const dateEl = document.createElement('span'); dateEl.className = 'past-game-date'; dateEl.textContent = date;
+  row.append(picEl, oppEl, scoreEl, dateEl);
+  row.onclick = () => openPastGameDetail(g.id);
+  return row;
+}
+function renderPastGamesList(games) {
+  const list = $('pastGamesList');
+  if (!games.length) { list.innerHTML = '<div class="past-games-note">No finished games yet.</div>'; return; }
+  list.innerHTML = '';
+  games.forEach((g) => list.appendChild(pastGameRowEl(g)));
+}
 async function openPastGames() {
   show('pastGamesScreen');
   openFailNoteShown = false;
@@ -4332,24 +4374,22 @@ async function openPastGames() {
   try {
     const r = await api('/api/games');
     const games = (r && r.games) || [];
-    if (!games.length) { list.innerHTML = '<div class="past-games-note">No finished games yet.</div>'; return; }
-    list.innerHTML = '';
-    games.forEach((g) => {
-      const row = document.createElement('button');
-      row.className = 'past-game-row';
-      const res = g.result === 'win' ? 'W' : g.result === 'loss' ? 'L' : 'D';
-      const date = g.finishedAt ? new Date(g.finishedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
-      const resEl = document.createElement('span'); resEl.className = 'past-game-result ' + g.result; resEl.textContent = res;
-      const oppEl = document.createElement('span'); oppEl.className = 'past-game-opp'; oppEl.textContent = g.opponentName || 'Opponent';
-      const scoreEl = document.createElement('span'); scoreEl.className = 'past-game-score num'; scoreEl.textContent = `${g.myScore}–${g.oppScore}`;
-      const dateEl = document.createElement('span'); dateEl.className = 'past-game-date'; dateEl.textContent = date;
-      row.append(resEl, oppEl, scoreEl, dateEl);
-      row.onclick = () => openPastGameDetail(g.id);
-      list.appendChild(row);
-    });
+    pastGamesCache = games;
+    renderPastGamesList(games);
   } catch (e) {
     list.innerHTML = '<div class="past-games-note">Could not load game history.</div>';
   }
+}
+// Back from a review (v125): the list is already in hand, so show it
+// at once — no fetch, no Loading note. Falls back to a fresh fetch
+// when there is no cached list (a direct review entry).
+function showPastGamesCached() {
+  show('pastGamesScreen');
+  openFailNoteShown = false;
+  const un = (me && me.username) || (profileData && profileData.user && profileData.user.username) || '';
+  $('pastGamesUser').textContent = un ? '@' + un : '';
+  if (pastGamesCache) renderPastGamesList(pastGamesCache);
+  else openPastGames();
 }
 async function openPastGameDetail(gameId) {
   if (isOffline()) { $('status').textContent = 'Game History needs a connection.'; return; }

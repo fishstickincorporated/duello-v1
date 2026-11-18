@@ -2170,8 +2170,17 @@ const server = http.createServer(async (req, res) => {
         const g = loadGameRow(row);
         const { isOpp, mySide, oppSide } = gameSides(g, user);
         const oppName = g.botType === 'persona' && g.persona ? (g.persona.firstName + ' ' + g.persona.lastName) : g.botType === 'competitive' ? 'Competitive Bot' : g.botType === 'fishstick' ? 'Fishstick' : (isOpp ? ((g.challenger && g.challenger.firstName) || (g.challenger && g.challenger.username) || 'Opponent') : ((g.opponent && g.opponent.firstName) || (g.opponent && g.opponent.username) || 'Opponent'));
+        // Opponent pic + username for the Game History rows (v125):
+        // the row shows the opponent's photo and @username (blue when
+        // you won, white when they won) instead of the W/L badge and
+        // the plain name. Bots have no photo — the client renders the
+        // fishstick image / robot for those kinds.
+        const oppUser = g.botType === 'human' ? (isOpp ? g.challenger : g.opponent) : null;
+        const opponentUsername = g.botType === 'persona' && g.persona ? '@' + g.persona.username : g.botType === 'competitive' ? 'Competitive Bot' : g.botType === 'fishstick' ? 'Fishstick' : (oppUser && oppUser.username ? '@' + oppUser.username : oppName);
+        const opponentPhoto = g.botType === 'persona' && g.persona ? (g.persona.photoData || null) : g.botType === 'human' ? ((oppUser && oppUser.photoData) || null) : null;
+        const opponentKind = g.botType === 'persona' ? 'persona' : g.botType === 'competitive' ? 'competitive' : g.botType === 'fishstick' ? 'fishstick' : 'human';
         const result = g.winner === 'draw' ? 'draw' : g.winner === mySide ? 'win' : g.winner === oppSide ? 'loss' : 'loss';
-        return { id: g.id, botType: g.botType, opponentName: oppName, myScore: g.scores[mySide], oppScore: g.scores[oppSide], result, reason: g.reason || null, createdAt: row.created_at, finishedAt: row.updated_at };
+        return { id: g.id, botType: g.botType, opponentName: oppName, opponentUsername, opponentPhoto, opponentKind, myScore: g.scores[mySide], oppScore: g.scores[oppSide], result, reason: g.reason || null, createdAt: row.created_at, finishedAt: row.updated_at };
       });
       return sendJson(res, 200, { games });
     }

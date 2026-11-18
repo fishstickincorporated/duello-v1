@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 128;
+const APP_VERSION = 129;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -3095,8 +3095,13 @@ function buildSyncPayload(rec) {
       lastHuman: st.lastHuman ? { ...st.lastHuman } : null,
       lastBot: st.lastBot ? { ...st.lastBot } : null,
       // Replay log (v123): stored with the game so a synced offline
-      // game replays from Past Games too.
-      moveLog: (st.moveLog || []).map((m) => ({ side: m.side, placements: (m.placements || []).map((p) => ({ row: p.row, col: p.col, letter: p.letter })), words: (m.words || []).map((w) => ({ ...w })), score: m.score, mainWord: m.mainWord })),
+      // game replays from Past Games too. clocks (v129): the per-move
+      // remaining times MUST travel with the log — v128's review
+      // rewinds each clock from the mover's own entries, and dropping
+      // clocks here left every synced offline game with a clock-less
+      // log, so the review fell back to the final clocks for both
+      // sides and neither clock moved while stepping.
+      moveLog: (st.moveLog || []).map((m) => ({ side: m.side, placements: (m.placements || []).map((p) => ({ row: p.row, col: p.col, letter: p.letter })), words: (m.words || []).map((w) => ({ ...w })), score: m.score, mainWord: m.mainWord, clocks: m.clocks ? { human: m.clocks.human, bot: m.clocks.bot } : undefined })),
       eloDeltaHuman: st.eloDeltaHuman, eloDeltaBot: st.eloDeltaBot,
       eloAfterHuman: st.eloAfterHuman, eloAfterBot: st.eloAfterBot,
       isFirst: !!st.isFirst,

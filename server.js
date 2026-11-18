@@ -462,6 +462,17 @@ function newGame(user, botType, persona, opponent) {
     status: 'active', reason: null,
     consecutivePasses: 0, consecutiveNoMoves: 0,
     moves: { human: [], bot: [] },
+    // Chronological move log for replay (v123): every placed move, in
+    // the order played, with its placements — so the board at any
+    // step can be rebuilt (empty board + placements of moves[0..i]).
+    // Passes change no tiles, so they are not logged. Populated by
+    // applyMove (server) and applyLocalMove (client, offline games).
+    // Old games have no log; their replay arrows are disabled.
+    moveLog: [],
+    // Leave (v123): when a player Leaves (out of time + losing), the
+    // leaver is recorded here and the game stays active for the
+    // opponent to play out. Null until someone leaves.
+    leftBy: null,
     lastCells: [], lastWord: null, lastScore: null, lastBy: null,
     lastHuman: null, lastBot: null,
     eloDeltaHuman: null, eloDeltaBot: null, eloAfterHuman: null, eloAfterBot: null,
@@ -515,7 +526,7 @@ function serializeGame(game, user) {
     // (skew there added a second poll and pushed the perceived think to ~7s).
     botThinkRemainingMs: game.botType === 'human' ? null : (game.botThinkUntil ? Math.max(0, game.botThinkUntil - now) : null),
     botThinkMs: game.botType === 'human' ? null : (game.botThinkMs || null),
-    status: game.status, reason: game.reason,
+    reason: game.reason,
     lastCells: game.lastCells, lastWord: game.lastWord, lastScore: game.lastScore, lastBy: game.lastBy ? flipSide(game.lastBy) : null,
     lastHuman: isOpponent ? game.lastBot : game.lastHuman,
     lastBot: isOpponent ? game.lastHuman : game.lastBot,
@@ -534,6 +545,20 @@ function serializeGame(game, user) {
     // is already over and the clocks are running.
     countdownRemainingMs: game.countdownEndsAt ? Math.max(0, game.countdownEndsAt - now) : null,
     started: !!game.started,
+    // Replay (v123): the chronological move log, only once the game
+    // is finished — the replay is a post-game view, and sending the
+    // log on every 1s poll would bloat it. Old games have no log.
+    moveLog: game.status === 'finished' ? (game.moveLog || []) : undefined,
+    // Presence (v123, item 2): whether the real opponent is
+    // currently connected (seen within 10s). The client fades their
+    // pfp grey while they are gone. Human games only.
+    opponentConnected: game.botType === 'human' ? presenceOpponentConnected(game, user) : undefined,
+    // Leave (v123, item 3): the side that left, in stored terms.
+    // The leaver sees the game as finished (they are done); the
+    // opponent still sees it active and keeps playing it out.
+    leftBy: game.leftBy || null,
+    opponentLeft: game.botType === 'human' && !!game.leftBy ? (gameSides(game, user).oppSide === game.leftBy) : undefined,
+    status: game.leftBy && gameSides(game, user).mySide === game.leftBy ? 'finished' : game.status,
   };
 }
 // Live game streams (SSE): gameId -> Set of {res, user}. Every save of a
@@ -555,6 +580,82 @@ function broadcastGame(game) {
       } catch {}
     }
   } catch {}
+}
+// Presence / disconnect (v123, item 2): real-player games only. The
+// client heartbeats (POST /api/games/:id/heartbeat, every 5s) and every
+// game GET/play also counts as seen, so a player who loses their
+// connection or closes the app stops being seen within seconds. The
+// map is in-memory only (a restart just means "connected" until the
+// next heartbeat) and keyed by game id; entries are pruned when the
+// game is finished. The 30s exit rule only runs once the game has
+// started — before that, the countdown fallback handles a no-show.
+const PRESENCE_GONE_MS = 30000; // unseen this long -> exits the game
+const PRESENCE_FADE_MS = 10000; // unseen this long -> pfp fades grey
+const presenceByGame = new Map(); // gameId -> { challengerId, opponentId, lastSeen: { [userId]: ms } }
+function presenceTouch(game, userId) {
+  if (!game || game.botType !== 'human') return;
+  let p = presenceByGame.get(game.id);
+  if (!p) { p = { challengerId: game.userId, opponentId: game.opponentId, lastSeen: {} }; presenceByGame.set(game.id, p); }
+  p.lastSeen[userId] = Date.now();
+}
+function presenceOpponentConnected(game, user) {
+  // True unless the opponent has been unseen for >10s. No entry (or
+  // no opponent timestamp yet) means "connected" — a fresh game must
+  // never start faded.
+  if (!game || game.botType !== 'human') return true;
+  const p = presenceByGame.get(game.id);
+  if (!p) return true;
+  const { isOpp } = gameSides(game, user);
+  const oppId = isOpp ? game.userId : game.opponentId;
+  const seen = p.lastSeen[oppId];
+  if (!seen) return true;
+  return Date.now() - seen <= PRESENCE_FADE_MS;
+}
+function presenceOpponentGoneMs(game, user) {
+  // Milliseconds since the opponent was last seen, or 0 if unknown.
+  if (!game || game.botType !== 'human') return 0;
+  const p = presenceByGame.get(game.id);
+  if (!p) return 0;
+  const { isOpp } = gameSides(game, user);
+  const oppId = isOpp ? game.userId : game.opponentId;
+  const seen = p.lastSeen[oppId];
+  return seen ? Date.now() - seen : 0;
+}
+async function presenceCheckExit(game, user) {
+  // Called on every game request (GET/heartbeat/actions) for a started
+  // active human game: if the OPPONENT has been unseen for >30s, they
+  // exit — the game ends, they lose, and the reason names them. The
+  // caller (the remaining player) wins. Returns true if it ended the
+  // game. The leaver's own requests never trigger their own exit
+  // (their touch above just ran), and a game with a recorded Leave
+  // (leftBy) is already decided, so it is never re-ended here.
+  if (!game || game.botType !== 'human' || game.status !== 'active' || !game.started || game.leftBy) return false;
+  if (presenceOpponentGoneMs(game, user) <= PRESENCE_GONE_MS) return false;
+  const { isOpp, mySide } = gameSides(game, user);
+  const leaverId = isOpp ? game.userId : game.opponentId;
+  const leaver = (await q('SELECT first_name, username FROM users WHERE id=$1', [leaverId])).rows[0];
+  const name = (leaver && leaver.first_name) || (leaver && leaver.username) || 'Your opponent';
+  // The remaining player (mySide) wins; the absent player loses.
+  await endGame(game, user, `${name} exited the game.`, mySide);
+  presenceByGame.delete(game.id);
+  broadcastGame(game);
+  return true;
+}
+// Play Online matchmaking (v123, item 4): a 7-second real-person
+// search. Waiting players sit in this in-memory queue (userId ->
+// joinedAt); a searcher is paired with the longest-waiting other
+// player and a human game is created for them, which the waiting
+// player discovers on their next search poll. If the 7s window ends
+// with no match, the client falls back to a persona. The queue is
+// in-memory (a restart just means an empty lobby) and entries older
+// than 15s are pruned on every search, so a player who closed the
+// app mid-search never blocks a pairing.
+const MATCH_QUEUE_TTL_MS = 15000;
+const matchQueue = new Map(); // userId -> joinedAt (ms)
+const pendingMatches = new Map(); // userId -> gameId (a game created for them by a searcher)
+function matchmakingPrune() {
+  const now = Date.now();
+  for (const [uid, at] of matchQueue) if (now - at > MATCH_QUEUE_TTL_MS) matchQueue.delete(uid);
 }
 async function saveGameRow(game, opts = {}) {
   // Optimistic concurrency: every save bumps `version`, and a guarded
@@ -611,6 +712,15 @@ function updateStatsForMove(game, side, move, bestScoreBefore) {
   list.push({ words: move.words.map(w => ({ word: w.word, score: w.score })), score: move.score, isOptimal, mainWord: move.mainWord, bingo: !!move.bingo });
 }
 async function endGame(game, user, reason, winnerSide) {
+  // A game already decided by a Leave (v123, item 3) is only being
+  // finalized now that the opponent played it out: the winner, the
+  // reason, and both Elo moves were recorded at Leave time, so none
+  // of them is touched again here — the game just becomes finished.
+  if (game.leftBy && game.eloDeltaHuman !== null && game.eloDeltaHuman !== undefined) {
+    game.status = 'finished';
+    await saveGameRow(game);
+    return game;
+  }
   // winnerSide: 'human' | 'bot' | 'draw' | null (forfeit handled by caller setting winner)
   game.status = 'finished';
   game.reason = reason;
@@ -672,6 +782,44 @@ async function endGame(game, user, reason, winnerSide) {
   await q('INSERT INTO elo_history (user_id, game_id, elo_after, delta) VALUES ($1,$2,$3,$4)', [user.id, game.id, game.eloAfterHuman, delta]);
   return game;
 }
+// Leave (v123, item 3): a real-player game where one player walks
+// away (out of time + losing). The leaver loses and their Elo moves
+// NOW; the game records the result but stays ACTIVE so the opponent
+// can keep playing words against the absent player. When the
+// opponent finally finishes (clocks / no moves), endGame finalizes
+// it without touching the result again (see the leftBy guard above).
+// The leaver's own view already reads 'finished' (serializeGame).
+// Bot games never use this — a bot has no one to play out, so Leave
+// there is a plain forfeit (the endpoint routes it to endGame).
+async function applyLeave(game, leaverSide, leaverName) {
+  const winnerSide = leaverSide === 'human' ? 'bot' : 'human';
+  const actual = leaverSide === 'human' ? 0 : 1; // challenger's result
+  game.leftBy = leaverSide;
+  game.winner = winnerSide;
+  game.reason = `${leaverName} left the game.`;
+  const challenger = (await q('SELECT * FROM users WHERE id=$1', [game.userId])).rows[0];
+  const opponent = (await q('SELECT * FROM users WHERE id=$1', [game.opponentId])).rows[0];
+  if (challenger && opponent) {
+    const delta = eloDelta(challenger.elo, game.botElo, actual);
+    game.eloDeltaHuman = delta;
+    game.eloDeltaBot = -delta;
+    game.eloAfterHuman = challenger.elo + delta;
+    game.eloAfterBot = game.botElo + game.eloDeltaBot;
+    game.botElo = game.eloAfterBot;
+    await q('UPDATE users SET elo=$1, elo_high=GREATEST(elo_high,$2) WHERE id=$3', [game.eloAfterHuman, game.eloAfterHuman, challenger.id]);
+    await q('UPDATE users SET elo=$1, elo_high=GREATEST(elo_high,$2) WHERE id=$3', [game.eloAfterBot, game.eloAfterBot, opponent.id]);
+    await saveGameRow(game);
+    await q('INSERT INTO elo_history (user_id, game_id, elo_after, delta) VALUES ($1,$2,$3,$4)', [challenger.id, game.id, game.eloAfterHuman, delta]);
+    await q('INSERT INTO elo_history (user_id, game_id, elo_after, delta) VALUES ($1,$2,$3,$4)', [opponent.id, game.id, game.eloAfterBot, -delta]);
+  } else {
+    game.eloDeltaHuman = 0; game.eloDeltaBot = 0;
+    game.eloAfterHuman = challenger ? challenger.elo : null;
+    game.eloAfterBot = opponent ? opponent.elo : game.botElo;
+    await saveGameRow(game);
+  }
+  broadcastGame(game);
+  return game;
+}
 function applyMove(game, side, move, bestScoreBefore) {
   const isHuman = side === 'human';
   for (const p of move.placements) game.board[p.row][p.col] = p.letter;
@@ -708,6 +856,9 @@ function applyMove(game, side, move, bestScoreBefore) {
   game.lastWord = move.mainWord;
   game.lastScore = move.score;
   game.lastBy = side;
+  // Chronological replay log (v123): the placements are what rebuild
+  // the board at any step; words/score are what the replay shows.
+  (game.moveLog = game.moveLog || []).push({ side, placements: (move.placements || []).map((p) => ({ row: p.row, col: p.col, letter: p.letter })), words: (move.words || []).map((w) => ({ word: w.word, score: w.score })), score: move.score, mainWord: move.mainWord });
   const allWords = (move.words || []).map(w => w.word);
   if (isHuman) game.lastHuman = { word: move.mainWord, points: move.score, bonus: move.bonus, isDuello: move.isDuello, bingo: move.bingo, words: allWords };
   else game.lastBot = { word: move.mainWord, points: move.score, bonus: move.bonus, isDuello: move.isDuello, bingo: move.bingo, words: allWords };
@@ -2002,6 +2153,61 @@ const server = http.createServer(async (req, res) => {
       if (game.status === 'finished') out.stats = gameStatsPayload(game);
       return sendJson(res, 200, out);
     }
+    // Past Games (v123, item 6): the user's finished games, newest
+    // first, as a compact list (opponent, result, score, date) for
+    // the profile's Past Games screen. The full game (final board +
+    // moveLog for replay) comes from GET /api/games/:id. Only
+    // finished games are listed — an active game is not a past game.
+    if (pathname === '/api/games' && req.method === 'GET') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const r = await q("SELECT id, user_id, opponent_id, bot_type, state, created_at, updated_at FROM games WHERE (user_id=$1 OR opponent_id=$1) AND state->>'status'='finished' ORDER BY updated_at DESC LIMIT 50", [user.id]);
+      const games = r.rows.map((row) => {
+        const g = loadGameRow(row);
+        const { isOpp, mySide, oppSide } = gameSides(g, user);
+        const oppName = g.botType === 'persona' && g.persona ? (g.persona.firstName + ' ' + g.persona.lastName) : g.botType === 'competitive' ? 'Competitive Bot' : g.botType === 'fishstick' ? 'Fishstick' : (isOpp ? ((g.challenger && g.challenger.firstName) || (g.challenger && g.challenger.username) || 'Opponent') : ((g.opponent && g.opponent.firstName) || (g.opponent && g.opponent.username) || 'Opponent'));
+        const result = g.winner === 'draw' ? 'draw' : g.winner === mySide ? 'win' : g.winner === oppSide ? 'loss' : 'loss';
+        return { id: g.id, botType: g.botType, opponentName: oppName, myScore: g.scores[mySide], oppScore: g.scores[oppSide], result, reason: g.reason || null, createdAt: row.created_at, finishedAt: row.updated_at };
+      });
+      return sendJson(res, 200, { games });
+    }
+    // Play Online matchmaking (v123, item 4): the client polls this
+    // once a second for up to 7s. A searcher is paired with the
+    // longest-waiting other player; the waiting player finds the game
+    // on their next poll (pendingMatches). No match in 7s -> the
+    // client falls back to a persona.
+    if (pathname === '/api/matchmaking/search' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      matchmakingPrune();
+      const pending = pendingMatches.get(user.id);
+      if (pending) {
+        pendingMatches.delete(user.id);
+        const g = await loadGameForUser(user, pending);
+        if (g) return sendJson(res, 200, { matched: true, gameId: g.id });
+      }
+      let waitingId = null;
+      for (const [uid] of matchQueue) { if (uid !== user.id) { waitingId = uid; break; } }
+      if (waitingId !== null) {
+        matchQueue.delete(waitingId);
+        const waitingUser = (await q('SELECT * FROM users WHERE id=$1', [waitingId])).rows[0];
+        if (!waitingUser) { matchQueue.set(user.id, Date.now()); return sendJson(res, 200, { matched: false, queued: true }); }
+        const game = newGame(user, 'human', null, waitingUser);
+        await saveGameRow(game);
+        pendingMatches.set(waitingId, game.id);
+        presenceTouch(game, user.id);
+        presenceTouch(game, waitingId);
+        return sendJson(res, 200, { matched: true, gameId: game.id });
+      }
+      matchQueue.set(user.id, Date.now());
+      return sendJson(res, 200, { matched: false, queued: true });
+    }
+    if (pathname === '/api/matchmaking/cancel' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      matchQueue.delete(user.id);
+      return sendJson(res, 200, { ok: true });
+    }
     // Offline sync (v106): a finished game played on the device, submitted
     // whole for replay validation. The delta is a property of the game
     // (computed from the Elo at game start), so the STORED, validated
@@ -2088,7 +2294,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
     }
-    const gameMatch = pathname.match(/^\/api\/games\/(\d+)(?:\/(validate|play|pass|forfeit|shuffle|start))?$/);
+    const gameMatch = pathname.match(/^\/api\/games\/(\d+)(?:\/(validate|play|pass|forfeit|shuffle|start|heartbeat|leave))?$/);
     if (gameMatch) {
       const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
@@ -2100,7 +2306,26 @@ const server = http.createServer(async (req, res) => {
       // mySide/oppSide so the same code serves both players.
       const { isOpp, mySide, oppSide } = gameSides(game, user);
       const myRack = () => game[mySide === 'human' ? 'humanRack' : 'botRack'];
+      // Presence (v123, item 2): any game request counts as "seen"
+      // (the GET handler also runs the exit check; the heartbeat
+      // handler runs it too).
+      presenceTouch(game, user.id);
       if (req.method === 'GET' && !action) {
+        // A pending matchmaking pairing is consumed here too: the
+        // waiting player may reach the game directly (a reload, a
+        // notification) instead of polling matchmaking again, and a
+        // stale pending entry would hand them this old game on their
+        // NEXT search instead of queueing them.
+        if (pendingMatches.get(user.id) === game.id) pendingMatches.delete(user.id);
+        // Presence (v123, item 2): this request counts as "seen".
+        // If the real opponent has been gone >30s, the game ends
+        // here (they exited) before any further state is served.
+        presenceTouch(game, user.id);
+        if (await presenceCheckExit(game, user)) {
+          const out = serializeGame(game, user);
+          if (game.status === 'finished') out.stats = gameStatsPayload(game, isOpp);
+          return sendJson(res, 200, out);
+        }
         // The shared 5-second countdown: a real-player game starts its
         // countdown only once BOTH players have loaded it, so both
         // phones count down to the same instant. Each player's first
@@ -2325,6 +2550,39 @@ const server = http.createServer(async (req, res) => {
           await finishIfNeeded(game, user);
         }
         await saveGameRow(game);
+        const out = serializeGame(game, user);
+        if (game.status === 'finished') out.stats = gameStatsPayload(game, isOpp);
+        return sendJson(res, 200, out);
+      }
+      // Presence heartbeat (v123, item 2): the client calls this
+      // every 5s while a game is open, so the server knows the player
+      // is still there even on their own turn (when no poll runs).
+      // It also runs the exit check, so the remaining player ends a
+      // gone opponent's game promptly on their own heartbeat.
+      if (req.method === 'POST' && action === 'heartbeat') {
+        presenceTouch(game, user.id);
+        if (await presenceCheckExit(game, user)) {
+          const out = serializeGame(game, user);
+          if (game.status === 'finished') out.stats = gameStatsPayload(game, isOpp);
+          return sendJson(res, 200, { ...out, opponentExited: true });
+        }
+        return sendJson(res, 200, { ok: true, opponentConnected: game.botType === 'human' ? presenceOpponentConnected(game, user) : true });
+      }
+      // Leave (v123, item 3): out of time + losing only — the client
+      // only offers it then. The leaver loses (Elo moves now) and
+      // goes home; a real opponent keeps playing the game out solo
+      // (applyLeave). A bot game has no one to play out, so Leave is
+      // a plain forfeit there.
+      if (req.method === 'POST' && action === 'leave') {
+        if (game.status !== 'active') return sendJson(res, 400, { error: 'Game is finished.' });
+        // The user here is the raw DB row (getUserById), so the name
+        // is first_name, not firstName.
+        const leaverName = user.first_name || user.username || 'You';
+        if (game.botType === 'human') {
+          await applyLeave(game, mySide, leaverName);
+        } else {
+          await endGame(game, user, 'By forfeit', oppSide);
+        }
         const out = serializeGame(game, user);
         if (game.status === 'finished') out.stats = gameStatsPayload(game, isOpp);
         return sendJson(res, 200, out);

@@ -15,6 +15,12 @@ function storeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 function storeDel(k) { try { localStorage.removeItem(k); } catch {} }
 let token = storeGet('duello_token') || '';
 let me = null, game = null, gameFetchAt = 0;
+// Replay (v123, items 5+6): replayIndex is the number of moves from
+// game.moveLog applied to the empty board (null = live/final board,
+// 0 = empty board, moveLog.length = final board). reviewMode is true
+// when the board shows a finished game from the Past Games list
+// (the review buttons replace the end buttons there).
+let replayIndex = null, reviewMode = false;
 // Declared up here, not with the auth block below: the boot code calls
 // setAuthMode, which assigns authMode, so this declaration must already
 // have run or the page dies before any screen shows (ReferenceError:
@@ -80,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 122;
+const APP_VERSION = 123;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -115,8 +121,8 @@ function show(id) {
   // and show() clears them on any navigation away.
   if (id !== 'searchingScreen') cancelSearch();
   if (id !== 'rematchScreen') cancelRematch();
-  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
-  const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen'].includes(id);
+  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
+  const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen'].includes(id);
   // Warm the offline engine when the bot screen opens (v107): the
   // dictionary + solver index build used to run on the first bot tap,
   // so the game took a few seconds to open. Warming here — while the
@@ -128,7 +134,7 @@ function show(id) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   if ((id === 'homeScreen' || id === 'botScreen') && $('tabHome')) $('tabHome').classList.add('active');
   if (id === 'friendsScreen' && $('tabFriends')) $('tabFriends').classList.add('active');
-  if ((id === 'profileScreen' || id === 'profileEditScreen') && $('tabProfile')) $('tabProfile').classList.add('active');
+  if ((id === 'profileScreen' || id === 'profileEditScreen' || id === 'pastGamesScreen') && $('tabProfile')) $('tabProfile').classList.add('active');
   // First Home render warms the Profile + Leaderboard caches (below).
   if (id === 'homeScreen') { preloadHomeTabs(); refreshOnlineButtons(); }
 }
@@ -1207,8 +1213,14 @@ function isOffline() {
 let searchTimer = null, searchingActive = false;
 let searchMode = 'random', challengePersona = null, liveChallengeId = null;
 function cancelSearch() {
+  // Leaving the Play Online queue (v123, item 4): only if a search
+  // was actually in progress — cancelSearch also runs on every
+  // navigation (show()), so an unconditional cancel would POST on
+  // every screen change. Withdrawing from the matchmaking search
+  // removes the player from the queue, so a cancelled search never
+  // pairs them after they walked away.
+  if (searchingActive) api('/api/matchmaking/cancel', { method: 'POST' }).catch(() => {});
   searchingActive = false; challengePersona = null; searchMode = 'random';
-  // Walking away withdraws a live real-player challenge, so it
   // never sits stale on the recipient's Friends page — and an
   // accepted challenge can never strand them in a game alone.
   // (show() calls this on any navigation away, and the Cancel
@@ -1223,6 +1235,12 @@ function startSearching() {
   cancelSearch();
   searchingActive = true;
   show('searchingScreen');
+  // Play Online (v123, item 4): 7 seconds of real-person search.
+  // The queue is polled once a second; a match joins the human game
+  // at once. No match in 7s -> a persona is assigned (one of the 100
+  // fake "human" players), and the game counts as human stats.
+  const SEARCH_MS = 7000, POLL_MS = 1000;
+  let searchStartedAt = 0;
   // Offline (v107): a persona opponent cannot be found without a
   // connection, so the screen says so plainly instead of pretending
   // to search — and the match waits, re-checking every 2s, until the
@@ -1230,18 +1248,35 @@ function startSearching() {
   const waitForConnection = () => {
     if (!searchingActive) return;
     if (isOffline()) {
-      $('searchingText').textContent = 'Searching for internet connection…';
+      // v107: the offline searching note reads exactly this string.
+      $('searchingText').textContent = 'searching for internet connection';
       searchTimer = setTimeout(waitForConnection, 2000);
       return;
     }
     $('searchingText').textContent = 'Searching for opponent…';
-    searchTimer = setTimeout(() => {
+    searchStartedAt = Date.now();
+    pollMatchmaking();
+  };
+  const pollMatchmaking = async () => {
+    if (!searchingActive) return;
+    if (isOffline()) { waitForConnection(); return; }
+    try {
+      const r = await api('/api/matchmaking/search', { method: 'POST' });
       if (!searchingActive) return;
-      // The connection may have dropped while the timer was running.
-      if (isOffline()) { waitForConnection(); return; }
+      if (r && r.matched && r.gameId) {
+        searchingActive = false; searchTimer = null;
+        api('/api/matchmaking/cancel', { method: 'POST' }).catch(() => {});
+        await joinChallengeGame(r.gameId);
+        return;
+      }
+    } catch (e) { /* a failed poll is not a failed search: keep looking */ }
+    if (Date.now() - searchStartedAt >= SEARCH_MS) {
       searchingActive = false; searchTimer = null;
+      api('/api/matchmaking/cancel', { method: 'POST' }).catch(() => {});
       startGame('persona');
-    }, 2000 + Math.floor(Math.random() * 1000));
+      return;
+    }
+    searchTimer = setTimeout(pollMatchmaking, POLL_MS);
   };
   waitForConnection();
 }
@@ -1600,9 +1635,80 @@ function humanOutOfTime() {
 function updateForfeitLabel() {
   const btn = $('forfeitBtn');
   if (!btn || armed[btn.id]) return;
-  const label = humanOutOfTime() ? 'Exit' : 'Forfeit';
+  // Leave (v123, item 3): once your time is out AND you are behind,
+  // Forfeit becomes Leave — tapping it exits you to the main menu
+  // (you lose, Elo moves) while the opponent keeps playing the game
+  // out. Out of time but NOT losing keeps the normal Exit (and its
+  // stat window). Before the clocks run out it is just Forfeit.
+  const label = humanOutOfTime() ? ((game && game.scores && game.scores.human < game.scores.bot) ? 'Leave' : 'Exit') : 'Forfeit';
   if (btn.textContent !== label) btn.textContent = label;
 }
+// Post-game replay (v123, items 5+6): step through the finished
+// game's move sequence. The board at step n is the empty board plus
+// the placements of moveLog[0..n-1]; the scores are the running
+// totals at that step. moveLog is chronological (the server records
+// it in applyMove, the client in applyLocalMove), so a clock-0
+// stretch where one side plays several moves in a row replays in
+// exactly the order it was played. Games without a moveLog (played
+// before v123) show the final board only — the arrows are disabled.
+function replayStateAt(n) {
+  const board = Array.from({ length: 10 }, () => Array(10).fill(null));
+  let human = 0, bot = 0;
+  const log = (game && game.moveLog) || [];
+  for (let i = 0; i < n && i < log.length; i++) {
+    const m = log[i];
+    (m.placements || []).forEach((p) => { board[p.row][p.col] = p.letter; });
+    if (m.side === 'human') human += m.score || 0; else bot += m.score || 0;
+  }
+  return { board, human, bot };
+}
+function replayCanStep() {
+  return !!(game && game.status === 'finished' && Array.isArray(game.moveLog) && game.moveLog.length > 0);
+}
+function renderReplay() {
+  if (replayIndex === null || !game) return;
+  const log = game.moveLog || [];
+  const n = Math.max(0, Math.min(replayIndex, log.length));
+  replayIndex = n;
+  const st = replayStateAt(n);
+  // Rebuild the board from the replay state (no pending tiles, no
+  // drag — the game is over). The last move applied is highlighted.
+  const lastCells = new Set(n > 0 ? (log[n - 1].placements || []).map((p) => p.row + ',' + p.col) : []);
+  const boardEl = $('board'); boardEl.innerHTML = '';
+  for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+    const cell = document.createElement('div');
+    const prem = game.premiums[`${r},${c}`];
+    cell.className = 'cell' + (prem ? ' ' + prem : '') + (lastCells.has(r + ',' + c) ? ' last-word' : '');
+    const letter = st.board[r][c];
+    cell.textContent = letter ? '' : (prem || '');
+    if (letter) { const t = document.createElement('div'); t.className = 'tile'; t.innerHTML = tileSVG(letter); cell.appendChild(t); }
+    boardEl.appendChild(cell);
+  }
+  $('scoreHuman').textContent = String(st.human);
+  $('scoreBot').textContent = String(st.bot);
+  // Status names the step: the move just applied (or the start / final).
+  const total = log.length;
+  if (n === 0) $('status').textContent = 'Start of game';
+  else if (n === total) $('status').textContent = `Final board — move ${total} of ${total}`;
+  else {
+    const m = log[n - 1];
+    const who = m.side === 'human' ? 'You' : ($('botName').textContent || 'Opponent');
+    $('status').textContent = `Move ${n} of ${total}: ${who} played ${m.mainWord || ''} +${m.score || 0}`;
+  }
+  const back = $('replayBackBtn'), fwd = $('replayFwdBtn'), rback = $('reviewBackBtn'), rfwd = $('reviewFwdBtn');
+  if (back) back.disabled = n === 0;
+  if (fwd) fwd.disabled = n === total;
+  if (rback) rback.disabled = n === 0;
+  if (rfwd) rfwd.disabled = n === total;
+}
+function stepReplay(dir) {
+  if (!replayCanStep()) return;
+  const total = game.moveLog.length;
+  if (replayIndex === null) replayIndex = total;
+  replayIndex = Math.max(0, Math.min(total, replayIndex + dir));
+  renderReplay();
+}
+function clearReplay() { replayIndex = null; }
 function renderGame() {
   if (!game) return;
   // Never rebuild the board/rack while a drag is live: re-creating the
@@ -1639,6 +1745,10 @@ function renderGame() {
   else $('botPfp').textContent = '🤖';
   $('botPfp').classList.toggle('no-photo', (isPersonaGame && !usablePhoto(game.persona)) || (isHumanGame && !usablePhoto(game.opponent)));
   $('botPfp').classList.toggle('clear-bg', isFish);
+  // Disconnect (v123, item 2): a real opponent who has been unseen
+  // for >10s gets a faded grey pfp (server's opponentConnected) —
+  // their clock keeps ticking, and at 30s the server ends the game.
+  $('botPfp').classList.toggle('gone', isHumanGame && game.opponentConnected === false);
   document.querySelector('.player-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'human');
   document.querySelector('.bot-panel').classList.toggle('active', game.status === 'active' && game.clocks.turn === 'bot');
   $('scoreHuman').textContent = String(game.scores.human); $('scoreBot').textContent = String(game.scores.bot);
@@ -1748,7 +1858,12 @@ function renderGame() {
   $('forfeitBtn').disabled = false;
   updateForfeitLabel();
   document.querySelector('.controls').classList.toggle('hidden', finished);
-  $('endButtons').classList.toggle('hidden', !finished);
+  // Post-game buttons (v123): a finished game shows the 5-button
+  // end row (Main Menu, <-, Play Again, ->, Game Stats) — except a
+  // game opened from Past Games, which shows the review row instead
+  // (Exit, <-, ->, Game Stats; no Play Again — it is a past game).
+  $('endButtons').classList.toggle('hidden', !finished || reviewMode);
+  $('reviewButtons').classList.toggle('hidden', !finished || !reviewMode);
   $('gameDim').classList.toggle('dimmed', finished && !$('statWindow').classList.contains('hidden'));
   // Every finish shows the stats window at once now, including
   // time expiry (Nov 5, 2026 — the old 3s final-board view is
@@ -1773,6 +1888,11 @@ function renderGame() {
       if (lastMove && !lastMove.passed) attachBubble(lastMove.points, game.lastCells[game.lastCells.length - 1], 'last');
     }
   }
+  // Replay (v123, items 5+6): a render after the game ended (a poll
+  // landing, the stat window dismissing) rebuilds the board from the
+  // final state — re-apply the replay step on top so the arrows keep
+  // showing the step the player is on.
+  if (replayIndex !== null && game.status === 'finished') renderReplay();
 }
 let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0, timeoutFlipUnconfirmed = false;
 let countdownInterval = null, countdownActive = false;
@@ -1904,6 +2024,31 @@ function tickClocks() {
   botWatchdog();
 }
 setInterval(tickClocks, 100);
+// Presence heartbeat (v123, item 2): every 5s while a real-player
+// game is open, tell the server "I am still here" — so it can tell
+// my opponent's phone that I am gone (faded pfp) and, at 30s, end
+// the game. Only runs for active human games; bot games are local
+// (offline games never reach the server at all). The reply carries
+// the opponent's connection state and whether they exited.
+let heartbeatInFlight = false;
+setInterval(async () => {
+  if (!game || game.offline || game.botType !== 'human' || game.status !== 'active' || isOffline() || heartbeatInFlight) return;
+  if ($('gameScreen') && $('gameScreen').classList.contains('hidden')) return;
+  heartbeatInFlight = true;
+  try {
+    const r = await api(`/api/games/${game.id}/heartbeat`, { method: 'POST' });
+    if (!r) return;
+    if (r.opponentExited && r.status === 'finished') {
+      game = r; gameAppliedSeq = gameFetchSeq; gameFetchAt = Date.now(); pending = []; renderGame();
+      return;
+    }
+    if (typeof r.opponentConnected === 'boolean' && r.opponentConnected !== game.opponentConnected) {
+      game.opponentConnected = r.opponentConnected;
+      renderGame();
+    }
+  } catch (e) { /* a missed heartbeat is not a disconnect: the next one retries */ }
+  finally { heartbeatInFlight = false; }
+}, 5000);
 
 let botTimer = null, suppressNextClick = false, botTurnTapTime = 0;
 function parseClockText(txt) { const m = /^([0-9]+):([0-9]{2})$/.exec((txt || '').trim()); return m ? Number(m[1]) * 60000 + Number(m[2]) * 1000 : null; }
@@ -2359,6 +2504,10 @@ function buildOfflineGame(botType) {
     started: false,
     consecutivePasses: 0, consecutiveNoMoves: 0,
     moves: { human: [], bot: [] },
+    // Chronological replay log (v123): the same moveLog the server
+    // keeps — it travels with the game in the offline sync payload,
+    // so a synced offline game replays too.
+    moveLog: [],
     lastCells: [], lastWord: null, lastScore: null, lastBy: null,
     lastHuman: null, lastBot: null,
     eloDeltaHuman: null, eloDeltaBot: null, eloAfterHuman: null, eloAfterBot: null,
@@ -2475,6 +2624,9 @@ function applyLocalMove(side, move, bestScore) {
   else game.lastBot = { word: move.mainWord, points: move.score, bonus: move.bonus, isDuello: move.isDuello, bingo: move.bingo, words: allWords };
   const isOptimal = bestScore !== null && bestScore !== undefined && move.score === bestScore;
   game.moves[side].push({ words: (move.words || []).map((w) => ({ word: w.word, score: w.score })), score: move.score, isOptimal, mainWord: move.mainWord, bingo: !!move.bingo });
+  // Chronological replay log (v123): the placements rebuild the
+  // board at any step.
+  (game.moveLog = game.moveLog || []).push({ side, placements: (move.placements || []).map((p) => ({ row: p.row, col: p.col, letter: p.letter })), words: (move.words || []).map((w) => ({ word: w.word, score: w.score })), score: move.score, mainWord: move.mainWord });
   game.consecutivePasses = 0; game.consecutiveNoMoves = 0;
   game.isFirst = localEngine.boardIsEmpty(game.board);
 }
@@ -2843,6 +2995,9 @@ function buildSyncPayload(rec) {
       lastWord: st.lastWord, lastScore: st.lastScore, lastBy: st.lastBy,
       lastHuman: st.lastHuman ? { ...st.lastHuman } : null,
       lastBot: st.lastBot ? { ...st.lastBot } : null,
+      // Replay log (v123): stored with the game so a synced offline
+      // game replays from Past Games too.
+      moveLog: (st.moveLog || []).map((m) => ({ side: m.side, placements: (m.placements || []).map((p) => ({ row: p.row, col: p.col, letter: p.letter })), words: (m.words || []).map((w) => ({ ...w })), score: m.score, mainWord: m.mainWord })),
       eloDeltaHuman: st.eloDeltaHuman, eloDeltaBot: st.eloDeltaBot,
       eloAfterHuman: st.eloAfterHuman, eloAfterBot: st.eloAfterBot,
       isFirst: !!st.isFirst,
@@ -3234,13 +3389,26 @@ $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => {
   try { botTurnTapTime = tapAt; game = await api(`/api/games/${game.id}/pass`, { method: 'POST', body: JSON.stringify({ clientElapsedMs }) }); gameAppliedSeq = gameFetchSeq; gameFetchAt = tapAt; pending = []; renderGame(); animateHumanRunoff(fromHuman, game.clocks.human); beginBotTurn(); }
   catch { game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt; renderGame(); }
 }, '-30s');
-$('forfeitBtn').onclick = armButton($('forfeitBtn'), () => humanOutOfTime() ? 'Exit' : 'Forfeit', async () => {
+$('forfeitBtn').onclick = armButton($('forfeitBtn'), () => humanOutOfTime() ? ((game && game.scores && game.scores.human < game.scores.bot) ? 'Leave' : 'Exit') : 'Forfeit', async () => {
   // Forfeiting during the countdown stops it outright (v107): the
   // countdown must never fire endCountdown on a finished game.
   cancelCountdown();
+  const wasOutOfTime = humanOutOfTime();
+  const wasLosing = game && game.scores && game.scores.human < game.scores.bot;
+  // Leave (v123, item 3): out of time + losing. You exit to the main
+  // menu at once (no stat window — you are done); the loss and Elo
+  // move are recorded, and a real opponent keeps playing the game
+  // out. A bot game has no one to play out, so Leave there ends the
+  // game outright, same as a forfeit.
+  if (wasOutOfTime && wasLosing) {
+    statShownGameId = game.id;
+    if (game.offline) { doLocalForfeit(); goHome(); return; }
+    try { await api(`/api/games/${game.id}/leave`, { method: 'POST' }); } catch (e) { /* leave anyway: the loss is recorded on the next load */ }
+    goHome();
+    return;
+  }
   // Offline games forfeit locally: the forfeiter loses, no server call.
   if (game && game.offline) { doLocalForfeit(); return; }
-  const wasOutOfTime = humanOutOfTime();
   let forfeitOk = true;
   try {
     game = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' });
@@ -3496,10 +3664,11 @@ async function refreshLeaderboards() {
   globalRows = null;
   await loadServerFriends(true);
 }
-function goHome() { clearStatDelay(); $('statWindow').classList.add('hidden'); show('homeScreen'); refreshLeaderboards(); }
+function goHome() { clearStatDelay(); clearReplay(); reviewMode = false; $('statWindow').classList.add('hidden'); show('homeScreen'); refreshLeaderboards(); }
 $('mainMenuBtn').onclick = goHome; $('statMainMenu').onclick = goHome;
 function playAgain() {
   $('statWindow').classList.add('hidden');
+  clearReplay(); reviewMode = false;
   if (currentBot === 'persona') requestRematch();
   // Play Again against a real player is another challenge to the
   // same opponent: they accept it like the first one. (The stat
@@ -3511,6 +3680,19 @@ function playAgain() {
 $('playAgainBtn').onclick = playAgain;
 $('statPlayAgain').onclick = playAgain;
 $('gameStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
+// Replay arrows (v123, item 5): step the finished game back/forward
+// through its move sequence. Disabled at the ends (renderReplay sets
+// them); a game with no moveLog cannot replay at all (stepReplay
+// returns early).
+$('replayBackBtn').onclick = () => stepReplay(-1);
+$('replayFwdBtn').onclick = () => stepReplay(1);
+// Past Games review (v123, item 6): the same replay arrows on a
+// finished game opened from the Past Games list. Exit returns to the
+// list; Game Stats opens the stat window for that game.
+$('reviewExitBtn').onclick = () => { reviewMode = false; clearReplay(); openPastGames(); };
+$('reviewBackBtn').onclick = () => stepReplay(-1);
+$('reviewFwdBtn').onclick = () => stepReplay(1);
+$('reviewStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
 const defCache = new Map();
 // Local definitions bundle (v115): the client copy of every bundled
 // definition, split into sorted chunks under public/definitions/ with
@@ -4105,6 +4287,68 @@ function drawEloChart() {
   ctx.stroke();
 }
 $('tabProfile').onclick = () => { show('profileScreen'); if (!profileData) renderProfileUI(); };
+// Past Games (v123, item 6): the finished games list, from the
+// server (GET /api/games). Each row shows the opponent, the result,
+// the score, and the date; tapping one opens its final board in
+// review mode (Exit, replay arrows, Game Stats).
+async function openPastGames() {
+  show('pastGamesScreen');
+  const list = $('pastGamesList');
+  list.innerHTML = '<div class="past-games-note">Loading…</div>';
+  if (isOffline()) { list.innerHTML = '<div class="past-games-note">Past Games needs a connection.</div>'; return; }
+  try {
+    const r = await api('/api/games');
+    const games = (r && r.games) || [];
+    if (!games.length) { list.innerHTML = '<div class="past-games-note">No finished games yet.</div>'; return; }
+    list.innerHTML = '';
+    games.forEach((g) => {
+      const row = document.createElement('button');
+      row.className = 'past-game-row';
+      const res = g.result === 'win' ? 'W' : g.result === 'loss' ? 'L' : 'D';
+      const date = g.finishedAt ? new Date(g.finishedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+      const resEl = document.createElement('span'); resEl.className = 'past-game-result ' + g.result; resEl.textContent = res;
+      const oppEl = document.createElement('span'); oppEl.className = 'past-game-opp'; oppEl.textContent = g.opponentName || 'Opponent';
+      const scoreEl = document.createElement('span'); scoreEl.className = 'past-game-score num'; scoreEl.textContent = `${g.myScore}–${g.oppScore}`;
+      const dateEl = document.createElement('span'); dateEl.className = 'past-game-date'; dateEl.textContent = date;
+      row.append(resEl, oppEl, scoreEl, dateEl);
+      row.onclick = () => openPastGameDetail(g.id);
+      list.appendChild(row);
+    });
+  } catch (e) {
+    list.innerHTML = '<div class="past-games-note">Could not load past games.</div>';
+  }
+}
+async function openPastGameDetail(gameId) {
+  if (isOffline()) { $('status').textContent = 'Past Games needs a connection.'; return; }
+  try {
+    const g = await api(`/api/games/${gameId}`);
+    if (!g) return;
+    // Review mode: the finished game, its final board, and the
+    // replay arrows. The auto stat window is suppressed (the user
+    // opens it from the review row's Game Stats button instead).
+    game = g; gameFetchAt = Date.now(); pending = []; selectedRack = null;
+    reviewMode = true; replayIndex = null;
+    statShownGameId = g.id;
+    enterReviewScreen();
+  } catch (e) { /* stay on the list */ }
+}
+// Review entry (v123, item 6): a finished game from Past Games.
+// Unlike enterGameScreen (a new game), there is no countdown, no
+// clock reset, and no live stream — the game is over, so the board
+// just shows its final state with the review buttons.
+function enterReviewScreen() {
+  gameAppliedSeq = gameFetchSeq;
+  clearStatDelay();
+  countdownActive = false;
+  $('statWindow').classList.add('hidden');
+  $('gameDim').classList.remove('dimmed');
+  $('countdownOverlay').classList.add('hidden');
+  $('gameScreen').classList.remove('counting');
+  show('gameScreen');
+  renderGame();
+}
+$('pastGamesBtn').onclick = openPastGames;
+$('pastGamesBackBtn').onclick = () => show('profileScreen');
 document.querySelectorAll('.stats-tab').forEach(b => b.onclick = () => { statsScope = b.dataset.scope; document.querySelectorAll('.stats-tab').forEach(x => x.classList.toggle('active', x === b)); renderStatsList(); });
 document.querySelectorAll('.chart-toggle').forEach(b => b.onclick = () => { chartRange = b.dataset.range; document.querySelectorAll('.chart-toggle').forEach(x => x.classList.toggle('active', x === b)); drawEloChart(); });
 $('gearBtn').onclick = async () => {

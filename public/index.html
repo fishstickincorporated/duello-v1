@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=122"></head>
+<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=123"></head>
 <body><div id="introOverlay"><div id="introFlicker"></div><div id="introInner"><div id="introLogoZoom"><img id="introLogo" src="/assets/logo.png?v=2" alt="DUELLO"></div></div></div><div id="bootError" style="display:none;position:fixed;top:12px;left:12px;right:12px;z-index:9999;background:#ffd166;color:#1a1d24;padding:12px;border-radius:10px;font-size:14px;line-height:1.4" onclick="this.style.display='none'"></div><div id="app">
   <noscript><p style="color:#e8ecf1;text-align:center;padding:40px 20px">Duello needs JavaScript enabled to run. Turn JavaScript on in your browser settings and reload.</p></noscript>
 
@@ -74,6 +74,15 @@
       </div>
       <div id="statsList" class="stats-list"></div>
     </div>
+    <!-- Past Games (v123, item 6): below the profile stats. -->
+    <button class="menu-btn" id="pastGamesBtn" style="margin-top:16px">Past Games</button>
+  </section>
+
+  <!-- Past Games list (v123, item 6). -->
+  <section id="pastGamesScreen" class="screen hidden">
+    <h1 class="auth-heading">Past Games</h1>
+    <div id="pastGamesList" class="past-games-list"></div>
+    <button class="menu-btn" id="pastGamesBackBtn" style="margin-top:16px">Back to Profile</button>
   </section>
 
   <section id="profileEditScreen" class="screen hidden">
@@ -220,7 +229,14 @@
         <button id="playBtn" disabled>Play</button><button id="recallBtn">Recall</button><button id="shuffleBtn">Shuffle</button>
       </div>
       <div id="endButtons" class="controls hidden">
-        <button id="mainMenuBtn">Main Menu</button><button id="playAgainBtn">Play Again</button><button id="gameStatsBtn">Game Stats</button>
+        <button id="mainMenuBtn">Main Menu</button><button id="replayBackBtn" class="replay-btn" title="Previous move">&#8592;</button><button id="playAgainBtn">Play Again</button><button id="replayFwdBtn" class="replay-btn" title="Next move">&#8594;</button><button id="gameStatsBtn">Game Stats</button>
+      </div>
+      <!-- Past Games review (v123, item 6): the final board of a
+           finished game from the Past Games list, with the same
+           replay arrows. Exit returns to the list; no Play Again
+           here (it is a past game, not a rematch). -->
+      <div id="reviewButtons" class="controls hidden">
+        <button id="reviewExitBtn">Exit</button><button id="reviewBackBtn" class="replay-btn" title="Previous move">&#8592;</button><button id="reviewFwdBtn" class="replay-btn" title="Next move">&#8594;</button><button id="reviewStatsBtn">Game Stats</button>
       </div>
     </div>
     <div id="statWindow" class="stat-window hidden">
@@ -298,5 +314,5 @@
   } catch (e) {}
 })();
 </script>
-<script src="/engine.js?v=122" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
-<script src="/app.js?v=122" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>
+<script src="/engine.js?v=123" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
+<script src="/app.js?v=123" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>

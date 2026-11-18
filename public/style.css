@@ -261,8 +261,10 @@ same 52px column, right-aligned, on every row including your own
 .stats-list .stat-line-clickable{cursor:pointer}
 .stats-list .stat-line-clickable b{color:#03eaff}
 /* Game History filter tabs (v128, item 4): the same three buttons as
-   the stats screen, same size and same active highlight. */
-.history-tabs{display:flex;gap:6px}
+   the stats screen, same size and same active highlight. The tabs +
+   log sit on the same grey card as the lifetime stats (v130). */
+.history-board{background:#262a33;border-radius:16px;padding:14px;margin-bottom:10px}
+.history-tabs{display:flex;gap:6px;margin-bottom:10px}
 .history-tab{flex:1;padding:9px;border:0;border-radius:10px;background:#1a1d24;color:#e8ecf1;cursor:pointer;font-weight:800;font-size:13px}
 .history-tab.active{background:#03eaff;color:#1a1d24}
 /* Past Games list (v123, item 6): one row per finished game. */

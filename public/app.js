@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 125;
+const APP_VERSION = 126;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -367,6 +367,12 @@ function preloadHomeTabs() {
         api('/api/users/rank?username=' + encodeURIComponent(f.username)).then(d => setRank(f.username, d.rank)).catch(() => {});
       }
     } catch {}
+    // Warm the Game History list in the background (v126): the list
+    // is fetched once here so it is already in hand when the profile
+    // tab's Game History button is tapped — no Loading note, no wait.
+    // Fire-and-forget; a failure (offline) just leaves the cache
+    // empty and openPastGames fetches on tap as before.
+    try { api('/api/games').then(r => { if (r && Array.isArray(r.games)) pastGamesCache = r.games; }).catch(() => {}); } catch {}
   };
   // Idle-scheduled (v93): the 2s timeout bounds the wait, and the
   // intro now gives it a 3.4s head start, so the profile is ready
@@ -1675,6 +1681,7 @@ function renderReplay() {
   const log = game.moveLog || [];
   const n = Math.max(0, Math.min(replayIndex, log.length));
   replayIndex = n;
+  const total = log.length;
   const st = replayStateAt(n);
   // Rebuild the board from the replay state (no pending tiles, no
   // drag — the game is over). The last move applied is highlighted.
@@ -1691,6 +1698,18 @@ function renderReplay() {
   }
   $('scoreHuman').textContent = String(st.human);
   $('scoreBot').textContent = String(st.bot);
+  // Clocks rewind to the move (v126): the step shows the remaining
+  // time as it was when that move was played. Step 0 is the start
+  // (4:00 each); the final board shows the game's actual final
+  // clocks; a step in between uses the clocks stored with that move.
+  // Entries logged before v126 carry no clocks — fall back to the
+  // final clocks rather than showing a wrong time.
+  let ch = 240000, cb = 240000;
+  if (n === 0) { ch = 240000; cb = 240000; }
+  else if (n === total) { ch = game.clocks.human; cb = game.clocks.bot; }
+  else { const cc = (log[n - 1] && log[n - 1].clocks) || null; if (cc) { ch = cc.human; cb = cc.bot; } else { ch = game.clocks.human; cb = game.clocks.bot; } }
+  $('clockHuman').textContent = fmtClock(ch);
+  $('clockBot').textContent = fmtClock(cb);
   // The point bubble rides with the move just applied (v124): the
   // same +score bubble the live board shows on the last play, so
   // scrolling through the replay shows what each play was worth. A
@@ -1703,7 +1722,6 @@ function renderReplay() {
   }
   // Status names the step, without the move count (v124): no
   // "Move x of y" — just who played what, or the start / final.
-  const total = log.length;
   if (n === 0) $('status').textContent = 'Start of game';
   else if (n === total) $('status').textContent = 'Final board';
   else {
@@ -1785,7 +1803,11 @@ function renderGame() {
   // where the turn-based pick showed a stale move from the side
   // that can no longer move.)
   let shownLast;
-  if (game.clocks.human <= 0) shownLast = game.lastBot || game.lastHuman;
+  // Blank after a game / in a review (v126): the last-play line under
+  // the scoreboard is for a live game. A finished game shows the move
+  // in the replay status instead, so this stays empty.
+  if (game.status === 'finished') shownLast = null;
+  else if (game.clocks.human <= 0) shownLast = game.lastBot || game.lastHuman;
   else if (game.clocks.bot <= 0) shownLast = game.lastHuman || game.lastBot;
   else shownLast = game.clocks.turn === 'human' ? (game.lastBot || game.lastHuman) : (game.lastHuman || game.lastBot);
   $('lastPlay').innerHTML = lastHtml(shownLast);
@@ -1997,11 +2019,15 @@ function tickClocks() {
   if (game.status === 'active') {
     if (game.clocks.turn === 'human') h = Math.max(0, h - elapsed); else b = Math.max(0, b - elapsed);
   }
-  if (Date.now() >= humanRunoffUntil) $('clockHuman').textContent = fmtClock(h);
+  // In a replay the clocks belong to renderReplay (v126): the 100ms
+  // tick must not overwrite the rewound step clocks with the final
+  // values. The rest of the tick (timeout/end logic) only runs for
+  // an active game, so it is unaffected.
+  if (replayIndex === null && Date.now() >= humanRunoffUntil) $('clockHuman').textContent = fmtClock(h);
   // During a runoff animation the bot clock is driven by the animation,
   // not by this 100ms tick — the tick used to jump it straight to the
   // stepped value and flicker over the animation.
-  if (Date.now() >= runoffUntil) $('clockBot').textContent = fmtClock(b);
+  if (replayIndex === null && Date.now() >= runoffUntil) $('clockBot').textContent = fmtClock(b);
   // Human clock hit 0: do not leave the game sitting on a dead turn.
   // Recall any placed-but-unplayed tiles and flip the turn locally
   // at once, instead of leaving the tile on the board and the turn
@@ -2663,8 +2689,12 @@ function applyLocalMove(side, move, bestScore) {
   const isOptimal = bestScore !== null && bestScore !== undefined && move.score === bestScore;
   game.moves[side].push({ words: (move.words || []).map((w) => ({ word: w.word, score: w.score })), score: move.score, isOptimal, mainWord: move.mainWord, bingo: !!move.bingo });
   // Chronological replay log (v123): the placements rebuild the
-  // board at any step.
-  (game.moveLog = game.moveLog || []).push({ side, placements: (move.placements || []).map((p) => ({ row: p.row, col: p.col, letter: p.letter })), words: (move.words || []).map((w) => ({ word: w.word, score: w.score })), score: move.score, mainWord: move.mainWord });
+  // board at any step. clocks (v126): the remaining time on each
+  // clock right after this move, so the replay can tick the clocks
+  // back to when the move was played. For a human move settleLocalClock
+  // already ran, so these are settled; for a bot move the caller
+  // re-stamps them after stepLocalBotClock (the 20s step-down).
+  (game.moveLog = game.moveLog || []).push({ side, placements: (move.placements || []).map((p) => ({ row: p.row, col: p.col, letter: p.letter })), words: (move.words || []).map((w) => ({ word: w.word, score: w.score })), score: move.score, mainWord: move.mainWord, clocks: { human: game.clocks.human, bot: game.clocks.bot } });
   game.consecutivePasses = 0; game.consecutiveNoMoves = 0;
   game.isFirst = localEngine.boardIsEmpty(game.board);
 }
@@ -2816,6 +2846,11 @@ async function runLocalBotTurn() {
   offlinePlays.push({ side: 'bot', rack: offlineBotRack.slice(), placements: move.placements.map((p) => ({ row: p.row, col: p.col, letter: p.letter })) });
   applyLocalMove('bot', move, bestScore);
   stepLocalBotClock();
+  // Re-stamp the clocks on the move just logged (v126): the inline
+  // capture in applyLocalMove ran before the 20s step-down, so the
+  // bot clock there is up to 20s high. After the step-down these are
+  // the exact post-move values the replay must show.
+  if (game.moveLog && game.moveLog.length) game.moveLog[game.moveLog.length - 1].clocks = { human: game.clocks.human, bot: game.clocks.bot };
   game.botThinkUntil = null; game.botThinkMs = null;
   game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now();
   persistOfflineGame(); renderGame();
@@ -4343,7 +4378,7 @@ function pastGameRowEl(g) {
   const date = g.finishedAt ? new Date(g.finishedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
   const picEl = document.createElement('span');
   picEl.className = 'past-game-pic';
-  if (g.opponentKind === 'fishstick') picEl.innerHTML = '<img src="/assets/fishstick.png?v=1" alt="Fishstick">';
+  if (g.opponentKind === 'fishstick') { picEl.classList.add('past-game-pic-plain'); picEl.innerHTML = '<img src="/assets/fishstick.png?v=1" alt="Fishstick">'; }
   else if (g.opponentKind === 'competitive') picEl.textContent = '🤖';
   else if (g.opponentPhoto) picEl.innerHTML = `<img src="${g.opponentPhoto}" alt="">`;
   else picEl.innerHTML = silhouetteSVG(28);
@@ -4369,6 +4404,13 @@ async function openPastGames() {
   const un = (me && me.username) || (profileData && profileData.user && profileData.user.username) || '';
   $('pastGamesUser').textContent = un ? '@' + un : '';
   const list = $('pastGamesList');
+  // Already warmed in the background (v126): show at once, then
+  // refresh quietly so a game finished since the warm still appears.
+  if (pastGamesCache) {
+    renderPastGamesList(pastGamesCache);
+    refreshPastGamesCache();
+    return;
+  }
   list.innerHTML = '<div class="past-games-note">Loading…</div>';
   if (isOffline()) { list.innerHTML = '<div class="past-games-note">Game History needs a connection.</div>'; return; }
   try {
@@ -4379,6 +4421,21 @@ async function openPastGames() {
   } catch (e) {
     list.innerHTML = '<div class="past-games-note">Could not load game history.</div>';
   }
+}
+// Quiet refresh (v126): re-fetch the list in the background and
+// re-render only if it changed (a game finished since the warm).
+// Never shows a Loading note; a no-change refresh leaves the
+// screen — and its scroll — untouched.
+function refreshPastGamesCache() {
+  if (isOffline()) return;
+  api('/api/games').then(r => {
+    const games = (r && r.games) || [];
+    const oldIds = (pastGamesCache || []).map(g => g.id).join(',');
+    const newIds = games.map(g => g.id).join(',');
+    if (oldIds === newIds) return;
+    pastGamesCache = games;
+    renderPastGamesList(games);
+  }).catch(() => {});
 }
 // Back from a review (v125): the list is already in hand, so show it
 // at once — no fetch, no Loading note. Falls back to a fresh fetch

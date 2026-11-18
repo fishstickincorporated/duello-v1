@@ -260,6 +260,11 @@ same 52px column, right-aligned, on every row including your own
 .past-game-row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#1e222b;border:1px solid #333;border-radius:10px;padding:10px 12px;color:#fff;font-family:"Comfortaa",sans-serif;font-size:15px;cursor:pointer}
 .past-game-pic{flex:0 0 28px;width:28px;height:28px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#262a33;font-size:18px}
 .past-game-pic img{width:100%;height:100%;object-fit:cover;display:block}
+/* Fishstick (v126): the transparent PNG sits directly on the dark
+   row, not on a grey circle — no background, no round mask, and the
+   whole fishstick shows (contain, not cover). */
+.past-game-pic-plain{background:transparent;border-radius:0}
+.past-game-pic-plain img{object-fit:contain}
 .past-game-result{flex:0 0 26px;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px}
 .past-game-result.win{background:#1cff03;color:#111}
 .past-game-result.loss{background:#ff1303;color:#fff}
@@ -283,7 +288,7 @@ same 52px column, right-aligned, on every row including your own
 #pastGamesScreen .auth-heading{margin:0}
 #pastGamesScreen .past-games-list{margin-top:0}
 #pastGamesScreen .menu-btn{margin-top:0}
-.menu-btn{display:block;width:100%;padding:9px;border:0;border-radius:10px;background:#03eaff;color:#1a1d24;cursor:pointer;font-weight:800;font-size:13px;font-family:"Comfortaa",sans-serif}
+.menu-btn{display:block;width:100%;padding:9px;border:0;border-radius:10px;background:#03eaff;color:#1a1d24;cursor:pointer;font-weight:800;font-size:13px}
 /* Replay arrows (v124): the shared back/forward row that sits in the
    deck's place once the game is finished, above the buttons. Same
    46px height and Duello-blue border as the game controls. */

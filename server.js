@@ -51,6 +51,10 @@ const pool = new Pool({
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const ROOT = __dirname;
+// Usernames a real account may never take (v126): the bot handles.
+// 'fishstick' is the Fishstick bot's handle — it shows as @fishstick
+// in Game History, so no player may register or rename to it.
+const RESERVED_USERNAMES = new Set(['fishstick']);
 const DATA_DIR = path.join(ROOT, 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -862,7 +866,11 @@ function applyMove(game, side, move, bestScoreBefore) {
   game.lastBy = side;
   // Chronological replay log (v123): the placements are what rebuild
   // the board at any step; words/score are what the replay shows.
-  (game.moveLog = game.moveLog || []).push({ side, placements: (move.placements || []).map((p) => ({ row: p.row, col: p.col, letter: p.letter })), words: (move.words || []).map((w) => ({ word: w.word, score: w.score })), score: move.score, mainWord: move.mainWord });
+  // clocks (v126): the remaining time on each clock right after this
+  // move, so the replay can tick the clocks back to when the move was
+  // played. settleClock already ran before applyMove in every path
+  // (human play, bot turn), so these are the settled post-move values.
+  (game.moveLog = game.moveLog || []).push({ side, placements: (move.placements || []).map((p) => ({ row: p.row, col: p.col, letter: p.letter })), words: (move.words || []).map((w) => ({ word: w.word, score: w.score })), score: move.score, mainWord: move.mainWord, clocks: { human: game.clocks.human, bot: game.clocks.bot } });
   const allWords = (move.words || []).map(w => w.word);
   if (isHuman) game.lastHuman = { word: move.mainWord, points: move.score, bonus: move.bonus, isDuello: move.isDuello, bingo: move.bingo, words: allWords };
   else game.lastBot = { word: move.mainWord, points: move.score, bonus: move.bonus, isDuello: move.isDuello, bingo: move.bingo, words: allWords };
@@ -1732,6 +1740,7 @@ const server = http.createServer(async (req, res) => {
       const password = String(b.password || '');
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return sendJson(res, 400, { error: 'Enter a valid email.' });
       if (!/^[a-z0-9_]{3,}$/.test(username)) return sendJson(res, 400, { error: 'Username: lowercase letters, numbers, and underscores only, at least 3 characters.' });
+      if (RESERVED_USERNAMES.has(username)) return sendJson(res, 400, { error: 'That username is taken.' });
       if (!firstName || !lastName) return sendJson(res, 400, { error: 'First and last name are required.' });
       if (!passwordPolicyOk(password)) return sendJson(res, 400, { error: PASSWORD_POLICY_ERROR });
       // Signup requires a verified email: the verified token from
@@ -1829,6 +1838,7 @@ const server = http.createServer(async (req, res) => {
       const username = String(b.username || '').trim();
       if (!firstName) return sendJson(res, 400, { error: 'Add a first name.' });
       if (!/^[a-z0-9_]{3,}$/.test(username)) return sendJson(res, 400, { error: 'Username: lowercase letters, numbers, and underscores only, at least 3 characters.' });
+      if (RESERVED_USERNAMES.has(username)) return sendJson(res, 400, { error: 'That username is taken.' });
       const byUsername = await getUserByUsername(username);
       if (byUsername && byUsername.id !== user.id) return sendJson(res, 400, { error: 'That username is taken.' });
       const personaTaken = await q('SELECT 1 FROM personas WHERE username=$1', [username]);
@@ -2176,7 +2186,7 @@ const server = http.createServer(async (req, res) => {
         // the plain name. Bots have no photo — the client renders the
         // fishstick image / robot for those kinds.
         const oppUser = g.botType === 'human' ? (isOpp ? g.challenger : g.opponent) : null;
-        const opponentUsername = g.botType === 'persona' && g.persona ? '@' + g.persona.username : g.botType === 'competitive' ? 'Competitive Bot' : g.botType === 'fishstick' ? 'Fishstick' : (oppUser && oppUser.username ? '@' + oppUser.username : oppName);
+        const opponentUsername = g.botType === 'persona' && g.persona ? '@' + g.persona.username : g.botType === 'competitive' ? 'Competitive Bot' : g.botType === 'fishstick' ? '@fishstick' : (oppUser && oppUser.username ? '@' + oppUser.username : oppName);
         const opponentPhoto = g.botType === 'persona' && g.persona ? (g.persona.photoData || null) : g.botType === 'human' ? ((oppUser && oppUser.photoData) || null) : null;
         const opponentKind = g.botType === 'persona' ? 'persona' : g.botType === 'competitive' ? 'competitive' : g.botType === 'fishstick' ? 'fishstick' : 'human';
         const result = g.winner === 'draw' ? 'draw' : g.winner === mySide ? 'win' : g.winner === oppSide ? 'loss' : 'loss';

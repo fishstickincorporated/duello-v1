@@ -516,8 +516,12 @@ function serializeGame(game, user) {
     // existing persona/botType display. Flipped per viewer.
     opponent: game.botType === 'human' ? (isOpponent ? (game.challenger || null) : (game.opponent || null)) : null,
     board: stripBoard(game.board), premiums: game.premiums,
-    humanRack: isOpponent ? game.botRack : game.humanRack,
-    botRackCount: isOpponent ? game.humanRack.length : game.botRack.length,
+    // A synced offline game stores botRackCount, not botRack (the
+    // bot's rack never leaves the device), so serialize must not
+    // read game.botRack.length on a row that has none — that threw
+    // and made a Game History tap do nothing at all (v124).
+    humanRack: isOpponent ? (game.botRack || []) : (game.humanRack || []),
+    botRackCount: isOpponent ? (game.humanRack ? game.humanRack.length : 0) : (game.botRack ? game.botRack.length : (typeof game.botRackCount === 'number' ? game.botRackCount : 0)),
     scores: { human: isOpponent ? game.scores.bot : game.scores.human, bot: isOpponent ? game.scores.human : game.scores.bot },
     clocks: { human: isOpponent ? clockBot : clockHuman, bot: isOpponent ? clockHuman : clockBot, turn: flipSide(game.turn), turnStartedAt: game.turnStartedAt },
     botThinkUntil: game.botType === 'human' ? null : (game.botThinkUntil || null),

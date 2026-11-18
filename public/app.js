@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 123;
+const APP_VERSION = 124;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -137,6 +137,11 @@ function show(id) {
   if ((id === 'profileScreen' || id === 'profileEditScreen' || id === 'pastGamesScreen') && $('tabProfile')) $('tabProfile').classList.add('active');
   // First Home render warms the Profile + Leaderboard caches (below).
   if (id === 'homeScreen') { preloadHomeTabs(); refreshOnlineButtons(); }
+  // A tab always opens at the top (v124): the window scroll position
+  // used to carry over from the tab you came from, so the new tab
+  // opened halfway down.
+  try { window.scrollTo(0, 0); } catch {}
+  const shown = $(id); if (shown) shown.scrollTop = 0;
 }
 function silhouetteSVG(size) { return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#b3b2b1"/></svg>`; }
 function pfpHTML(userLike) {
@@ -1686,20 +1691,31 @@ function renderReplay() {
   }
   $('scoreHuman').textContent = String(st.human);
   $('scoreBot').textContent = String(st.bot);
-  // Status names the step: the move just applied (or the start / final).
+  // The point bubble rides with the move just applied (v124): the
+  // same +score bubble the live board shows on the last play, so
+  // scrolling through the replay shows what each play was worth. A
+  // pass has no placements and leaves no bubble. The board was just
+  // rebuilt, so no stale bubble survives to clear.
+  if (n > 0) {
+    const m = log[n - 1];
+    const pls = (m && m.placements) || [];
+    if (pls.length) attachBubble(m.score || 0, [pls[pls.length - 1].row, pls[pls.length - 1].col], 'last');
+  }
+  // Status names the step, without the move count (v124): no
+  // "Move x of y" — just who played what, or the start / final.
   const total = log.length;
   if (n === 0) $('status').textContent = 'Start of game';
-  else if (n === total) $('status').textContent = `Final board — move ${total} of ${total}`;
+  else if (n === total) $('status').textContent = 'Final board';
   else {
     const m = log[n - 1];
     const who = m.side === 'human' ? 'You' : ($('botName').textContent || 'Opponent');
-    $('status').textContent = `Move ${n} of ${total}: ${who} played ${m.mainWord || ''} +${m.score || 0}`;
+    $('status').textContent = `${who} played ${m.mainWord || ''} +${m.score || 0}`;
   }
-  const back = $('replayBackBtn'), fwd = $('replayFwdBtn'), rback = $('reviewBackBtn'), rfwd = $('reviewFwdBtn');
+  // One shared arrows row now (v124): the review buttons are gone,
+  // so only these two exist.
+  const back = $('replayBackBtn'), fwd = $('replayFwdBtn');
   if (back) back.disabled = n === 0;
   if (fwd) fwd.disabled = n === total;
-  if (rback) rback.disabled = n === 0;
-  if (rfwd) rfwd.disabled = n === total;
 }
 function stepReplay(dir) {
   if (!replayCanStep()) return;
@@ -1858,12 +1874,17 @@ function renderGame() {
   $('forfeitBtn').disabled = false;
   updateForfeitLabel();
   document.querySelector('.controls').classList.toggle('hidden', finished);
-  // Post-game buttons (v123): a finished game shows the 5-button
-  // end row (Main Menu, <-, Play Again, ->, Game Stats) — except a
-  // game opened from Past Games, which shows the review row instead
-  // (Exit, <-, ->, Game Stats; no Play Again — it is a past game).
+  // Post-game buttons (v123, arrows moved out in v124): a finished
+  // game shows Main Menu / Play Again / Game Stats — except a game
+  // opened from Game History, which shows Exit / Game Stats instead
+  // (no Play Again — it is a past game).
   $('endButtons').classList.toggle('hidden', !finished || reviewMode);
   $('reviewButtons').classList.toggle('hidden', !finished || !reviewMode);
+  // Deck / arrows (v124): once the game is finished the deck goes
+  // away and the shared arrows row sits in its place, above the
+  // buttons. A live game keeps the deck and hides the arrows.
+  $('rack').classList.toggle('hidden', finished);
+  $('replayArrows').classList.toggle('hidden', !finished);
   $('gameDim').classList.toggle('dimmed', finished && !$('statWindow').classList.contains('hidden'));
   // Every finish shows the stats window at once now, including
   // time expiry (Nov 5, 2026 — the old 3s final-board view is
@@ -1893,6 +1914,13 @@ function renderGame() {
   // final state — re-apply the replay step on top so the arrows keep
   // showing the step the player is on.
   if (replayIndex !== null && game.status === 'finished') renderReplay();
+  // No replay possible (no moveLog): the arrows stay disabled
+  // instead of looking live and doing nothing (v124).
+  if (finished && !replayCanStep()) {
+    const back = $('replayBackBtn'), fwd = $('replayFwdBtn');
+    if (back) back.disabled = true;
+    if (fwd) fwd.disabled = true;
+  }
 }
 let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0, timeoutFlipUnconfirmed = false;
 let countdownInterval = null, countdownActive = false;
@@ -3680,18 +3708,15 @@ function playAgain() {
 $('playAgainBtn').onclick = playAgain;
 $('statPlayAgain').onclick = playAgain;
 $('gameStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
-// Replay arrows (v123, item 5): step the finished game back/forward
-// through its move sequence. Disabled at the ends (renderReplay sets
-// them); a game with no moveLog cannot replay at all (stepReplay
-// returns early).
+// Replay arrows (v123, item 5; one shared row since v124): step the
+// finished game back/forward through its move sequence. Disabled at
+// the ends (renderReplay sets them); a game with no moveLog cannot
+// replay at all (stepReplay returns early).
 $('replayBackBtn').onclick = () => stepReplay(-1);
 $('replayFwdBtn').onclick = () => stepReplay(1);
-// Past Games review (v123, item 6): the same replay arrows on a
-// finished game opened from the Past Games list. Exit returns to the
-// list; Game Stats opens the stat window for that game.
+// Game History review (v123, item 6; renamed v124): Exit returns to
+// the list; Game Stats opens the stat window for that game.
 $('reviewExitBtn').onclick = () => { reviewMode = false; clearReplay(); openPastGames(); };
-$('reviewBackBtn').onclick = () => stepReplay(-1);
-$('reviewFwdBtn').onclick = () => stepReplay(1);
 $('reviewStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
 const defCache = new Map();
 // Local definitions bundle (v115): the client copy of every bundled
@@ -4287,15 +4312,23 @@ function drawEloChart() {
   ctx.stroke();
 }
 $('tabProfile').onclick = () => { show('profileScreen'); if (!profileData) renderProfileUI(); };
-// Past Games (v123, item 6): the finished games list, from the
+// Game History (v123, item 6; renamed v124): the finished games list, from the
 // server (GET /api/games). Each row shows the opponent, the result,
 // the score, and the date; tapping one opens its final board in
 // review mode (Exit, replay arrows, Game Stats).
+// Whether the "Could not open that game." note is already showing in
+// the list (v124) — the list is rebuilt on every open, so this resets
+// there; it keeps a repeated failed tap from stacking duplicate notes.
+let openFailNoteShown = false;
 async function openPastGames() {
   show('pastGamesScreen');
+  openFailNoteShown = false;
+  // The username under the heading (v124): whose history this is.
+  const un = (me && me.username) || (profileData && profileData.user && profileData.user.username) || '';
+  $('pastGamesUser').textContent = un ? '@' + un : '';
   const list = $('pastGamesList');
   list.innerHTML = '<div class="past-games-note">Loading…</div>';
-  if (isOffline()) { list.innerHTML = '<div class="past-games-note">Past Games needs a connection.</div>'; return; }
+  if (isOffline()) { list.innerHTML = '<div class="past-games-note">Game History needs a connection.</div>'; return; }
   try {
     const r = await api('/api/games');
     const games = (r && r.games) || [];
@@ -4315,11 +4348,11 @@ async function openPastGames() {
       list.appendChild(row);
     });
   } catch (e) {
-    list.innerHTML = '<div class="past-games-note">Could not load past games.</div>';
+    list.innerHTML = '<div class="past-games-note">Could not load game history.</div>';
   }
 }
 async function openPastGameDetail(gameId) {
-  if (isOffline()) { $('status').textContent = 'Past Games needs a connection.'; return; }
+  if (isOffline()) { $('status').textContent = 'Game History needs a connection.'; return; }
   try {
     const g = await api(`/api/games/${gameId}`);
     if (!g) return;
@@ -4327,12 +4360,28 @@ async function openPastGameDetail(gameId) {
     // replay arrows. The auto stat window is suppressed (the user
     // opens it from the review row's Game Stats button instead).
     game = g; gameFetchAt = Date.now(); pending = []; selectedRack = null;
-    reviewMode = true; replayIndex = null;
+    reviewMode = true;
+    // Start at the final board (v124): the arrows, the point bubble
+    // and the status are set up at once instead of waiting for a
+    // tap. A game with no moveLog has no replay — leave the index
+    // null so the board shows the final state as-is.
+    replayIndex = (g.moveLog && g.moveLog.length) ? g.moveLog.length : null;
     statShownGameId = g.id;
     enterReviewScreen();
-  } catch (e) { /* stay on the list */ }
+  } catch (e) {
+    // Never fail silently (v124): a tap that does nothing is the
+    // bug Jeff reported — say so in the list instead of staying quiet.
+    const list = $('pastGamesList');
+    if (list && !openFailNoteShown) {
+      const note = document.createElement('div');
+      note.classList.add('past-games-note', 'open-fail');
+      note.textContent = 'Could not open that game.';
+      list.prepend(note);
+      openFailNoteShown = true;
+    }
+  }
 }
-// Review entry (v123, item 6): a finished game from Past Games.
+// Review entry (v123, item 6): a finished game from Game History.
 // Unlike enterGameScreen (a new game), there is no countdown, no
 // clock reset, and no live stream — the game is over, so the board
 // just shows its final state with the review buttons.

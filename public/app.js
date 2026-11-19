@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 140;
+const APP_VERSION = 141;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -5029,6 +5029,18 @@ $('editPasswordSaveBtn').onclick = async () => {
     $('editPasswordDone').textContent = 'Password changed.';
   } catch (err) { $('editPasswordError').textContent = err.message || 'Could not change password.'; }
 };
+// The password fields live inside the Edit Profile form (v141), so
+// Enter in one would submit the profile form instead of changing the
+// password. Enter in the last field saves the new password; in the
+// other two it does nothing.
+['editCurrentPassword', 'editNewPassword', 'editNewPassword2'].forEach(id => {
+  const inp = $(id); if (!inp) return;
+  inp.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (id === 'editNewPassword2') $('editPasswordSaveBtn').click();
+  });
+});
 // Eye toggles for every password field: tap to see what was typed.
 // Delegated on the document (not wired per button at load) so the
 // toggle works no matter when the field's screen is shown, and taps
@@ -5099,15 +5111,53 @@ $('profileSignOutBtn').onclick = async () => {
 };
 $('editDeleteBtn').onclick = () => {
   $('editDeleteConfirm').classList.remove('hidden');
-  $('editDeleteError').textContent = '';
+  showDeleteConfirmStep();
 };
 $('editDeleteCancelBtn').onclick = () => {
   $('editDeleteConfirm').classList.add('hidden');
 };
+// Account deletion is code-gated (v141): "Yes, delete my account"
+// emails a 6-digit code to the account's own address, and only the
+// code (via a verified token) authorizes the delete.
+async function requestDeleteCode() {
+  await api('/api/me/delete/request-code', { method: 'POST' });
+}
+function showDeleteCodeStep(note) {
+  $('editDeleteActions').classList.add('hidden');
+  $('editDeleteCode').classList.remove('hidden');
+  $('editDeleteCodeMsg').textContent = note || ('A code was sent to ' + (me && me.email ? me.email : 'your email') + '.');
+  $('editDeleteCodeError').textContent = '';
+  $('editDeleteCodeInput').value = '';
+  $('editDeleteCodeInput').focus();
+}
+function showDeleteConfirmStep() {
+  $('editDeleteCode').classList.add('hidden');
+  $('editDeleteActions').classList.remove('hidden');
+  $('editDeleteError').textContent = '';
+}
 $('editDeleteConfirmBtn').onclick = async () => {
+  $('editDeleteError').textContent = '';
+  try { await requestDeleteCode(); }
+  catch (err) {
+    // A code requested a moment ago is still valid: open the code
+    // step instead of blocking on the cooldown.
+    if (err.message && err.message.indexOf('just sent') !== -1) { showDeleteCodeStep('A code was already sent to ' + (me && me.email ? me.email : 'your email') + ' — it is still valid.'); return; }
+    $('editDeleteError').textContent = err.message || 'Could not send the code.'; return;
+  }
+  showDeleteCodeStep();
+};
+$('editDeleteCodeResendBtn').onclick = async () => {
+  $('editDeleteCodeError').textContent = '';
+  try { await requestDeleteCode(); $('editDeleteCodeMsg').textContent = 'A new code was sent to ' + (me && me.email ? me.email : 'your email') + '.'; } catch (err) { $('editDeleteCodeError').textContent = err.message || 'Could not send the code.'; }
+};
+$('editDeleteCodeBackBtn').onclick = () => showDeleteConfirmStep();
+$('editDeleteCodeVerifyBtn').onclick = async () => {
+  $('editDeleteCodeError').textContent = '';
+  const code = $('editDeleteCodeInput').value.trim();
   try {
-    await api('/api/me/delete', { method: 'POST' });
-  } catch (err) { $('editDeleteError').textContent = err.message || 'Could not delete account.'; return; }
+    const d = await api('/api/me/delete/verify-code', { method: 'POST', body: JSON.stringify({ code }) });
+    await api('/api/me/delete', { method: 'POST', body: JSON.stringify({ verifiedToken: d.verifiedToken }) });
+  } catch (err) { $('editDeleteCodeError').textContent = err.message || 'Could not delete account.'; return; }
   token = ''; storeDel('duello_token'); me = null; profileData = null; game = null;
   wipeAccountScreens();
   $('editDeleteConfirm').classList.add('hidden');

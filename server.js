@@ -1964,9 +1964,69 @@ const server = http.createServer(async (req, res) => {
       else await q('DELETE FROM sessions WHERE user_id=$1', [user.id]);
       return sendJson(res, 200, { ok: true });
     }
+    // Account deletion is code-gated (v141): "Yes, delete my account"
+    // emails a 6-digit code to the account's OWN address (taken from
+    // the signed-in session, never from the request body, so a code
+    // can only ever go to the account being deleted), and the delete
+    // itself needs the verified token that code produces. Same
+    // 10-minute code / 5-attempt / 1-minute-cooldown shape as the
+    // signup and reset codes.
+    if (pathname === '/api/me/delete/request-code' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const email = user.email;
+      const existing = (await q('SELECT * FROM delete_codes WHERE email=$1', [email])).rows[0];
+      if (existing && existing.requested_at && Date.now() - new Date(existing.requested_at).getTime() < CODE_COOLDOWN_MS) {
+        return sendJson(res, 400, { error: 'A code was just sent. Wait a minute before requesting another.' });
+      }
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = hashPassword(code, salt);
+      const expires = new Date(Date.now() + CODE_TTL_MS);
+      await q('INSERT INTO delete_codes (email, code_salt, code_hash, attempts, expires_at, requested_at, verified_token, verified_expires_at) VALUES ($1,$2,$3,0,$4,now(),NULL,NULL) ON CONFLICT (email) DO UPDATE SET code_salt=$2, code_hash=$3, attempts=0, expires_at=$4, requested_at=now(), verified_token=NULL, verified_expires_at=NULL', [email, salt, hash, expires]);
+      try {
+        await sendResendEmail(email, 'Your Duello account deletion code', 'Your Duello account deletion code is ' + code + '. It expires in 10 minutes.');
+      } catch (e) {
+        await q('DELETE FROM delete_codes WHERE email=$1', [email]);
+        return sendJson(res, 503, { error: 'Could not send the code. Try again.' });
+      }
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/me/delete/verify-code' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const code = String(b.code || '').trim();
+      const row = (await q('SELECT * FROM delete_codes WHERE email=$1', [user.email])).rows[0];
+      if (!row || !row.code_hash) return sendJson(res, 400, { error: 'No code was requested for this account.' });
+      if (new Date(row.expires_at).getTime() < Date.now()) {
+        await q('DELETE FROM delete_codes WHERE email=$1', [user.email]);
+        return sendJson(res, 400, { error: 'That code expired. Request a new one.' });
+      }
+      if (row.attempts >= CODE_MAX_ATTEMPTS) {
+        await q('DELETE FROM delete_codes WHERE email=$1', [user.email]);
+        return sendJson(res, 400, { error: 'Too many wrong tries. Request a new code.' });
+      }
+      if (hashPassword(code, row.code_salt) !== row.code_hash) {
+        await q('UPDATE delete_codes SET attempts=attempts+1 WHERE email=$1', [user.email]);
+        return sendJson(res, 400, { error: 'That code is not right.' });
+      }
+      const verifiedToken = crypto.randomBytes(32).toString('hex');
+      await q('UPDATE delete_codes SET code_salt=NULL, code_hash=NULL, attempts=0, verified_token=$2, verified_expires_at=$3 WHERE email=$1', [user.email, verifiedToken, new Date(Date.now() + VERIFIED_TTL_MS)]);
+      return sendJson(res, 200, { verifiedToken });
+    }
     if (pathname === '/api/me/delete' && req.method === 'POST') {
       const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      // v141: the delete needs the verified token from the emailed
+      // code (POST /api/me/delete/verify-code). Without it, or with
+      // an expired one, nothing is deleted.
+      const b = await readBody(req);
+      const verifiedToken = String(b.verifiedToken || '');
+      const vrow = (await q('SELECT * FROM delete_codes WHERE email=$1', [user.email])).rows[0];
+      if (!verifiedToken || !vrow || vrow.verified_token !== verifiedToken || !vrow.verified_expires_at || new Date(vrow.verified_expires_at).getTime() < Date.now()) {
+        return sendJson(res, 400, { error: 'That delete is no longer valid. Request a new code.' });
+      }
       // Delete everything belonging to this account, in one transaction,
       // child rows first (no ON DELETE CASCADE on these foreign keys).
       // The session that called this is deleted too, so the token stops
@@ -1980,6 +2040,7 @@ const server = http.createServer(async (req, res) => {
         await client.query('DELETE FROM elo_history WHERE user_id=$1', [user.id]);
         await client.query('DELETE FROM verification_codes WHERE email=$1', [user.email]);
         await client.query('DELETE FROM password_reset_codes WHERE email=$1', [user.email]);
+        await client.query('DELETE FROM delete_codes WHERE email=$1', [user.email]);
         await client.query('DELETE FROM users WHERE id=$1', [user.id]);
         await client.query('COMMIT');
       } catch (e) {

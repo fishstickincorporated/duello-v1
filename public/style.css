@@ -623,3 +623,25 @@ squares are the premium colours, spread out across the whole screen. */
 .puzzle-status{min-height:22px;font-size:14px;margin-top:8px}
 .puzzle-status.good{color:#4ade80}
 .puzzle-status.bad{color:#ff7a7a}
+
+/* ---------- v141: profile settings pass ---------- */
+/* Gear top = pfp top: the pfp starts 8px below the screen's top
+   padding (its .profile-top padding), so the gear sits 8px lower
+   than the v135 pin (which matched the screen padding itself). */
+.gear-btn{top:calc(28px + env(safe-area-inset-top) + 8px)}
+/* The push section now lives inside the Edit Profile form, so its
+   top margin must not leave a gap on web, where the row is hidden:
+   the margin rides on the row itself (hidden = no space). */
+.settings-section{margin-top:0}
+.setting-row{margin-top:12px}
+/* Delete confirm: the two buttons stack full-width so both are
+   exactly the same size with their labels on one line ("Yes, delete
+   my account" wraps at half width). Keep is solid Duello blue with
+   black text; Delete is a red border on a transparent background
+   with red text. Scoped to the confirm row so the form's Cancel and
+   the code step's Back keep the standard outline-blue cancel. */
+.edit-actions.stacked{flex-direction:column}
+.edit-actions.stacked .btn{flex:none;width:100%;margin-top:0}
+#editDeleteActions .btn.cancel{background:#03eaff;color:#1a1d24;border:0}
+#editDeleteActions .btn.danger{background:transparent;color:#ff1303;border:2px solid #ff1303}
+#editDeleteCode{margin-top:12px}

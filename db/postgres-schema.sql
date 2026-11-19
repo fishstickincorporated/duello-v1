@@ -42,6 +42,15 @@ CREATE TABLE IF NOT EXISTS password_reset_codes (
   expires_at TIMESTAMPTZ, requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   verified_token TEXT, verified_expires_at TIMESTAMPTZ
 );
+-- v141: account deletion is code-gated. Same shape as the other code
+-- tables: a 6-digit code is emailed to the account's own address and
+-- a verified token authorizes the delete itself.
+CREATE TABLE IF NOT EXISTS delete_codes (
+  email TEXT PRIMARY KEY, code_salt TEXT, code_hash TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  expires_at TIMESTAMPTZ, requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  verified_token TEXT, verified_expires_at TIMESTAMPTZ
+);
 
 CREATE TABLE IF NOT EXISTS personas (
   id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL,

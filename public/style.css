@@ -31,7 +31,7 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .mode.greyed{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#b3b2b1;border:2px solid #3c424e;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 0 #1e222b;cursor:not-allowed;opacity:.55}
 .mode .label{flex:1;text-align:left}
 .mode .sym{flex:0 0 auto}
-.mode .chev{font-size:24px;line-height:1;color:#03eaff}
+.mode .chev{font-size:30px;line-height:1;color:#03eaff}
 .mode.greyed .chev{color:#b3b2b1}
 .mode .soon{background:#23262e;color:#b3b2b1;border-radius:20px;padding:4px 10px;font-size:11px;letter-spacing:1px;white-space:nowrap}
 .sym{font-size:34px;line-height:1}.sym.white{color:#fff}.sym.red-disc{background:#ff1303;border-radius:50%;width:52px;height:52px;display:flex;align-items:center;justify-content:center;font-size:30px}
@@ -46,7 +46,7 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .bot-opt .label-col .label{flex:none}
 .bot-opt .sub{font-size:12px;color:#b3b2b1;font-weight:400}
 .bot-opt .sym{flex:0 0 auto}
-.bot-opt .chev{font-size:24px;line-height:1;color:#03eaff}
+.bot-opt .chev{font-size:30px;line-height:1;color:#03eaff}
 .back-pill{display:block;background:#6b7280;color:#fff;padding:8px 18px;border-radius:20px;margin:22px auto 0;font-size:14px}
 .scoreboard{display:flex;flex-direction:row;gap:6px;margin-top:4px;margin-bottom:0;width:auto;margin-left:0;margin-right:0}
 /* Each player's panel is three columns with NO visible separation
@@ -502,27 +502,27 @@ squares are the premium colours, spread out across the whole screen. */
 .home-pfp svg{width:52px;height:52px;display:block}
 .home-head-stats{display:flex;align-items:center;gap:18px;flex:1;min-width:0}
 .home-stat{display:flex;align-items:center;gap:6px;min-width:0}
-/* v135: header stat alignment — the Elo stat grows to fill the space
-   between the pfp and the streak and centers its content there, so
-   it sits evenly split between the pfp's right edge and the flame's
-   left edge; the streak stat is pinned to the far right, so the
-   final "k" of "streak" is flush with the header's right edge. */
-.home-head-stats .home-stat:first-child{flex:1;justify-content:center}
-.home-head-stats .home-stat:last-child{flex:0 0 auto}
+/* v137: v135's header alignment (Elo flex:1 centered, streak pinned
+   right) is reverted — Elo and streak are left-justified again, in
+   order after the pfp, per the base .home-head-stats/.home-stat
+   rules above. */
 .home-stat-icon{display:flex}
 .home-stat-value{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
 .home-stat-label{color:#b3b2b1;font-size:12px}
 #homeScreen .modes{flex:1;display:flex;flex-direction:column;gap:16px;margin-top:0}
-/* v136: subtitles must not wrap. The two longest subtitles are
-   ~263px (Play Online) and ~279px (Fishstick) at 14px Comfortaa, but
-   the label column was only ~242px, so they wrapped. Widened the
-   column by trimming the button chrome on both home and bot buttons:
-   padding 16px→8px, flex gap 14px→8px, icon 44px→30px, chevron
-   30px→24px. Label column is now ~285px, so both fit on one line
-   at 14px with Jeff's exact words, and the title/subtitle get
+/* v137: icons and chevrons are back to their pre-v136 sizes (icon
+   44px, chevron 30px) on both home and bot buttons, at Jeff's
+   request — v136 had shrunk them to 30px/24px to widen the label
+   column. The v136 padding (8px) and gap (8px) stay, so the label
+   column is ~270px on a 390px screen (~255px on a 375px screen).
+   The longest subtitle (Fishstick, 279.2px at 14px) no longer fits
+   at 14px, so the subtitle is 12.5px — the largest size that fits
+   on one line on both 390px and 375px screens (Fishstick 249.3px
+   vs a 254.8px column on 375px; 13px would overflow a 375px screen
+   by 4.4px). Title stays 22px. The title/subtitle keep
    white-space:nowrap so they can never wrap. */
 #homeScreen .mode{flex:1 1 0;height:auto;min-height:88px;font-size:22px}
-#homeScreen .mode .sym svg{width:30px;height:30px}
+#homeScreen .mode .sym svg{width:44px;height:44px}
 /* v132: home buttons are big glossy gradient cards (Jeff's screenshot).
    v133: darkened so the white text pops way more — each gradient runs
    from its brand base color at the top to a darker shade of that same
@@ -540,7 +540,7 @@ squares are the premium colours, spread out across the whole screen. */
    subtitle, both with a dark shadow; white chevron with a shadow too. */
 #homeScreen .mode .label-col{flex:1;text-align:left;display:flex;flex-direction:column;gap:2px;min-width:0;justify-content:center}
 #homeScreen .mode .label-col .label{flex:none;font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45);white-space:nowrap}
-#homeScreen .mode .label-col .sub{font-size:14px;color:rgba(255,255,255,.95);font-weight:400;text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}
+#homeScreen .mode .label-col .sub{font-size:12.5px;color:rgba(255,255,255,.95);font-weight:400;text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}
 #homeScreen .mode .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
 #homeScreen .mode .sym svg{filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
 /* Subtle background texture (v133–v134): the letter tiles are gone —
@@ -557,18 +557,24 @@ squares are the premium colours, spread out across the whole screen. */
 #botScreen{position:relative;display:flex;flex-direction:column;min-height:100dvh;min-height:100svh;padding-bottom:128px}
 #botScreen .logo-img.home-logo{width:72%;margin-top:0;position:relative;z-index:1}
 #botScreen .bot-options{flex:1;display:flex;flex-direction:column;gap:16px;margin-top:0;position:relative;z-index:1}
-#botScreen .bot-opt{flex:0 0 calc((100% - 48px)/4);height:auto;min-height:88px;font-size:22px}
-/* v135: each bot button is exactly one home-button tall. The home
+#botScreen .bot-opt{flex:0 0 calc((100% - 64.4px)/4);height:auto;min-height:88px;font-size:22px}
+/* v137: each bot button is exactly one home-button tall. The home
    list has 4 buttons sharing its height with three 16px gaps, so one
-   home button is (height - 48px)/4. Each bot button takes that same
-   quarter of the bot-options height, so the two buttons match the
-   home buttons (within ~3px — the bot list is 12px taller than the
-   home list because it has a Back button instead of the 70px
-   home-head) and the leftover space stays empty below them, above
-   Back. flex:0 0 keeps them from stretching to fill the screen. */
-#botScreen .bot-opt .sym svg{width:30px;height:30px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
+   home button is (modes height - 48px)/4. The bot-options list is
+   16.4px TALLER than the home list — the home screen has a 70px
+   home-head (52px pfp + 18px margins) where the bot screen has a
+   53.6px Back button (31.6px tall: 14px text at Comfortaa's 1.115
+   line-height + 16px padding, plus 22px margin-top) — so the plain
+   (100% - 48px)/4 (v135) made each bot button 16.4/4 = 4.1px too
+   tall. Subtracting the 16.4px difference here makes the bot button
+   exactly one home-button tall on every viewport (125.8px at
+   390x844, 147.8px at 390x932; on short screens like 375x667 both
+   bind at the shared 88px min-height). The leftover space stays
+   empty below the buttons, above Back. flex:0 0 keeps them from
+   stretching to fill the screen. */
+#botScreen .bot-opt .sym svg{width:44px;height:44px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
 #botScreen .bot-opt .label-col .label{font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45);white-space:nowrap}
-#botScreen .bot-opt .label-col .sub{font-size:14px;color:rgba(255,255,255,.95);text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}
+#botScreen .bot-opt .label-col .sub{font-size:12.5px;color:rgba(255,255,255,.95);text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}
 #botScreen .bot-opt .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
 /* Bot buttons in the Home Screen style: colorful gradients, muted
    like the home buttons (v134, ~22% toward grey). Doppelgänger gets

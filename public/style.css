@@ -27,11 +27,11 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .pw-wrap{position:relative}.pw-wrap input{padding-right:44px}.pw-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:1;touch-action:manipulation}.pw-eye svg{display:block}.pw-eye.on svg{stroke:#03eaff}
 .pw-reqs{list-style:none;margin:2px 0 8px;padding:0;text-align:left}.pw-reqs li{color:#b3b2b1;font-size:12px;line-height:1.6}.pw-reqs li::before{content:"○ "}.pw-reqs li.met{color:#03eaff}.pw-reqs li.met::before{content:"✓ "}
 .modes{display:flex;flex-direction:column;gap:24px;margin-top:24px}
-.mode{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#fff;height:64px;padding:0 16px;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:14px;font-size:18px;border:2px solid #03eaff;border-radius:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 8px 0 #005a6e}
+.mode{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#fff;height:64px;padding:0 8px;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;font-size:18px;border:2px solid #03eaff;border-radius:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 8px 0 #005a6e}
 .mode.greyed{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#b3b2b1;border:2px solid #3c424e;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 0 #1e222b;cursor:not-allowed;opacity:.55}
 .mode .label{flex:1;text-align:left}
 .mode .sym{flex:0 0 auto}
-.mode .chev{font-size:30px;line-height:1;color:#03eaff}
+.mode .chev{font-size:24px;line-height:1;color:#03eaff}
 .mode.greyed .chev{color:#b3b2b1}
 .mode .soon{background:#23262e;color:#b3b2b1;border-radius:20px;padding:4px 10px;font-size:11px;letter-spacing:1px;white-space:nowrap}
 .sym{font-size:34px;line-height:1}.sym.white{color:#fff}.sym.red-disc{background:#ff1303;border-radius:50%;width:52px;height:52px;display:flex;align-items:center;justify-content:center;font-size:30px}
@@ -40,13 +40,13 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .sym.fishstick::after{content:"• •";position:absolute;left:16px;top:18px;font-size:14px;color:#222}
 .sym.fishstick-img{width:52px;height:52px;border-radius:50%;object-fit:cover}
 .bot-options{display:flex;flex-direction:column;gap:24px;margin-top:24px;align-items:center}
-.bot-opt{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#fff;padding:0 16px;height:64px;width:100%;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:14px;font-size:18px;border:2px solid #03eaff;border-radius:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 8px 0 #005a6e}
+.bot-opt{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#fff;padding:0 8px;height:64px;width:100%;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;font-size:18px;border:2px solid #03eaff;border-radius:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 8px 0 #005a6e}
 .bot-opt .label{flex:1;text-align:left}
 .bot-opt .label-col{flex:1;text-align:left;display:flex;flex-direction:column;gap:2px;min-width:0}
 .bot-opt .label-col .label{flex:none}
 .bot-opt .sub{font-size:12px;color:#b3b2b1;font-weight:400}
 .bot-opt .sym{flex:0 0 auto}
-.bot-opt .chev{font-size:30px;line-height:1;color:#03eaff}
+.bot-opt .chev{font-size:24px;line-height:1;color:#03eaff}
 .back-pill{display:block;background:#6b7280;color:#fff;padding:8px 18px;border-radius:20px;margin:22px auto 0;font-size:14px}
 .scoreboard{display:flex;flex-direction:row;gap:6px;margin-top:4px;margin-bottom:0;width:auto;margin-left:0;margin-right:0}
 /* Each player's panel is three columns with NO visible separation
@@ -513,8 +513,16 @@ squares are the premium colours, spread out across the whole screen. */
 .home-stat-value{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
 .home-stat-label{color:#b3b2b1;font-size:12px}
 #homeScreen .modes{flex:1;display:flex;flex-direction:column;gap:16px;margin-top:0}
+/* v136: subtitles must not wrap. The two longest subtitles are
+   ~263px (Play Online) and ~279px (Fishstick) at 14px Comfortaa, but
+   the label column was only ~242px, so they wrapped. Widened the
+   column by trimming the button chrome on both home and bot buttons:
+   padding 16px→8px, flex gap 14px→8px, icon 44px→30px, chevron
+   30px→24px. Label column is now ~285px, so both fit on one line
+   at 14px with Jeff's exact words, and the title/subtitle get
+   white-space:nowrap so they can never wrap. */
 #homeScreen .mode{flex:1 1 0;height:auto;min-height:88px;font-size:22px}
-#homeScreen .mode .sym svg{width:44px;height:44px}
+#homeScreen .mode .sym svg{width:30px;height:30px}
 /* v132: home buttons are big glossy gradient cards (Jeff's screenshot).
    v133: darkened so the white text pops way more — each gradient runs
    from its brand base color at the top to a darker shade of that same
@@ -531,8 +539,8 @@ squares are the premium colours, spread out across the whole screen. */
 /* Text must pop on the bright gradients: bold white title and near-white
    subtitle, both with a dark shadow; white chevron with a shadow too. */
 #homeScreen .mode .label-col{flex:1;text-align:left;display:flex;flex-direction:column;gap:2px;min-width:0;justify-content:center}
-#homeScreen .mode .label-col .label{flex:none;font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45)}
-#homeScreen .mode .label-col .sub{font-size:14px;color:rgba(255,255,255,.95);font-weight:400;text-shadow:0 1px 2px rgba(0,0,0,.55)}
+#homeScreen .mode .label-col .label{flex:none;font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45);white-space:nowrap}
+#homeScreen .mode .label-col .sub{font-size:14px;color:rgba(255,255,255,.95);font-weight:400;text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}
 #homeScreen .mode .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
 #homeScreen .mode .sym svg{filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
 /* Subtle background texture (v133–v134): the letter tiles are gone —
@@ -558,9 +566,9 @@ squares are the premium colours, spread out across the whole screen. */
    home list because it has a Back button instead of the 70px
    home-head) and the leftover space stays empty below them, above
    Back. flex:0 0 keeps them from stretching to fill the screen. */
-#botScreen .bot-opt .sym svg{width:44px;height:44px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
-#botScreen .bot-opt .label-col .label{font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45)}
-#botScreen .bot-opt .label-col .sub{font-size:14px;color:rgba(255,255,255,.95);text-shadow:0 1px 2px rgba(0,0,0,.55)}
+#botScreen .bot-opt .sym svg{width:30px;height:30px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
+#botScreen .bot-opt .label-col .label{font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45);white-space:nowrap}
+#botScreen .bot-opt .label-col .sub{font-size:14px;color:rgba(255,255,255,.95);text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}
 #botScreen .bot-opt .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
 /* Bot buttons in the Home Screen style: colorful gradients, muted
    like the home buttons (v134, ~22% toward grey). Doppelgänger gets

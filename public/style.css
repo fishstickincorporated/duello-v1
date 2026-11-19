@@ -27,7 +27,7 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .pw-wrap{position:relative}.pw-wrap input{padding-right:44px}.pw-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:1;touch-action:manipulation}.pw-eye svg{display:block}.pw-eye.on svg{stroke:#03eaff}
 .pw-reqs{list-style:none;margin:2px 0 8px;padding:0;text-align:left}.pw-reqs li{color:#b3b2b1;font-size:12px;line-height:1.6}.pw-reqs li::before{content:"○ "}.pw-reqs li.met{color:#03eaff}.pw-reqs li.met::before{content:"✓ "}
 .modes{display:flex;flex-direction:column;gap:24px;margin-top:24px}
-.mode{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#fff;height:64px;padding:0 8px;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;font-size:18px;border:2px solid #03eaff;border-radius:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 8px 0 #005a6e}
+.mode{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#fff;height:64px;padding:0 8px 0 14px;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;font-size:18px;border:2px solid #03eaff;border-radius:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 8px 0 #005a6e}
 .mode.greyed{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#b3b2b1;border:2px solid #3c424e;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 0 #1e222b;cursor:not-allowed;opacity:.55}
 .mode .label{flex:1;text-align:left}
 .mode .sym{flex:0 0 auto}
@@ -40,7 +40,7 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .sym.fishstick::after{content:"• •";position:absolute;left:16px;top:18px;font-size:14px;color:#222}
 .sym.fishstick-img{width:52px;height:52px;border-radius:50%;object-fit:cover}
 .bot-options{display:flex;flex-direction:column;gap:24px;margin-top:24px;align-items:center}
-.bot-opt{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#fff;padding:0 8px;height:64px;width:100%;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;font-size:18px;border:2px solid #03eaff;border-radius:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 8px 0 #005a6e}
+.bot-opt{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#fff;padding:0 8px 0 14px;height:64px;width:100%;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;font-size:18px;border:2px solid #03eaff;border-radius:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 8px 0 #005a6e}
 .bot-opt .label{flex:1;text-align:left}
 .bot-opt .label-col{flex:1;text-align:left;display:flex;flex-direction:column;gap:2px;min-width:0}
 .bot-opt .label-col .label{flex:none}
@@ -500,7 +500,7 @@ squares are the premium colours, spread out across the whole screen. */
 .home-pfp{width:52px;height:52px;flex:0 0 52px;border-radius:50%;overflow:hidden;background:#3a3f4b;display:flex;align-items:center;justify-content:center;font-size:26px;cursor:pointer}
 .home-pfp img{width:100%;height:100%;object-fit:cover;display:block}
 .home-pfp svg{width:52px;height:52px;display:block}
-.home-head-stats{display:flex;align-items:center;gap:18px;flex:1;min-width:0}
+.home-head-stats{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
 .home-stat{display:flex;align-items:center;gap:6px;min-width:0}
 /* v137: v135's header alignment (Elo flex:1 centered, streak pinned
    right) is reverted — Elo and streak are left-justified again, in
@@ -510,19 +510,19 @@ squares are the premium colours, spread out across the whole screen. */
 .home-stat-value{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
 .home-stat-label{color:#b3b2b1;font-size:12px}
 #homeScreen .modes{flex:1;display:flex;flex-direction:column;gap:16px;margin-top:0}
-/* v137: icons and chevrons are back to their pre-v136 sizes (icon
-   44px, chevron 30px) on both home and bot buttons, at Jeff's
-   request — v136 had shrunk them to 30px/24px to widen the label
-   column. The v136 padding (8px) and gap (8px) stay, so the label
-   column is ~270px on a 390px screen (~255px on a 375px screen).
-   The longest subtitle (Fishstick, 279.2px at 14px) no longer fits
-   at 14px, so the subtitle is 12.5px — the largest size that fits
-   on one line on both 390px and 375px screens (Fishstick 249.3px
-   vs a 254.8px column on 375px; 13px would overflow a 375px screen
-   by 4.4px). Title stays 22px. The title/subtitle keep
-   white-space:nowrap so they can never wrap. */
+/* v139: icons even bigger and slightly further right, at Jeff's
+   request ("getting greedy"). Icons 44px→48px and left padding
+   8px→14px on both home and bot buttons (right padding stays 8px,
+   gap stays 8px, chevron stays 30px), so the icons sit 6px more
+   inward from the left edge. The bigger chrome shrinks the label
+   column to ~260px on a 390px screen (~245px on a 375px screen),
+   so the subtitle is 12px — the largest size that fits on one line
+   on both screens (Fishstick 239.3px vs a 244.8px column on 375px;
+   12.25px would fit by only 0.5px, too tight to trust). Title
+   stays 22px. The title/subtitle keep white-space:nowrap so they
+   can never wrap. */
 #homeScreen .mode{flex:1 1 0;height:auto;min-height:88px;font-size:22px}
-#homeScreen .mode .sym svg{width:44px;height:44px}
+#homeScreen .mode .sym svg{width:48px;height:48px}
 /* v132: home buttons are big glossy gradient cards (Jeff's screenshot).
    v133: darkened so the white text pops way more — each gradient runs
    from its brand base color at the top to a darker shade of that same
@@ -530,17 +530,23 @@ squares are the premium colours, spread out across the whole screen. */
    colors read a little softer, less intense, while staying clearly
    their color and keeping the white text pop: Online #1ed3e3→#1c8c9f,
    Friends #32e31e→#28a81c, Bots #e38a1e→#c5761c, Puzzle #e31ed6→#b21ca7.
+   v139: faded further — every gradient stop is now rgba(...,0.8), so
+   20% of the dark page background (#1a1d24) shows through and the
+   colors read softer still, while the white text pops even more
+   (measured: white-text contrast improves at every stop, e.g.
+   Online top 1.83→2.65, Friends top 1.73→2.55, Bots top 2.65→3.73).
+   Borders, bottom shadows, textures, icons and text sizes unchanged.
    The v131 textures are kept as a faint white overlay so the gradient
    color dominates. */
-.mode-online{background:repeating-linear-gradient(115deg,rgba(255,255,255,.05) 0 6px,transparent 6px 14px),linear-gradient(180deg,#1ed3e3 0%,#1c8c9f 100%);border-color:#1c7b8c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #1c6270}
-.mode-friends{background:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(180deg,#32e31e 0%,#28a81c 100%);background-size:22px 22px,22px 22px,100% 100%;border-color:#26911c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #22741c}
-.mode-bots{background:radial-gradient(rgba(255,255,255,.07) 1.5px,transparent 1.5px),linear-gradient(180deg,#e38a1e 0%,#c5761c 100%);background-size:16px 16px,100% 100%;border-color:#ac661c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #88541c}
-.mode-puzzle{background:repeating-linear-gradient(45deg,rgba(255,255,255,.06) 0 10px,transparent 10px 20px),linear-gradient(180deg,#e31ed6 0%,#b21ca7 100%);border-color:#971c8d;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #761c6f}
+.mode-online{background:repeating-linear-gradient(115deg,rgba(255,255,255,.05) 0 6px,transparent 6px 14px),linear-gradient(180deg,rgba(30,211,227,.8) 0%,rgba(28,140,159,.8) 100%);border-color:#1c7b8c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #1c6270}
+.mode-friends{background:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(180deg,rgba(50,227,30,.8) 0%,rgba(40,168,28,.8) 100%);background-size:22px 22px,22px 22px,100% 100%;border-color:#26911c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #22741c}
+.mode-bots{background:radial-gradient(rgba(255,255,255,.07) 1.5px,transparent 1.5px),linear-gradient(180deg,rgba(227,138,30,.8) 0%,rgba(197,118,28,.8) 100%);background-size:16px 16px,100% 100%;border-color:#ac661c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #88541c}
+.mode-puzzle{background:repeating-linear-gradient(45deg,rgba(255,255,255,.06) 0 10px,transparent 10px 20px),linear-gradient(180deg,rgba(227,30,214,.8) 0%,rgba(178,28,167,.8) 100%);border-color:#971c8d;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #761c6f}
 /* Text must pop on the bright gradients: bold white title and near-white
    subtitle, both with a dark shadow; white chevron with a shadow too. */
 #homeScreen .mode .label-col{flex:1;text-align:left;display:flex;flex-direction:column;gap:2px;min-width:0;justify-content:center}
 #homeScreen .mode .label-col .label{flex:none;font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45);white-space:nowrap}
-#homeScreen .mode .label-col .sub{font-size:12.5px;color:rgba(255,255,255,.95);font-weight:400;text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}
+#homeScreen .mode .label-col .sub{font-size:12px;color:rgba(255,255,255,.95);font-weight:400;text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}
 #homeScreen .mode .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
 #homeScreen .mode .sym svg{filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
 /* Subtle background texture (v133–v134): the letter tiles are gone —
@@ -554,7 +560,7 @@ squares are the premium colours, spread out across the whole screen. */
 /* Same layout as #homeScreen: logo 72% at the top, the two buttons
    filling the screen as full-height cards (same gap, same top
    placement under the logo), Back below them. */
-#botScreen{position:relative;display:flex;flex-direction:column;min-height:100dvh;min-height:100svh;padding-bottom:128px}
+#botScreen{position:relative;display:flex;flex-direction:column;height:100dvh;height:100svh;min-height:100svh;padding-bottom:128px}
 #botScreen .logo-img.home-logo{width:72%;margin-top:0;position:relative;z-index:1}
 #botScreen .bot-options{flex:1;display:flex;flex-direction:column;gap:16px;margin-top:0;position:relative;z-index:1}
 #botScreen .bot-opt{flex:0 0 calc((100% - 64.4px)/4);height:auto;min-height:88px;font-size:22px}
@@ -571,17 +577,36 @@ squares are the premium colours, spread out across the whole screen. */
    390x844, 147.8px at 390x932; on short screens like 375x667 both
    bind at the shared 88px min-height). The leftover space stays
    empty below the buttons, above Back. flex:0 0 keeps them from
-   stretching to fill the screen. */
-#botScreen .bot-opt .sym svg{width:44px;height:44px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
+   stretching to fill the screen.
+   v139 ROOT CAUSE + FIX: the v137 calc was arithmetically right but
+   the buttons still rendered 88px (the min-height) on a real phone,
+   ~35px shorter than the ~123px home buttons — verified by rendering
+   the actual page in headless Chromium. The percentage flex-basis
+   `calc((100% - 64.4px)/4)` does NOT resolve against the
+   .bot-options height, because that height is indefinite: it comes
+   from `flex:1` inside a screen that only has `min-height:100svh`
+   (no definite `height`), so the percentage falls back to `auto`
+   (content height) and the buttons collapse to min-height:88px.
+   The home buttons never had this problem — they use `flex:1 1 0`
+   (no percentage). The fix is one property: `#botScreen` now has a
+   definite `height:100svh` (plus the 100dvh fallback, min-height
+   kept as a floor), so .bot-options gets a definite height and the
+   percentage basis resolves. Rendered and measured: bot buttons
+   122.73px vs home buttons 122.83px at 390x844 (the 0.1px is the
+   headless-Chrome Arial Back button at 32px vs Comfortaa's 31.6px;
+   on a real phone with Comfortaa the 64.4px constant is exact). Do
+   NOT go back to a min-height-only screen here — the percentage
+   basis silently stops resolving. */
+#botScreen .bot-opt .sym svg{width:48px;height:48px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
 #botScreen .bot-opt .label-col .label{font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45);white-space:nowrap}
-#botScreen .bot-opt .label-col .sub{font-size:12.5px;color:rgba(255,255,255,.95);text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}
+#botScreen .bot-opt .label-col .sub{font-size:12px;color:rgba(255,255,255,.95);text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}
 #botScreen .bot-opt .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
 /* Bot buttons in the Home Screen style: colorful gradients, muted
    like the home buttons (v134, ~22% toward grey). Doppelgänger gets
    the orange base (brand #ff8d03), Fishstick the red base (brand
    #ff1303). Faint white textures overlay each gradient. */
-#competitiveBtn{background:radial-gradient(rgba(255,255,255,.07) 1.5px,transparent 1.5px),linear-gradient(180deg,#e38a1e 0%,#c5761c 100%);background-size:16px 16px,100% 100%;border-color:#ac661c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #88541c}
-#fishstickBtn{background:repeating-linear-gradient(115deg,rgba(255,255,255,.05) 0 6px,transparent 6px 14px),linear-gradient(180deg,#e32b1e 0%,#a8271e 100%);border-color:#8a1e15;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #671410}
+#competitiveBtn{background:radial-gradient(rgba(255,255,255,.07) 1.5px,transparent 1.5px),linear-gradient(180deg,rgba(227,138,30,.8) 0%,rgba(197,118,28,.8) 100%);background-size:16px 16px,100% 100%;border-color:#ac661c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #88541c}
+#fishstickBtn{background:repeating-linear-gradient(115deg,rgba(255,255,255,.05) 0 6px,transparent 6px 14px),linear-gradient(180deg,rgba(227,43,30,.8) 0%,rgba(168,39,30,.8) 100%);border-color:#8a1e15;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #671410}
 /* Offline grey-out must win over the gradients (same specificity, later in file). */
 #homeScreen .mode.greyed{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#b3b2b1;border-color:#3c424e;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 0 #1e222b;opacity:.55}
 #homeScreen .mode.greyed .chev{color:#b3b2b1}

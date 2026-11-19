@@ -756,6 +756,24 @@ function updateStatsForMove(game, side, move, bestScoreBefore) {
   const isOptimal = bestScoreBefore !== null && move.score === bestScoreBefore;
   list.push({ words: move.words.map(w => ({ word: w.word, score: w.score })), score: move.score, isOptimal, mainWord: move.mainWord, bingo: !!move.bingo });
 }
+// v138: a bot game (Doppelgänger/Fishstick) forfeited before
+// either side has played a move is a FREE EXIT — no loss, no stats,
+// no Game History entry. Persona and real-player games never
+// free-exit (their forfeit is a loss even before the first move).
+// "No moves played" is the moveLog being empty. Passes are not
+// logged, so a pass does not count as a move here.
+function hasNoMoves(game) {
+  if (Array.isArray(game.moveLog)) return game.moveLog.length === 0;
+  const hm = (game.moves && game.moves.human) || [];
+  const bm = (game.moves && game.moves.bot) || [];
+  return hm.length === 0 && bm.length === 0;
+}
+function isFreeExitGame(game) {
+  return !!game && (game.botType === 'competitive' || game.botType === 'fishstick') && hasNoMoves(game);
+}
+async function deleteGameRow(game) {
+  await q('DELETE FROM games WHERE id=$1', [game.id]);
+}
 async function endGame(game, user, reason, winnerSide) {
   // A game already decided by a Leave (v123, item 3) is only being
   // finalized now that the opponent played it out: the winner, the
@@ -2295,6 +2313,15 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const shape = validateOfflineSync(engine, b, { shapeOnly: true });
       if (!shape.ok) return sendJson(res, 422, { error: shape.error });
+      // v138: a no-move bot forfeit is a free exit — the client never
+      // syncs one, but a stale/racing client might. Record nothing:
+      // no game row, no Elo move, no elo_history. Answer success so
+      // the client drops it from the outbox instead of retrying.
+      const noMoveForfeitSync = (b.botType === 'competitive' || b.botType === 'fishstick')
+        && Array.isArray(b.plays) && b.plays.length === 0
+        && b.state && b.state.reason === 'By forfeit' && b.state.winner === 'bot'
+        && b.state.scores && b.state.scores.human === 0 && b.state.scores.bot === 0;
+      if (noMoveForfeitSync) return sendJson(res, 200, { synced: true, freeExit: true });
       const dup = await q('SELECT id FROM games WHERE client_game_id=$1', [b.offlineId]);
       if (dup.rows[0]) return sendJson(res, 200, { synced: true, gameId: Number(dup.rows[0].id), duplicate: true });
       const check = validateOfflineSync(engine, b);
@@ -2655,6 +2682,12 @@ const server = http.createServer(async (req, res) => {
         if (game.botType === 'human') {
           await applyLeave(game, mySide, leaverName);
         } else {
+          // v138: a no-move bot game leaving is a free exit, not a
+          // loss — the row is deleted so it never shows in history.
+          if (isFreeExitGame(game)) {
+            await deleteGameRow(game);
+            return sendJson(res, 200, { ok: true, freeExit: true });
+          }
           await endGame(game, user, 'By forfeit', oppSide);
         }
         const out = serializeGame(game, user);
@@ -2663,6 +2696,13 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.method === 'POST' && action === 'forfeit') {
         if (game.status !== 'active') return sendJson(res, 400, { error: 'Game is finished.' });
+        // v138: bot game, no moves played — a free exit. Delete the
+        // row so it never appears in Game History; no Elo move, no
+        // elo_history, no stats. Persona/human games never free-exit.
+        if (isFreeExitGame(game)) {
+          await deleteGameRow(game);
+          return sendJson(res, 200, { ok: true, freeExit: true });
+        }
         // The forfeiter loses, whoever they are; the other side wins.
         await endGame(game, user, 'By forfeit', oppSide);
         const out = serializeGame(game, user);

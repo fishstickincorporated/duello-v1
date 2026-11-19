@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 137;
+const APP_VERSION = 138;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -1765,6 +1765,23 @@ function humanOutOfTime() {
   const humanRemaining = Math.max(0, game.clocks.turn === 'human' ? game.clocks.human - (Date.now() - gameFetchAt) : game.clocks.human);
   return humanRemaining <= 0;
 }
+// v138: a bot game (Doppelgänger/Fishstick) with no moves played
+// yet is a free exit — forfeiting records nothing, so the button
+// reads "Exit" instead of "Forfeit". Persona and real-player games
+// never get a free exit (their forfeit is a loss even before the
+// first move), so they always read "Forfeit" until the clock runs
+// out. Out of time is always "Exit" now — the old "Leave" (out of
+// time + losing) is renamed, not removed. No button anywhere in the
+// game says "Leave" anymore.
+function isFreeExitBotGame() {
+  return !!(game && (game.botType === 'competitive' || game.botType === 'fishstick')
+    && Array.isArray(game.moveLog) && game.moveLog.length === 0);
+}
+function forfeitLabel() {
+  if (isFreeExitBotGame()) return 'Exit';
+  if (humanOutOfTime()) return 'Exit';
+  return 'Forfeit';
+}
 // After your time expires the Forfeit button reads "Exit" instead:
 // the opponent plays on, but you can leave without waiting. Never
 // overwrites the armed "SURE?" confirm, and only writes when the
@@ -1772,12 +1789,7 @@ function humanOutOfTime() {
 function updateForfeitLabel() {
   const btn = $('forfeitBtn');
   if (!btn || armed[btn.id]) return;
-  // Leave (v123, item 3): once your time is out AND you are behind,
-  // Forfeit becomes Leave — tapping it exits you to the main menu
-  // (you lose, Elo moves) while the opponent keeps playing the game
-  // out. Out of time but NOT losing keeps the normal Exit (and its
-  // stat window). Before the clocks run out it is just Forfeit.
-  const label = humanOutOfTime() ? ((game && game.scores && game.scores.human < game.scores.bot) ? 'Leave' : 'Exit') : 'Forfeit';
+  const label = forfeitLabel();
   if (btn.textContent !== label) btn.textContent = label;
 }
 // Post-game replay (v123, items 5+6): step through the finished
@@ -2950,6 +2962,18 @@ async function doLocalPass() {
   if (finishLocalIfNeeded()) return;
   if (game.status === 'active' && game.clocks.turn === 'bot') beginBotTurn();
 }
+// v138: free exit for an offline bot game with no moves played.
+// Nothing is recorded: no Elo delta, no finished record, no sync.
+// The active offline record is deleted outright, so the game can
+// neither be resumed nor synced later. The caller goes home after.
+function doLocalFreeExit() {
+  if (!game || !game.offline) return;
+  cancelCountdown();
+  const id = offlineMeta && offlineMeta.offlineId;
+  game = null;
+  if (id) { try { offlineStoreDel(id); } catch {} }
+  try { refreshOfflineTotals(); } catch {}
+}
 function doLocalForfeit() {
   if (!game || !game.offline) return;
   // A forfeit during the countdown stops it (v107) — doLocalForfeit is
@@ -3290,7 +3314,13 @@ async function drainOutbox() {
       // a duplicate only happens when the first response was lost, so
       // the persisted copy does not have it yet).
       const newElo = res && typeof res.eloAfter === 'number' ? res.eloAfter : null;
-      if (me) {
+      // A freeExit response (v138) means the server recorded NOTHING
+      // for this game, so the local Elo must not gain the delta — the
+      // record is gone and pendingEloSum already dropped above, which
+      // is the whole fix.
+      if (res && res.freeExit) {
+        // Nothing to fold: the server refused the game as a free exit.
+      } else if (me) {
         me.elo = newElo != null ? newElo : (typeof me.elo === 'number' ? me.elo + (rec.eloDelta || 0) : me.elo);
         persistMe();
       } else if (newElo != null) {
@@ -3630,17 +3660,42 @@ $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => {
   try { botTurnTapTime = tapAt; game = await api(`/api/games/${game.id}/pass`, { method: 'POST', body: JSON.stringify({ clientElapsedMs }) }); gameAppliedSeq = gameFetchSeq; gameFetchAt = tapAt; pending = []; renderGame(); animateHumanRunoff(fromHuman, game.clocks.human); beginBotTurn(); }
   catch { game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt; renderGame(); }
 }, '-30s');
-$('forfeitBtn').onclick = armButton($('forfeitBtn'), () => humanOutOfTime() ? ((game && game.scores && game.scores.human < game.scores.bot) ? 'Leave' : 'Exit') : 'Forfeit', async () => {
+$('forfeitBtn').onclick = armButton($('forfeitBtn'), () => forfeitLabel(), async () => {
   // Forfeiting during the countdown stops it outright (v107): the
   // countdown must never fire endCountdown on a finished game.
   cancelCountdown();
   const wasOutOfTime = humanOutOfTime();
   const wasLosing = game && game.scores && game.scores.human < game.scores.bot;
-  // Leave (v123, item 3): out of time + losing. You exit to the main
-  // menu at once (no stat window — you are done); the loss and Elo
-  // move are recorded, and a real opponent keeps playing the game
-  // out. A bot game has no one to play out, so Leave there ends the
-  // game outright, same as a forfeit.
+  // v138: bot game, no moves played yet — a FREE EXIT. Nothing is
+  // recorded (no loss, no Elo, no Game History entry) and the game
+  // goes away entirely. This check comes first: a no-move game can
+  // be out of time (the clock ran down before any play) and that is
+  // still a free exit, not the out-of-time path below. Persona and
+  // real-player games never reach here (isFreeExitBotGame is false
+  // for them — their forfeit is a loss even before the first move).
+  if (isFreeExitBotGame()) {
+    if (game.offline) { doLocalFreeExit(); goHome(); return; }
+    let out = null, exitOk = true;
+    try {
+      out = await api(`/api/games/${game.id}/forfeit`, { method: 'POST' });
+    } catch {
+      exitOk = false;
+      $('status').textContent = 'Exit needs a connection — reconnect to exit.';
+      renderGame();
+    }
+    if (!exitOk) return;
+    if (out && out.freeExit) { game = null; goHome(); return; }
+    // Race: a move landed before the forfeit reached the server, so
+    // the server recorded a real forfeit (a loss). Handle it as one.
+    game = out; gameAppliedSeq = gameFetchSeq; gameFetchAt = Date.now(); pending = [];
+    if (wasOutOfTime) { statShownGameId = game.id; goHome(); } else { renderGame(); }
+    return;
+  }
+  // Out of time + losing (v123, item 3 — was "Leave", now "Exit").
+  // You exit to the main menu at once (no stat window — you are
+  // done); the loss and Elo move are recorded, and a real opponent
+  // keeps playing the game out. A bot game has no one to play out,
+  // so Exit there ends the game outright, same as a forfeit.
   if (wasOutOfTime && wasLosing) {
     statShownGameId = game.id;
     if (game.offline) { doLocalForfeit(); goHome(); return; }

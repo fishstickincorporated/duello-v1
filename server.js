@@ -771,6 +771,18 @@ function hasNoMoves(game) {
 function isFreeExitGame(game) {
   return !!game && (game.botType === 'competitive' || game.botType === 'fishstick') && hasNoMoves(game);
 }
+// v140: a finished bot game (Doppelgänger/Fishstick) where neither
+// side scored (0-0) — nobody played a move, so under v138 it would
+// have been a free exit, not a recorded loss. These are pre-v138
+// forfeits recorded as 0-0 losses. Kept out of Game History (list
+// + detail). Real-player and persona 0-0 games are NOT excluded:
+// their early forfeit still counts as a loss. A game whose state
+// has no scores key at all is never excluded (safe direction).
+function isZeroZeroBotGame(game) {
+  if (!game || (game.botType !== 'competitive' && game.botType !== 'fishstick')) return false;
+  const s = game.scores || {};
+  return s.human === 0 && s.bot === 0;
+}
 async function deleteGameRow(game) {
   await q('DELETE FROM games WHERE id=$1', [game.id]);
 }
@@ -2242,7 +2254,12 @@ const server = http.createServer(async (req, res) => {
       let scopeSql = '';
       if (scope === 'vsHumans') scopeSql = " AND bot_type IN ('persona','human')";
       else if (scope === 'vsBots') scopeSql = " AND bot_type IN ('fishstick','competitive')";
-      const r = await q("SELECT id, user_id, opponent_id, bot_type, state, created_at, updated_at FROM games WHERE (user_id=$1 OR opponent_id=$1) AND state->>'status'='finished'" + scopeSql + " ORDER BY updated_at DESC LIMIT $2 OFFSET $3", [user.id, limit + 1, offset]);
+      // v140: exclude finished 0-0 bot games (see isZeroZeroBotGame)
+      // — they were free exits, not history. Filtering in SQL keeps
+      // the limit/offset paging exact. COALESCE guards a state with
+      // no scores key at all: such a game is never excluded.
+      const zeroZeroBotSql = " AND NOT (bot_type IN ('fishstick','competitive') AND COALESCE((state->'scores'->>'human')::int, -1) = 0 AND COALESCE((state->'scores'->>'bot')::int, -1) = 0)";
+      const r = await q("SELECT id, user_id, opponent_id, bot_type, state, created_at, updated_at FROM games WHERE (user_id=$1 OR opponent_id=$1) AND state->>'status'='finished'" + scopeSql + zeroZeroBotSql + " ORDER BY updated_at DESC LIMIT $2 OFFSET $3", [user.id, limit + 1, offset]);
       const hasMore = r.rows.length > limit;
       const pageRows = hasMore ? r.rows.slice(0, limit) : r.rows;
       const games = pageRows.map((row) => {
@@ -2412,6 +2429,11 @@ const server = http.createServer(async (req, res) => {
       // handler runs it too).
       presenceTouch(game, user.id);
       if (req.method === 'GET' && !action) {
+        // v140: a finished 0-0 bot game is not history — it was a
+        // free exit (pre-v138). Serve 404 so it cannot be opened
+        // from a direct link either. Active 0-0 bot games (just
+        // started, no moves yet) still load normally.
+        if (game.status === 'finished' && isZeroZeroBotGame(game)) return sendJson(res, 404, { error: 'Game not found.' });
         // A pending matchmaking pairing is consumed here too: the
         // waiting player may reach the game directly (a reload, a
         // notification) instead of polling matchmaking again, and a

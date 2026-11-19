@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 130;
+const APP_VERSION = 131;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -110,6 +110,138 @@ function refreshOnlineButtons() {
     b.classList.toggle('greyed', offline);
   }
 }
+// ---------- v131: home redesign + Daily Puzzle ----------
+// Home mosaic: faint Duello-blue letter tiles behind the home screen.
+// Built once (the grid is static); only blue is used anywhere in it.
+let homeMosaicBuilt = false;
+function buildHomeMosaic() {
+  if (homeMosaicBuilt) return;
+  const box = $('homeMosaic'); if (!box) return;
+  homeMosaicBuilt = true;
+  const letters = 'DUELLO';
+  let html = '';
+  for (let i = 0; i < 144; i++) {
+    const ch = Math.random() < 0.4 ? letters[i % letters.length] : String.fromCharCode(65 + Math.floor(Math.random() * 26));
+    const rot = Math.random() < 0.3 ? ` style="transform:rotate(${(Math.random() * 10 - 5).toFixed(1)}deg)"` : '';
+    html += `<span class="mtile"${rot}>${ch}</span>`;
+  }
+  box.innerHTML = html;
+}
+// Daily Puzzle streak: solved dates live in localStorage (per device,
+// offline-safe). A streak is consecutive solved days ending today, or
+// ending yesterday when today is not solved yet.
+const PUZZLE_STORE_KEY = 'duello-daily-puzzle-v1';
+function puzzleSolvedDates() {
+  try { const raw = JSON.parse(localStorage.getItem(PUZZLE_STORE_KEY) || 'null'); if (raw && Array.isArray(raw.solved)) return new Set(raw.solved); } catch {}
+  return new Set();
+}
+function puzzleSaveSolved(dateKey) {
+  const set = puzzleSolvedDates(); set.add(dateKey);
+  try { localStorage.setItem(PUZZLE_STORE_KEY, JSON.stringify({ solved: [...set].sort() })); } catch {}
+}
+function localDateKey(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function puzzleStreak() {
+  const solved = puzzleSolvedDates();
+  const d = new Date();
+  if (!solved.has(localDateKey(d))) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while (solved.has(localDateKey(d))) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+function renderHomeHeader() {
+  buildHomeMosaic();
+  if (!me) return;
+  const pfp = $('homePfp');
+  if (pfp) { pfp.innerHTML = pfpHTML(me); pfp.classList.toggle('no-photo', !usablePhoto(me)); }
+  const elo = $('homeElo'); if (elo) elo.textContent = me.elo ?? '';
+  const streak = $('homeStreak'); if (streak) streak.textContent = puzzleStreak();
+  const tag = $('puzzleSolvedTag'); if (tag) tag.classList.toggle('hidden', !puzzleSolvedDates().has(localDateKey(new Date())));
+}
+// Daily Puzzle: one unscramble a day. The word is picked
+// deterministically from the local word list by the day number, so
+// every device shows the same word on the same day and the puzzle
+// works fully offline (the local dictionary is already bundled).
+let puzzleState = null;
+function dailyPuzzleWord() {
+  if (!localWords) return null;
+  const cands = [...localWords].filter(w => w.length >= 5 && w.length <= 7).sort();
+  if (!cands.length) return null;
+  const dayNo = Math.floor(Date.now() / 86400000);
+  return cands[dayNo % cands.length];
+}
+function puzzleShuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
+  return arr;
+}
+function renderPuzzle() {
+  const st = puzzleState; if (!st) return;
+  const ans = $('puzzleAnswer'), tiles = $('puzzleTiles'), status = $('puzzleStatus');
+  if (ans) ans.innerHTML = st.picked.map((p, i) => `<span class="puzzle-slot${p ? ' filled' : ''}" data-i="${i}">${p ? p.ch : ''}</span>`).join('');
+  if (tiles) tiles.innerHTML = st.letters.map((t, i) => `<button class="puzzle-tile${t.used ? ' used' : ''}" data-i="${i}">${t.ch}</button>`).join('');
+  if (status) { status.textContent = st.msg || ''; status.className = 'puzzle-status' + (st.good ? ' good' : st.bad ? ' bad' : ''); }
+  const check = $('puzzleCheckBtn'), shuffle = $('puzzleShuffleBtn');
+  if (check) check.disabled = st.solved;
+  if (shuffle) shuffle.disabled = st.solved;
+}
+function puzzlePickTile(i) {
+  const st = puzzleState; if (!st || st.solved) return;
+  const t = st.letters[i]; if (!t || t.used) return;
+  const slot = st.picked.findIndex(p => !p); if (slot === -1) return;
+  t.used = true; st.picked[slot] = t; st.msg = ''; st.good = st.bad = false;
+  renderPuzzle();
+}
+function puzzleUnpickSlot(i) {
+  const st = puzzleState; if (!st || st.solved) return;
+  const t = st.picked[i]; if (!t) return;
+  t.used = false; st.picked[i] = null; st.msg = ''; st.good = st.bad = false;
+  renderPuzzle();
+}
+function puzzleCheck() {
+  const st = puzzleState; if (!st || st.solved) return;
+  if (st.picked.some(p => !p)) { st.msg = 'Fill every slot first.'; st.bad = true; renderPuzzle(); return; }
+  if (st.picked.map(p => p.ch).join('') === st.word) {
+    st.solved = true;
+    puzzleSaveSolved(localDateKey(new Date()));
+    st.msg = `Solved! Streak: ${puzzleStreak()} day${puzzleStreak() === 1 ? '' : 's'}. Come back tomorrow for a new one.`;
+    st.good = true; st.bad = false;
+    renderPuzzle(); renderHomeHeader();
+  } else {
+    st.picked.forEach(p => { if (p) p.used = false; });
+    st.picked = st.picked.map(() => null);
+    st.msg = 'Not quite — try again.';
+    st.bad = true;
+    renderPuzzle();
+  }
+}
+async function openDailyPuzzle() {
+  const modal = $('puzzleModal'); if (!modal) return;
+  const dateEl = $('puzzleDate');
+  if (dateEl) dateEl.textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  modal.classList.remove('hidden');
+  const words = await ensureLocalWords();
+  if (!words) {
+    puzzleState = null;
+    const status = $('puzzleStatus'); if (status) { status.textContent = 'Words still loading — check your connection and try again.'; status.className = 'puzzle-status bad'; }
+    return;
+  }
+  const word = dailyPuzzleWord();
+  const today = localDateKey(new Date());
+  const solved = puzzleSolvedDates().has(today);
+  let letters = puzzleShuffle(word.split('').map(ch => ({ ch, used: false })));
+  // A shuffle that spells the word itself is no puzzle at all.
+  while (letters.map(t => t.ch).join('') === word) letters = puzzleShuffle(letters);
+  puzzleState = { word, letters, picked: word.split('').map(() => null), solved, msg: '', good: false, bad: false };
+  if (solved) {
+    puzzleState.picked = word.split('').map(ch => ({ ch, used: true }));
+    puzzleState.letters.forEach(t => { t.used = true; });
+    puzzleState.msg = 'Solved! Come back tomorrow for a new one.';
+    puzzleState.good = true;
+  }
+  renderPuzzle();
+}
+function closeDailyPuzzle() { const m = $('puzzleModal'); if (m) m.classList.add('hidden'); }
 function show(id) {
   // Leaving the board closes the live game stream (a new game opens
   // its own in enterGameScreen); the stat window is an overlay on
@@ -136,7 +268,7 @@ function show(id) {
   if (id === 'friendsScreen' && $('tabFriends')) $('tabFriends').classList.add('active');
   if ((id === 'profileScreen' || id === 'profileEditScreen' || id === 'pastGamesScreen') && $('tabProfile')) $('tabProfile').classList.add('active');
   // First Home render warms the Profile + Leaderboard caches (below).
-  if (id === 'homeScreen') { preloadHomeTabs(); refreshOnlineButtons(); }
+  if (id === 'homeScreen') { preloadHomeTabs(); refreshOnlineButtons(); renderHomeHeader(); }
   // A tab always opens at the top (v124): the window scroll position
   // used to carry over from the tab you came from, so the new tab
   // opened halfway down.
@@ -1203,6 +1335,12 @@ async function loadMe() {
 }
 $('playBotsBtn').onclick = () => show('botScreen');
 $('playFriendsBtn').onclick = showFriendsTab;
+$('dailyPuzzleBtn').onclick = openDailyPuzzle;
+$('puzzleCloseBtn').onclick = closeDailyPuzzle;
+$('puzzleCheckBtn').onclick = puzzleCheck;
+$('puzzleShuffleBtn').onclick = () => { if (!puzzleState || puzzleState.solved) return; puzzleShuffle(puzzleState.letters); puzzleState.msg = ''; renderPuzzle(); };
+$('puzzleTiles').onclick = (e) => { const b = e.target.closest('.puzzle-tile'); if (b) puzzlePickTile(+b.dataset.i); };
+$('puzzleAnswer').onclick = (e) => { const s = e.target.closest('.puzzle-slot'); if (s) puzzleUnpickSlot(+s.dataset.i); };
 // Matchmaking, not an instant game: Play Online (the globe) shows a
 // searching screen that ticks for a random 2-3 seconds, then makes
 // the match. Cancel, or any navigation away, abandons the search.

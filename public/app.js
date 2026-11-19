@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 133;
+const APP_VERSION = 134;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -1924,7 +1924,7 @@ function renderGame() {
   const isFish = game.botType === 'fishstick';
   const isPersonaGame = game.botType === 'persona';
   const isHumanGame = game.botType === 'human';
-  $('botName').textContent = isFish ? 'Fishstick' : isPersonaGame ? (game.persona?.firstName || 'Player') : isHumanGame ? (game.opponent?.firstName || 'Player') : 'Bot';
+  $('botName').textContent = isFish ? 'Fishstick' : isPersonaGame ? (game.persona?.firstName || 'Player') : isHumanGame ? (game.opponent?.firstName || 'Player') : 'Doppelgänger';
   $('botElo').textContent = isFish ? '∞' : game.botElo;
   $('botElo').classList.toggle('inf', isFish);
   if (isFish) $('botPfp').innerHTML = '<img src="/assets/fishstick.png?v=1" alt="Fishstick">';
@@ -1932,7 +1932,7 @@ function renderGame() {
   else if (isHumanGame && usablePhoto(game.opponent)) $('botPfp').innerHTML = `<img src="${game.opponent.photoData}" alt="">`;
   // A persona with no photo is a person without a photo, not a bot:
   // show the silhouette (with the blue no-photo ring, like the
-  // player's own) instead of the robot, which is Competitive Bot.
+  // player's own) instead of the robot, which is Doppelgänger.
   // Same for a real opponent without a photo.
   else if (isPersonaGame) $('botPfp').innerHTML = silhouetteSVG(32);
   else if (isHumanGame) $('botPfp').innerHTML = silhouetteSVG(32);
@@ -2434,12 +2434,12 @@ function botWatchdog() {
 // opponent's name and the generic line: beginBotTurn, updateStatus and
 // doPlay each used to write their own copy, and every render overwrote
 // the named one with the generic one. Named opponents (a persona's or
-// real player's first name, Fishstick) keep their name; the Competitive
-// Bot has no name, so it keeps the generic line.
+// real player's first name, Fishstick, Doppelgänger) keep their name.
 function waitingStatus() {
   if (!game) return 'Waiting for your opponent.';
   if (game.clocks.human <= 0) return 'Out of time, opponent plays on.';
   if (game.botType === 'fishstick') return 'Waiting for Fishstick.';
+  if (game.botType === 'competitive') return 'Waiting for Doppelgänger.';
   if (game.botType === 'persona' && game.persona) return `Waiting for ${game.persona.firstName}.`;
   if (game.botType === 'human' && game.opponent) return `Waiting for ${game.opponent.firstName}.`;
   return 'Waiting for your opponent.';
@@ -3791,7 +3791,7 @@ function showStatWindow(stats) {
   $('gameDim').classList.add('dimmed');
   const isPersonaGame = game && game.botType === 'persona';
   const isHumanGame = game && game.botType === 'human';
-  const botLabel = (game && game.botType === 'fishstick') ? 'Fishstick' : isPersonaGame ? (game.persona?.firstName || 'Player') : isHumanGame ? (game.opponent?.firstName || 'Player') : 'Bot';
+  const botLabel = (game && game.botType === 'fishstick') ? 'Fishstick' : isPersonaGame ? (game.persona?.firstName || 'Player') : isHumanGame ? (game.opponent?.firstName || 'Player') : 'Doppelgänger';
   const humanLabel = (me && me.firstName) ? me.firstName : 'You';
   // Winner is the game's recorded result, not the score comparison:
   // a forfeit is a loss even when the forfeiter is ahead on points.
@@ -3817,7 +3817,7 @@ function showStatWindow(stats) {
   // Both Elo moves show for a human-vs-human match, and personas
   // count as humans: their rating moves opposite yours, so it is
   // shown like yours. A real opponent's move shows the same way.
-  // For Competitive Bot and Fishstick the bot move stays blank.
+  // For Doppelgänger and Fishstick the bot move stays blank.
   if (isPersonaGame || isHumanGame) {
     $('eloMoveBot').textContent = fmtMove(null, stats.eloDeltaBot ?? 0);
     $('eloMoveBot').className = 'elo-move ' + ((stats.eloDeltaBot ?? 0) < 0 ? 'neg' : 'pos');
@@ -3836,7 +3836,7 @@ function showStatWindow(stats) {
   const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
   // A persona with no photo gets the silhouette in the stat box and
   // the top pfp too (same reasoning as the scoreboard: a person
-  // without a photo, not Competitive Bot).
+  // without a photo, not Doppelgänger).
   const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.png?v=1" alt="Fishstick">' : isPersonaGame && usablePhoto(game.persona) ? `<img src="${game.persona.photoData}" alt="">` : isHumanGame && usablePhoto(game.opponent) ? `<img src="${game.opponent.photoData}" alt="">` : isPersonaGame || isHumanGame ? silhouetteSVG(36) : '🤖';
   const botNoPhoto = (isPersonaGame && !usablePhoto(game.persona)) || (isHumanGame && !usablePhoto(game.opponent));
   $('statGrid').innerHTML = box(humanLabel, humanPfp, stats.human, !usablePhoto(me)) + box(botLabel, botPfpBox, stats.bot, botNoPhoto, game.botType === 'fishstick');
@@ -4591,7 +4591,7 @@ let openFailNoteShown = false;
 // games loaded so far and whether more remain server-side; a scope
 // with games: null has not been fetched yet. Vs Humans is personas
 // + real players (they count as human stats, same as the stats
-// screen); Vs Bots is Fishstick + Competitive Bot only.
+// screen); Vs Bots is Fishstick + Doppelgänger only.
 let historyScope = 'aggregate';
 let historyState = {
   aggregate: { games: null, hasMore: true },

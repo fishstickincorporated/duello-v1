@@ -54,9 +54,10 @@ const ROOT = __dirname;
 // Usernames a real account may never take (v126, v133): the bot handles.
 // 'fishstick' is the Fishstick bot's handle — it shows as @fishstick
 // in Game History, so no player may register or rename to it.
-// 'competitivebot' is the Competitive Bot's handle — it shows as
-// @competitivebot in Game History and on the leaderboard.
-const RESERVED_USERNAMES = new Set(['fishstick', 'competitivebot']);
+// 'doppelganger' is the Doppelgänger bot's handle — it shows as
+// @doppelganger in Game History. 'competitivebot' stays reserved too,
+// so nobody can squat the old bot name.
+const RESERVED_USERNAMES = new Set(['fishstick', 'competitivebot', 'doppelganger']);
 const DATA_DIR = path.join(ROOT, 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -774,7 +775,7 @@ async function endGame(game, user, reason, winnerSide) {
   // always moves the opposite way, and a draw uses actual 0.5, so a
   // draw against a stronger opponent gains (a draw against Fishstick
   // at 3000 gains ~16) while a draw against an equal opponent moves
-  // nobody. Competitive Bot is no exception: its next game re-syncs
+  // nobody. Doppelgänger is no exception: its next game re-syncs
   // to the player's current Elo at creation, so storing the opposite
   // move here does not break its always-equal matching.
   // A real-player game moves BOTH ratings: the delta is computed
@@ -2211,7 +2212,7 @@ const server = http.createServer(async (req, res) => {
     // Paging + filter (v128, items 4+5): limit/offset page 25 at a
     // time (limit capped at 50) and scope filters by opponent kind
     // (aggregate = all, vsHumans = personas + real players, vsBots =
-    // Fishstick + Competitive Bot). The scope filter runs in SQL on
+    // Fishstick + Doppelgänger). The scope filter runs in SQL on
     // bot_type, which is set at INSERT for every game. One extra row
     // is fetched so hasMore is exact without a second count query.
     if (pathname === '/api/games' && req.method === 'GET') {
@@ -2229,14 +2230,14 @@ const server = http.createServer(async (req, res) => {
       const games = pageRows.map((row) => {
         const g = loadGameRow(row);
         const { isOpp, mySide, oppSide } = gameSides(g, user);
-        const oppName = g.botType === 'persona' && g.persona ? (g.persona.firstName + ' ' + g.persona.lastName) : g.botType === 'competitive' ? 'Competitive Bot' : g.botType === 'fishstick' ? 'Fishstick' : (isOpp ? ((g.challenger && g.challenger.firstName) || (g.challenger && g.challenger.username) || 'Opponent') : ((g.opponent && g.opponent.firstName) || (g.opponent && g.opponent.username) || 'Opponent'));
+        const oppName = g.botType === 'persona' && g.persona ? (g.persona.firstName + ' ' + g.persona.lastName) : g.botType === 'competitive' ? 'Doppelgänger' : g.botType === 'fishstick' ? 'Fishstick' : (isOpp ? ((g.challenger && g.challenger.firstName) || (g.challenger && g.challenger.username) || 'Opponent') : ((g.opponent && g.opponent.firstName) || (g.opponent && g.opponent.username) || 'Opponent'));
         // Opponent pic + username for the Game History rows (v125):
         // the row shows the opponent's photo and @username (blue when
         // you won, white when they won) instead of the W/L badge and
         // the plain name. Bots have no photo — the client renders the
         // fishstick image / robot for those kinds.
         const oppUser = g.botType === 'human' ? (isOpp ? g.challenger : g.opponent) : null;
-        const opponentUsername = g.botType === 'persona' && g.persona ? '@' + g.persona.username : g.botType === 'competitive' ? '@competitivebot' : g.botType === 'fishstick' ? '@fishstick' : (oppUser && oppUser.username ? '@' + oppUser.username : oppName);
+        const opponentUsername = g.botType === 'persona' && g.persona ? '@' + g.persona.username : g.botType === 'competitive' ? '@doppelganger' : g.botType === 'fishstick' ? '@fishstick' : (oppUser && oppUser.username ? '@' + oppUser.username : oppName);
         const opponentPhoto = g.botType === 'persona' && g.persona ? (g.persona.photoData || null) : g.botType === 'human' ? ((oppUser && oppUser.photoData) || null) : null;
         const opponentKind = g.botType === 'persona' ? 'persona' : g.botType === 'competitive' ? 'competitive' : g.botType === 'fishstick' ? 'fishstick' : 'human';
         const result = g.winner === 'draw' ? 'draw' : g.winner === mySide ? 'win' : g.winner === oppSide ? 'loss' : 'loss';

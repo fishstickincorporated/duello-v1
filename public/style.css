@@ -1,4 +1,4 @@
-*{box-sizing:border-box} body{margin:0;background:#1a1d24;color:#e8ecf1;font-family:"Comfortaa",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+*{box-sizing:border-box} body{margin:0;background:#1a1d24;color:#e8ecf1;font-family:"Comfortaa",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background-image:radial-gradient(rgba(3,234,255,.07) 1px,transparent 1.4px);background-size:16px 16px}
 .screen{max-width:390px;margin:0 auto;padding:calc(28px + env(safe-area-inset-top)) 16px 40px;text-align:center}
 .hidden{display:none!important}
 .logo{font-size:56px;font-weight:900;letter-spacing:3px;color:#03eaff;line-height:1;margin:12px 0 4px}
@@ -462,7 +462,7 @@ squares are the premium colours, spread out across the whole screen. */
 #introLogo{display:block;width:min(88vw,340px);height:auto}
 
 /* ---------- v131: home redesign (faint blue texture + daily hook) ---------- */
-#homeScreen{position:relative;display:flex;flex-direction:column;min-height:100dvh;min-height:100svh;padding-bottom:112px}
+#homeScreen{position:relative;display:flex;flex-direction:column;min-height:100dvh;min-height:100svh;padding-bottom:128px}
 #homeScreen .logo-img.home-logo{width:72%;margin-top:0;position:relative;z-index:1}
 #homeScreen .home-head,#homeScreen .modes{position:relative;z-index:1}
 .home-head{display:flex;align-items:center;gap:12px;margin:2px 0 16px;text-align:left}
@@ -480,13 +480,16 @@ squares are the premium colours, spread out across the whole screen. */
 /* v132: home buttons are big glossy gradient cards (Jeff's screenshot).
    v133: darkened so the white text pops way more — each gradient runs
    from its brand base color at the top to a darker shade of that same
-   color at the bottom: Online #03eaff→#0090a8, Friends #1cff03→#0fb300,
-   Bots #ff8d03→#d97300, Puzzle #ff03ee→#c000b2. The v131 textures are
-   kept as a faint white overlay so the gradient color dominates. */
-.mode-online{background:repeating-linear-gradient(115deg,rgba(255,255,255,.05) 0 6px,transparent 6px 14px),linear-gradient(180deg,#03eaff 0%,#0090a8 100%);border-color:#007a90;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #00596b}
-.mode-friends{background:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(180deg,#1cff03 0%,#0fb300 100%);background-size:22px 22px,22px 22px,100% 100%;border-color:#0c9600;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #087000}
-.mode-bots{background:radial-gradient(rgba(255,255,255,.07) 1.5px,transparent 1.5px),linear-gradient(180deg,#ff8d03 0%,#d97300 100%);background-size:16px 16px,100% 100%;border-color:#b85f00;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #8a4700}
-.mode-puzzle{background:repeating-linear-gradient(45deg,rgba(255,255,255,.06) 0 10px,transparent 10px 20px),linear-gradient(180deg,#ff03ee 0%,#c000b2 100%);border-color:#9e0091;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #73006a}
+   color at the bottom. v134: muted ~22% toward neutral grey so the
+   colors read a little softer, less intense, while staying clearly
+   their color and keeping the white text pop: Online #1ed3e3→#1c8c9f,
+   Friends #32e31e→#28a81c, Bots #e38a1e→#c5761c, Puzzle #e31ed6→#b21ca7.
+   The v131 textures are kept as a faint white overlay so the gradient
+   color dominates. */
+.mode-online{background:repeating-linear-gradient(115deg,rgba(255,255,255,.05) 0 6px,transparent 6px 14px),linear-gradient(180deg,#1ed3e3 0%,#1c8c9f 100%);border-color:#1c7b8c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #1c6270}
+.mode-friends{background:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(180deg,#32e31e 0%,#28a81c 100%);background-size:22px 22px,22px 22px,100% 100%;border-color:#26911c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #22741c}
+.mode-bots{background:radial-gradient(rgba(255,255,255,.07) 1.5px,transparent 1.5px),linear-gradient(180deg,#e38a1e 0%,#c5761c 100%);background-size:16px 16px,100% 100%;border-color:#ac661c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #88541c}
+.mode-puzzle{background:repeating-linear-gradient(45deg,rgba(255,255,255,.06) 0 10px,transparent 10px 20px),linear-gradient(180deg,#e31ed6 0%,#b21ca7 100%);border-color:#971c8d;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #761c6f}
 /* Text must pop on the bright gradients: bold white title and near-white
    subtitle, both with a dark shadow; white chevron with a shadow too. */
 #homeScreen .mode .label-col{flex:1;text-align:left;display:flex;flex-direction:column;gap:2px;min-width:0;justify-content:center}
@@ -494,14 +497,31 @@ squares are the premium colours, spread out across the whole screen. */
 #homeScreen .mode .label-col .sub{font-size:13px;color:rgba(255,255,255,.95);font-weight:400;text-shadow:0 1px 2px rgba(0,0,0,.55)}
 #homeScreen .mode .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
 #homeScreen .mode .sym svg{filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
-/* Subtle background texture (v133): the letter tiles are gone — just
-   faint Duello-blue dots covering the whole home screen edge to edge.
-   The ::after spans the full element (inset:0), and the home screen
-   itself starts at the very top of the viewport (viewport-fit=cover
-   + safe-area padding), so the texture runs right up past the
-   Dynamic Island to the bottom, under the tab bar. Blue-only, faint,
-   so it never fights the buttons. */
-#homeScreen::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:0;background-image:radial-gradient(rgba(3,234,255,.07) 1px,transparent 1.4px);background-size:16px 16px}
+/* Subtle background texture (v133–v134): the letter tiles are gone —
+   just faint Duello-blue dots. v134: the texture moved to the body so
+   it covers EVERY page, not just Home — it is a body background-image,
+   so it sits behind all content on every screen, from the very top
+   (viewport-fit=cover + safe-area padding, right up past the Dynamic
+   Island) to the bottom, under the tab bar. Blue-only, faint, so it
+   never fights the buttons or the board. */
+/* ---------- v134: bot selector mirrors the home page ---------- */
+/* Same layout as #homeScreen: logo 72% at the top, the two buttons
+   filling the screen as full-height cards (same gap, same top
+   placement under the logo), Back below them. */
+#botScreen{position:relative;display:flex;flex-direction:column;min-height:100dvh;min-height:100svh;padding-bottom:128px}
+#botScreen .logo-img.home-logo{width:72%;margin-top:0;position:relative;z-index:1}
+#botScreen .bot-options{flex:1;display:flex;flex-direction:column;gap:16px;margin-top:0;position:relative;z-index:1}
+#botScreen .bot-opt{flex:1 1 0;height:auto;min-height:88px;font-size:20px}
+#botScreen .bot-opt .sym svg{width:44px;height:44px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
+#botScreen .bot-opt .label-col .label{font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45)}
+#botScreen .bot-opt .label-col .sub{font-size:13px;color:rgba(255,255,255,.95);text-shadow:0 1px 2px rgba(0,0,0,.55)}
+#botScreen .bot-opt .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+/* Bot buttons in the Home Screen style: colorful gradients, muted
+   like the home buttons (v134, ~22% toward grey). Doppelgänger gets
+   the orange base (brand #ff8d03), Fishstick the red base (brand
+   #ff1303). Faint white textures overlay each gradient. */
+#competitiveBtn{background:radial-gradient(rgba(255,255,255,.07) 1.5px,transparent 1.5px),linear-gradient(180deg,#e38a1e 0%,#c5761c 100%);background-size:16px 16px,100% 100%;border-color:#ac661c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #88541c}
+#fishstickBtn{background:repeating-linear-gradient(115deg,rgba(255,255,255,.05) 0 6px,transparent 6px 14px),linear-gradient(180deg,#e32b1e 0%,#a8271e 100%);border-color:#8a1e15;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #671410}
 /* Offline grey-out must win over the gradients (same specificity, later in file). */
 #homeScreen .mode.greyed{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#b3b2b1;border-color:#3c424e;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 0 #1e222b;opacity:.55}
 #homeScreen .mode.greyed .chev{color:#b3b2b1}

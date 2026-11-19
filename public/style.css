@@ -1,4 +1,14 @@
-*{box-sizing:border-box} body{margin:0;background:#1a1d24;color:#e8ecf1;font-family:"Comfortaa",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background-image:radial-gradient(rgba(3,234,255,.07) 1px,transparent 1.4px);background-size:16px 16px}
+*{box-sizing:border-box} body{margin:0;background:#1a1d24;color:#e8ecf1;font-family:"Comfortaa",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+/* v135: the dot texture is a FIXED layer so content scrolls over it.
+   The fixed-attachment trick is unreliable on iOS Safari, so the
+   dots live on body::before (position:fixed, inset:0, same 16px
+   grid, same .07 opacity). z-index:-1 puts it behind all screen
+   content — z-index:0 would paint the dots OVER the non-positioned
+   .screen content — while staying above the body's solid #1a1d24
+   canvas background. pointer-events:none so it never intercepts
+   taps. It covers the whole viewport including the top safe area /
+   Dynamic Island. */
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background-image:radial-gradient(rgba(3,234,255,.07) 1px,transparent 1.4px);background-size:16px 16px}
 .screen{max-width:390px;margin:0 auto;padding:calc(28px + env(safe-area-inset-top)) 16px 40px;text-align:center}
 .hidden{display:none!important}
 .logo{font-size:56px;font-weight:900;letter-spacing:3px;color:#03eaff;line-height:1;margin:12px 0 4px}
@@ -50,7 +60,7 @@ name or a big score never reflows the board. Names never wrap. */
 .bot-panel{border-radius:12px}
 .panel.active{border-color:#03eaff}
 .panel .col{display:flex;flex-direction:column;justify-content:center;min-width:0}
-.panel .identity-col{flex:0 0 76px;padding:4px 4px}
+.panel .identity-col{flex:0 0 92px;padding:4px 4px}
 .panel .clock-col{flex:1 1 100px;min-width:50px;padding:4px 4px 4px;font-variant-numeric:tabular-nums;font-weight:700;justify-content:flex-start}
 .player-panel .identity-col{text-align:left;align-items:flex-start;padding-left:6px;padding-right:2px}
 .player-panel .clock-col{text-align:right;align-items:flex-end;padding-right:6px}
@@ -61,7 +71,14 @@ name or a big score never reflows the board. Names never wrap. */
 .panel .pfp.gone{opacity:.35;filter:grayscale(1)}
 .panel .pfp.clear-bg,.stat-pfp .pfp.clear-bg,.stat-box-head .pfp.clear-bg{background:transparent}
 .bot-panel .pfp img{margin-left:auto}
-.panel .name{font-weight:700;font-size:11px;line-height:1.25;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.panel .name{font-weight:700;font-size:10px;line-height:1.25;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* v135: "Doppelgänger" at 11px bold is 83.6px wide — too wide for the
+   old 76px identity column (68px of text room), so it ellipsized.
+   The column is now 92px (84px of text room) and the name 10px
+   (76.0px), so the full word fits with room to spare. The clock
+   ("4:00" = 64px at 32px Arial bold) still fits in what is left of
+   the panel down to a 375px-wide phone. The ellipsis stays as a
+   safety net for even longer names. */
 .panel .elo{color:#03eaff;font-size:12px;line-height:1.25;white-space:nowrap}
 .panel .elo.inf{font-size:20px;line-height:15px}
 .panel .clock{font-size:32px;line-height:1.1}
@@ -228,6 +245,7 @@ same 52px column, right-aligned, on every row including your own
 .lb-tab.active{background:#03eaff;color:#1a1d24}
 .no-friends-card{background:#262a33;border-radius:12px;padding:16px;margin-top:12px;color:#b3b2b1}
 /* Profile tab: no logo, extra padding above pfp */
+#profileScreen{position:relative}
 .profile-top{padding-top:8px;display:flex;flex-direction:column;align-items:center;gap:4px}
 .pfp.huge{width:84px;height:84px;border-radius:50%;background:#262a33;display:flex;align-items:center;justify-content:center;font-size:44px;overflow:hidden}
 .pfp.huge img{width:100%;height:100%;object-fit:cover}
@@ -235,7 +253,12 @@ same 52px column, right-aligned, on every row including your own
 .profile-name{font-size:22px;font-weight:900;margin-top:4px}
 .profile-username{color:#b3b2b1}
 .profile-joined{color:#b3b2b1;font-size:14px;margin-top:4px}
-.gear-btn{background:none;border:0;font-size:26px;cursor:pointer;margin-top:2px}
+/* v135: the gear is pinned to the top right of the profile screen
+   instead of sitting at the bottom of the centered column. top
+   matches the screen's top padding (28px + safe-area inset) and
+   right:16px matches its horizontal padding. The pfp is centered
+   and the gear is at the right edge, so they clear each other. */
+.gear-btn{position:absolute;top:calc(28px + env(safe-area-inset-top));right:16px;background:none;border:0;font-size:26px;cursor:pointer;margin-top:0}
 .elo-box{background:#262a33;border-radius:16px;padding:16px;margin:8px 0 16px;text-align:left}
 .elo-row{display:flex;gap:12px}
 .elo-row>div{flex:1}
@@ -423,6 +446,14 @@ html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-
 .stat-grid{display:flex;gap:12px;background:none;border:0;padding:0}
 .stat-box{flex:1;min-width:0;background:#262a33;border:2px solid #e8ecf1;border-radius:16px;padding:14px;text-align:left;font-size:14px;line-height:1.7}
 .stat-box-head{display:flex;align-items:center;gap:8px;font-weight:800;letter-spacing:1px;margin-bottom:6px}
+/* v135: shrink the stat-box name so "Doppelgänger" fits whole next
+   to the 36px pfp. At 14px bold + 1px letter-spacing it is ~117px
+   wide — far wider than the ~97px (390px phone) / ~89.5px (375px
+   phone) of name room in a half-width stat box, so it spilled past
+   the box edge. At 11px with no letter-spacing it is 83.6px, which
+   fits both widths with room to spare. The ellipsis + nowrap are a
+   safety net so an even longer name can never spill past the box. */
+.stat-box-name{font-size:11px;letter-spacing:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .stat-box-head .pfp{font-size:28px;line-height:1}
 .stat-box-head img{width:36px;height:36px;border-radius:50%;object-fit:cover;display:block}
 
@@ -471,11 +502,18 @@ squares are the premium colours, spread out across the whole screen. */
 .home-pfp svg{width:52px;height:52px;display:block}
 .home-head-stats{display:flex;align-items:center;gap:18px;flex:1;min-width:0}
 .home-stat{display:flex;align-items:center;gap:6px;min-width:0}
+/* v135: header stat alignment — the Elo stat grows to fill the space
+   between the pfp and the streak and centers its content there, so
+   it sits evenly split between the pfp's right edge and the flame's
+   left edge; the streak stat is pinned to the far right, so the
+   final "k" of "streak" is flush with the header's right edge. */
+.home-head-stats .home-stat:first-child{flex:1;justify-content:center}
+.home-head-stats .home-stat:last-child{flex:0 0 auto}
 .home-stat-icon{display:flex}
 .home-stat-value{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
 .home-stat-label{color:#b3b2b1;font-size:12px}
 #homeScreen .modes{flex:1;display:flex;flex-direction:column;gap:16px;margin-top:0}
-#homeScreen .mode{flex:1 1 0;height:auto;min-height:88px;font-size:20px}
+#homeScreen .mode{flex:1 1 0;height:auto;min-height:88px;font-size:22px}
 #homeScreen .mode .sym svg{width:44px;height:44px}
 /* v132: home buttons are big glossy gradient cards (Jeff's screenshot).
    v133: darkened so the white text pops way more — each gradient runs
@@ -494,7 +532,7 @@ squares are the premium colours, spread out across the whole screen. */
    subtitle, both with a dark shadow; white chevron with a shadow too. */
 #homeScreen .mode .label-col{flex:1;text-align:left;display:flex;flex-direction:column;gap:2px;min-width:0;justify-content:center}
 #homeScreen .mode .label-col .label{flex:none;font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45)}
-#homeScreen .mode .label-col .sub{font-size:13px;color:rgba(255,255,255,.95);font-weight:400;text-shadow:0 1px 2px rgba(0,0,0,.55)}
+#homeScreen .mode .label-col .sub{font-size:14px;color:rgba(255,255,255,.95);font-weight:400;text-shadow:0 1px 2px rgba(0,0,0,.55)}
 #homeScreen .mode .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
 #homeScreen .mode .sym svg{filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
 /* Subtle background texture (v133–v134): the letter tiles are gone —
@@ -511,10 +549,18 @@ squares are the premium colours, spread out across the whole screen. */
 #botScreen{position:relative;display:flex;flex-direction:column;min-height:100dvh;min-height:100svh;padding-bottom:128px}
 #botScreen .logo-img.home-logo{width:72%;margin-top:0;position:relative;z-index:1}
 #botScreen .bot-options{flex:1;display:flex;flex-direction:column;gap:16px;margin-top:0;position:relative;z-index:1}
-#botScreen .bot-opt{flex:1 1 0;height:auto;min-height:88px;font-size:20px}
+#botScreen .bot-opt{flex:0 0 calc((100% - 48px)/4);height:auto;min-height:88px;font-size:22px}
+/* v135: each bot button is exactly one home-button tall. The home
+   list has 4 buttons sharing its height with three 16px gaps, so one
+   home button is (height - 48px)/4. Each bot button takes that same
+   quarter of the bot-options height, so the two buttons match the
+   home buttons (within ~3px — the bot list is 12px taller than the
+   home list because it has a Back button instead of the 70px
+   home-head) and the leftover space stays empty below them, above
+   Back. flex:0 0 keeps them from stretching to fill the screen. */
 #botScreen .bot-opt .sym svg{width:44px;height:44px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
 #botScreen .bot-opt .label-col .label{font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45)}
-#botScreen .bot-opt .label-col .sub{font-size:13px;color:rgba(255,255,255,.95);text-shadow:0 1px 2px rgba(0,0,0,.55)}
+#botScreen .bot-opt .label-col .sub{font-size:14px;color:rgba(255,255,255,.95);text-shadow:0 1px 2px rgba(0,0,0,.55)}
 #botScreen .bot-opt .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
 /* Bot buttons in the Home Screen style: colorful gradients, muted
    like the home buttons (v134, ~22% toward grey). Doppelgänger gets

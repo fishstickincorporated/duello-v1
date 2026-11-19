@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 134;
+const APP_VERSION = 135;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -1938,7 +1938,10 @@ function renderGame() {
   else if (isHumanGame) $('botPfp').innerHTML = silhouetteSVG(32);
   else $('botPfp').textContent = '🤖';
   $('botPfp').classList.toggle('no-photo', (isPersonaGame && !usablePhoto(game.persona)) || (isHumanGame && !usablePhoto(game.opponent)));
-  $('botPfp').classList.toggle('clear-bg', isFish);
+  // v135: the 🤖 sits straight on the scoreboard with no grey circle,
+  // same as Fishstick's PNG — clear-bg for a Doppelgänger game too
+  // (its pfp is the 🤖 emoji), not just Fishstick.
+  $('botPfp').classList.toggle('clear-bg', isFish || game.botType === 'competitive');
   // Disconnect (v123, item 2): a real opponent who has been unseen
   // for >10s gets a faded grey pfp (server's opponentConnected) —
   // their clock keeps ticking, and at 30s the server ends the game.
@@ -3839,7 +3842,10 @@ function showStatWindow(stats) {
   // without a photo, not Doppelgänger).
   const botPfpBox = game.botType === 'fishstick' ? '<img src="/assets/fishstick.png?v=1" alt="Fishstick">' : isPersonaGame && usablePhoto(game.persona) ? `<img src="${game.persona.photoData}" alt="">` : isHumanGame && usablePhoto(game.opponent) ? `<img src="${game.opponent.photoData}" alt="">` : isPersonaGame || isHumanGame ? silhouetteSVG(36) : '🤖';
   const botNoPhoto = (isPersonaGame && !usablePhoto(game.persona)) || (isHumanGame && !usablePhoto(game.opponent));
-  $('statGrid').innerHTML = box(humanLabel, humanPfp, stats.human, !usablePhoto(me)) + box(botLabel, botPfpBox, stats.bot, botNoPhoto, game.botType === 'fishstick');
+  // v135: clear-bg for the stat-box bot pfp on a Doppelgänger game
+  // too (its pfp is the 🤖 emoji), so the robot sits straight on the
+  // stat-box background with no grey circle, same as Fishstick.
+  $('statGrid').innerHTML = box(humanLabel, humanPfp, stats.human, !usablePhoto(me)) + box(botLabel, botPfpBox, stats.bot, botNoPhoto, game.botType === 'fishstick' || game.botType === 'competitive');
   if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.png?v=1" alt="Fishstick">';
   else if (isPersonaGame && usablePhoto(game.persona)) $('statBotPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
   else if (isHumanGame && usablePhoto(game.opponent)) $('statBotPfp').innerHTML = `<img src="${game.opponent.photoData}" alt="">`;

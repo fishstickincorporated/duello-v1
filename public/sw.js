@@ -20,7 +20,7 @@
 // preserves that). Old caches are deleted on activate.
 'use strict';
 
-var CACHE_NAME = 'duello-v141';
+var CACHE_NAME = 'duello-v142';
 
 // Precached on install (small shell only). /api/words is deliberately NOT
 // precached — it is a 1.2 MB lazy fetch, cached on first use (see below).
@@ -45,6 +45,7 @@ function isCacheableShell(url) {
   if (url.pathname === '/style.css') return true;
   if (url.pathname === '/privacy.html') return true;
   if (url.pathname === '/api/words') return true;
+  if (url.pathname === '/daily-puzzles.json') return true; // v142: cached on first fetch, so the puzzle works offline after the first load
   if (url.pathname.indexOf('/assets/') === 0) return true;
   if (url.pathname.indexOf('/definitions/') === 0) return true;
   return false;

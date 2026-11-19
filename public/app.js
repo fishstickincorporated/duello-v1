@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 141;
+const APP_VERSION = 142;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -144,91 +144,199 @@ function renderHomeHeader() {
   // streak!🔥". Updated here so it refreshes on every home show and
   // right after a puzzle is solved (renderHomeHeader is called there).
   const psub = $('puzzleStreakSub'); if (psub) psub.textContent = puzzleStreak() + ' day streak!🔥';
-  const tag = $('puzzleSolvedTag'); if (tag) tag.classList.toggle('hidden', !puzzleSolvedDates().has(localDateKey(new Date())));
+  // The tag shows a countdown to midnight Boston time while the
+  // puzzle is unsolved, and "Solved" once it is (v142). It is never
+  // hidden now; the 1s timer keeps the countdown ticking.
+  const tag = $('puzzleSolvedTag');
+  if (tag) {
+    const solved = puzzleSolvedDates().has(localDateKey(new Date()));
+    tag.textContent = solved ? 'Solved' : puzzleCountdownText();
+    tag.classList.remove('hidden');
+    if (!solved) startPuzzleCountdown();
+  }
 }
-// Daily Puzzle: one unscramble a day. The word is picked
-// deterministically from the local word list by the day number, so
-// every device shows the same word on the same day and the puzzle
-// works fully offline (the local dictionary is already bundled).
-let puzzleState = null;
-function dailyPuzzleWord() {
-  if (!localWords) return null;
-  const cands = [...localWords].filter(w => w.length >= 5 && w.length <= 7).sort();
-  if (!cands.length) return null;
-  const dayNo = Math.floor(Date.now() / 86400000);
-  return cands[dayNo % cands.length];
+// Daily Puzzle: a 10x10 board puzzle (v142). One puzzle a day, authored
+// in public/daily-puzzles.json keyed by local date: { board: [[r,c,letter]...],
+// rack: [letters], premiums: {"r,c": "DL"|"DW"|"TL"|"TW"}, optimalScore, optimalWord }.
+// The player finds the best move; the Move strength bar shows their
+// play's score against the optimal score. Any play scoring the optimal
+// (or better) solves it. Solved dates reuse the v131 streak store, so
+// the streak carries over from the old unscramble.
+let dailyPuzzlesCache = null;
+async function loadDailyPuzzles() {
+  if (dailyPuzzlesCache) return dailyPuzzlesCache;
+  try {
+    const r = await fetch('/daily-puzzles.json?v=' + APP_VERSION);
+    if (!r.ok) return null;
+    dailyPuzzlesCache = await r.json();
+    return dailyPuzzlesCache;
+  } catch { return null; }
 }
-function puzzleShuffle(arr) {
-  for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
-  return arr;
+// Today's puzzle, or the latest one in the file when today has none
+// (so the button always opens something).
+function dailyPuzzleEntry(all) {
+  if (!all) return null;
+  const today = localDateKey(new Date());
+  if (all[today]) return { dateKey: today, puzzle: all[today] };
+  const keys = Object.keys(all).sort();
+  if (!keys.length) return null;
+  const last = keys[keys.length - 1];
+  return { dateKey: last, puzzle: all[last] };
 }
-function renderPuzzle() {
-  const st = puzzleState; if (!st) return;
-  const ans = $('puzzleAnswer'), tiles = $('puzzleTiles'), status = $('puzzleStatus');
-  if (ans) ans.innerHTML = st.picked.map((p, i) => `<span class="puzzle-slot${p ? ' filled' : ''}" data-i="${i}">${p ? p.ch : ''}</span>`).join('');
-  if (tiles) tiles.innerHTML = st.letters.map((t, i) => `<button class="puzzle-tile${t.used ? ' used' : ''}" data-i="${i}">${t.ch}</button>`).join('');
+// Countdown to midnight Boston time (v142): the Daily Puzzle button
+// shows this where "Solved" appears, until the puzzle is solved.
+function msUntilBostonMidnight() {
+  const now = new Date();
+  const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const parts = {};
+  for (const part of fmt.formatToParts(now)) parts[part.type] = part.value;
+  const intoDay = ((+parts.hour) % 24) * 3600 + (+parts.minute) * 60 + (+parts.second);
+  return (86400 - intoDay) * 1000 - now.getMilliseconds();
+}
+function puzzleCountdownText() {
+  const ms = Math.max(0, msUntilBostonMidnight());
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+}
+let puzzleCountdownTimer = null;
+function startPuzzleCountdown() {
+  if (puzzleCountdownTimer) return;
+  puzzleCountdownTimer = setInterval(() => {
+    const tag = $('puzzleSolvedTag');
+    if (!tag) return;
+    if (!puzzleSolvedDates().has(localDateKey(new Date()))) tag.textContent = puzzleCountdownText();
+  }, 1000);
+}
+let puzzleBoardState = null;
+function puzzleBoardBase(entry) {
+  const board = localEngine.emptyBoard();
+  for (const [r, c, l] of entry.puzzle.board) board[r][c] = l;
+  return board;
+}
+function renderPuzzleBoard() {
+  const st = puzzleBoardState; if (!st) return;
+  const boardEl = $('puzzleBoard'); if (!boardEl) return;
+  boardEl.innerHTML = '';
+  const placedByCell = {};
+  for (const p of st.placed) placedByCell[p.row + ',' + p.col] = p;
+  for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+    const cell = document.createElement('div');
+    const prem = st.puzzle.premiums[`${r},${c}`];
+    const fixed = st.board[r][c];
+    const placed = placedByCell[r + ',' + c];
+    cell.className = 'cell' + (prem ? ' ' + prem : '') + (fixed ? ' fixed-tile' : '');
+    cell.dataset.r = r; cell.dataset.c = c;
+    cell.textContent = fixed ? '' : (prem || '');
+    if (fixed) { const t = document.createElement('div'); t.className = 'tile'; t.innerHTML = tileSVG(fixed); cell.appendChild(t); }
+    else if (placed) { const t = document.createElement('div'); t.className = 'tile puzzle-placed'; t.innerHTML = tileSVG(placed.letter); cell.appendChild(t); }
+    boardEl.appendChild(cell);
+  }
+  const rackEl = $('puzzleRack');
+  if (rackEl) rackEl.innerHTML = st.rack.map((t, i) => `<div class="tile puzzle-rack-tile${t.used ? ' used' : ''}${st.selected === i ? ' selected' : ''}" data-i="${i}">${tileSVG(t.ch)}</div>`).join('');
+  const fill = $('puzzleStrengthFill'), pct = $('puzzleStrengthPct');
+  const p = st.lastPct == null ? 0 : st.lastPct;
+  if (fill) fill.style.width = Math.min(100, p) + '%';
+  if (pct) pct.textContent = st.lastPct == null ? '' : Math.round(p) + '%';
+  const status = $('puzzleBoardStatus');
   if (status) { status.textContent = st.msg || ''; status.className = 'puzzle-status' + (st.good ? ' good' : st.bad ? ' bad' : ''); }
-  const check = $('puzzleCheckBtn'), shuffle = $('puzzleShuffleBtn');
+  const check = $('puzzleBoardCheckBtn'), clear = $('puzzleBoardClearBtn');
   if (check) check.disabled = st.solved;
-  if (shuffle) shuffle.disabled = st.solved;
+  if (clear) clear.disabled = st.solved;
 }
-function puzzlePickTile(i) {
-  const st = puzzleState; if (!st || st.solved) return;
-  const t = st.letters[i]; if (!t || t.used) return;
-  const slot = st.picked.findIndex(p => !p); if (slot === -1) return;
-  t.used = true; st.picked[slot] = t; st.msg = ''; st.good = st.bad = false;
-  renderPuzzle();
+function puzzleBoardSelectRack(i) {
+  const st = puzzleBoardState; if (!st || st.solved) return;
+  const t = st.rack[i]; if (!t || t.used) return;
+  st.selected = st.selected === i ? null : i;
+  renderPuzzleBoard();
 }
-function puzzleUnpickSlot(i) {
-  const st = puzzleState; if (!st || st.solved) return;
-  const t = st.picked[i]; if (!t) return;
-  t.used = false; st.picked[i] = null; st.msg = ''; st.good = st.bad = false;
-  renderPuzzle();
+function puzzleBoardTapCell(r, c) {
+  const st = puzzleBoardState; if (!st || st.solved) return;
+  if (st.board[r][c]) return; // a fixed board tile — not playable
+  const placedIdx = st.placed.findIndex(p => p.row === r && p.col === c);
+  if (placedIdx !== -1) {
+    // Tap a placed tile to send it back to the rack.
+    const p = st.placed[placedIdx];
+    st.rack[p.rackIndex].used = false;
+    st.placed.splice(placedIdx, 1);
+    st.msg = ''; st.good = st.bad = false;
+    renderPuzzleBoard();
+    return;
+  }
+  if (st.selected == null) return;
+  const t = st.rack[st.selected]; if (!t || t.used) return;
+  t.used = true;
+  st.placed.push({ row: r, col: c, letter: t.ch, rackIndex: st.selected });
+  st.selected = null;
+  st.msg = ''; st.good = st.bad = false;
+  renderPuzzleBoard();
 }
-function puzzleCheck() {
-  const st = puzzleState; if (!st || st.solved) return;
-  if (st.picked.some(p => !p)) { st.msg = 'Fill every slot first.'; st.bad = true; renderPuzzle(); return; }
-  if (st.picked.map(p => p.ch).join('') === st.word) {
+function puzzleBoardClear() {
+  const st = puzzleBoardState; if (!st || st.solved) return;
+  for (const p of st.placed) st.rack[p.rackIndex].used = false;
+  st.placed = []; st.selected = null; st.msg = ''; st.good = st.bad = false;
+  renderPuzzleBoard();
+}
+function puzzleBoardCheck() {
+  const st = puzzleBoardState; if (!st || st.solved) return;
+  if (!st.placed.length) { st.msg = 'Place some tiles first.'; st.bad = true; renderPuzzleBoard(); return; }
+  if (!localEngine) { st.msg = 'Words still loading — try again.'; st.bad = true; renderPuzzleBoard(); return; }
+  const res = localEngine.validatePlay(st.board, st.puzzle.rack, st.placed.map(p => ({ row: p.row, col: p.col, letter: p.letter })), st.puzzle.premiums, false);
+  if (!res.valid) {
+    const bad = res.invalidWords && res.invalidWords.length ? ': ' + res.invalidWords.join(', ') : '';
+    st.msg = (res.error === 'not a word' ? 'Not a word' + bad : res.error || 'That does not play.') + ' Try again.';
+    st.bad = true; st.good = false;
+    renderPuzzleBoard();
+    return;
+  }
+  const pct = Math.min(100, (res.score / st.puzzle.optimalScore) * 100);
+  st.lastPct = pct; st.lastScore = res.score;
+  if (res.score >= st.puzzle.optimalScore) {
     st.solved = true;
-    puzzleSaveSolved(localDateKey(new Date()));
-    st.msg = `Solved! Streak: ${puzzleStreak()} day${puzzleStreak() === 1 ? '' : 's'}. Come back tomorrow for a new one.`;
+    puzzleSaveSolved(st.dateKey);
+    st.msg = `Solved! ${res.mainWord} — ${res.score} pts, the best move. Streak: ${puzzleStreak()} day${puzzleStreak() === 1 ? '' : 's'}.`;
     st.good = true; st.bad = false;
-    renderPuzzle(); renderHomeHeader();
+    renderPuzzleBoard(); renderHomeHeader();
   } else {
-    st.picked.forEach(p => { if (p) p.used = false; });
-    st.picked = st.picked.map(() => null);
-    st.msg = 'Not quite — try again.';
-    st.bad = true;
-    renderPuzzle();
+    st.msg = `${res.mainWord} — ${res.score} pts, ${Math.round(pct)}% of the best move. Try again.`;
+    st.bad = true; st.good = false;
+    // The attempt bounces back to the rack; the bar keeps the last score.
+    for (const p of st.placed) st.rack[p.rackIndex].used = false;
+    st.placed = []; st.selected = null;
+    renderPuzzleBoard();
   }
 }
 async function openDailyPuzzle() {
-  const modal = $('puzzleModal'); if (!modal) return;
-  const dateEl = $('puzzleDate');
-  if (dateEl) dateEl.textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-  modal.classList.remove('hidden');
-  const words = await ensureLocalWords();
-  if (!words) {
-    puzzleState = null;
-    const status = $('puzzleStatus'); if (status) { status.textContent = 'Words still loading — check your connection and try again.'; status.className = 'puzzle-status bad'; }
+  show('puzzleBoardScreen');
+  const status = $('puzzleBoardStatus');
+  if (status) { status.textContent = 'Loading today’s puzzle…'; status.className = 'puzzle-status'; }
+  const [all, words] = await Promise.all([loadDailyPuzzles(), ensureLocalWords()]);
+  const entry = dailyPuzzleEntry(all);
+  if (!entry || !words || !localEngine) {
+    puzzleBoardState = null;
+    if (status) { status.textContent = !entry ? 'No puzzle loaded yet — check your connection and try again.' : 'Words still loading — check your connection and try again.'; status.className = 'puzzle-status bad'; }
     return;
   }
-  const word = dailyPuzzleWord();
-  const today = localDateKey(new Date());
-  const solved = puzzleSolvedDates().has(today);
-  let letters = puzzleShuffle(word.split('').map(ch => ({ ch, used: false })));
-  // A shuffle that spells the word itself is no puzzle at all.
-  while (letters.map(t => t.ch).join('') === word) letters = puzzleShuffle(letters);
-  puzzleState = { word, letters, picked: word.split('').map(() => null), solved, msg: '', good: false, bad: false };
-  if (solved) {
-    puzzleState.picked = word.split('').map(ch => ({ ch, used: true }));
-    puzzleState.letters.forEach(t => { t.used = true; });
-    puzzleState.msg = 'Solved! Come back tomorrow for a new one.';
-    puzzleState.good = true;
+  const dateEl = $('puzzleBoardDate');
+  if (dateEl) {
+    const [y, m, d] = entry.dateKey.split('-').map(Number);
+    dateEl.textContent = new Date(y, m - 1, d, 12).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   }
-  renderPuzzle();
+  const solved = puzzleSolvedDates().has(entry.dateKey);
+  puzzleBoardState = {
+    entry, dateKey: entry.dateKey, puzzle: entry.puzzle, board: puzzleBoardBase(entry),
+    rack: entry.puzzle.rack.map(ch => ({ ch, used: false })),
+    placed: [], selected: null, solved, msg: '', good: false, bad: false,
+    lastPct: null, lastScore: null,
+  };
+  if (solved) {
+    puzzleBoardState.msg = `Solved! The best move was ${entry.puzzle.optimalWord} — ${entry.puzzle.optimalScore} pts. Come back tomorrow.`;
+    puzzleBoardState.good = true;
+    puzzleBoardState.lastPct = 100;
+  }
+  renderPuzzleBoard();
 }
-function closeDailyPuzzle() { const m = $('puzzleModal'); if (m) m.classList.add('hidden'); }
+function closeDailyPuzzle() { show('homeScreen'); }
 function show(id) {
   // Leaving the board closes the live game stream (a new game opens
   // its own in enterGameScreen); the stat window is an overlay on
@@ -240,7 +348,9 @@ function show(id) {
   // and show() clears them on any navigation away.
   if (id !== 'searchingScreen') cancelSearch();
   if (id !== 'rematchScreen') cancelRematch();
-  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
+  // v142: puzzleBoardScreen is a full screen like gameScreen — it hides
+  // the tab bar (it has its own Back button) and is not a menu screen.
+  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen', 'puzzleBoardScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
   const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen'].includes(id);
   // Warm the offline engine when the bot screen opens (v107): the
   // dictionary + solver index build used to run on the first bot tap,
@@ -1323,11 +1433,11 @@ async function loadMe() {
 $('playBotsBtn').onclick = () => show('botScreen');
 $('playFriendsBtn').onclick = showFriendsTab;
 $('dailyPuzzleBtn').onclick = openDailyPuzzle;
-$('puzzleCloseBtn').onclick = closeDailyPuzzle;
-$('puzzleCheckBtn').onclick = puzzleCheck;
-$('puzzleShuffleBtn').onclick = () => { if (!puzzleState || puzzleState.solved) return; puzzleShuffle(puzzleState.letters); puzzleState.msg = ''; renderPuzzle(); };
-$('puzzleTiles').onclick = (e) => { const b = e.target.closest('.puzzle-tile'); if (b) puzzlePickTile(+b.dataset.i); };
-$('puzzleAnswer').onclick = (e) => { const s = e.target.closest('.puzzle-slot'); if (s) puzzleUnpickSlot(+s.dataset.i); };
+$('puzzleBoardBackBtn').onclick = closeDailyPuzzle;
+$('puzzleBoardCheckBtn').onclick = puzzleBoardCheck;
+$('puzzleBoardClearBtn').onclick = puzzleBoardClear;
+$('puzzleRack').onclick = (e) => { const b = e.target.closest('.puzzle-rack-tile'); if (b) puzzleBoardSelectRack(+b.dataset.i); };
+$('puzzleBoard').onclick = (e) => { const c = e.target.closest('.cell'); if (c) puzzleBoardTapCell(+c.dataset.r, +c.dataset.c); };
 // Matchmaking, not an instant game: Play Online (the globe) shows a
 // searching screen that ticks for a random 2-3 seconds, then makes
 // the match. Cancel, or any navigation away, abandons the search.

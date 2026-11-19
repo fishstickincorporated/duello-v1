@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 131;
+const APP_VERSION = 132;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -157,6 +157,10 @@ function renderHomeHeader() {
   if (pfp) { pfp.innerHTML = pfpHTML(me); pfp.classList.toggle('no-photo', !usablePhoto(me)); }
   const elo = $('homeElo'); if (elo) elo.textContent = me.elo ?? '';
   const streak = $('homeStreak'); if (streak) streak.textContent = puzzleStreak();
+  // Daily Puzzle button subtitle is the live streak (v132): "N day
+  // streak!🔥". Updated here so it refreshes on every home show and
+  // right after a puzzle is solved (renderHomeHeader is called there).
+  const psub = $('puzzleStreakSub'); if (psub) psub.textContent = puzzleStreak() + ' day streak!🔥';
   const tag = $('puzzleSolvedTag'); if (tag) tag.classList.toggle('hidden', !puzzleSolvedDates().has(localDateKey(new Date())));
 }
 // Daily Puzzle: one unscramble a day. The word is picked

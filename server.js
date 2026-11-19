@@ -51,10 +51,12 @@ const pool = new Pool({
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const ROOT = __dirname;
-// Usernames a real account may never take (v126): the bot handles.
+// Usernames a real account may never take (v126, v133): the bot handles.
 // 'fishstick' is the Fishstick bot's handle — it shows as @fishstick
 // in Game History, so no player may register or rename to it.
-const RESERVED_USERNAMES = new Set(['fishstick']);
+// 'competitivebot' is the Competitive Bot's handle — it shows as
+// @competitivebot in Game History and on the leaderboard.
+const RESERVED_USERNAMES = new Set(['fishstick', 'competitivebot']);
 const DATA_DIR = path.join(ROOT, 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -1768,7 +1770,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/signup' && req.method === 'POST') {
       const b = await readBody(req);
       const email = String(b.email || '').trim().toLowerCase();
-      const username = String(b.username || '').trim();
+      const username = String(b.username || '').trim().toLowerCase();
       const firstName = String(b.firstName || '').trim();
       const lastName = String(b.lastName || '').trim();
       const password = String(b.password || '');
@@ -1869,7 +1871,7 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const firstName = String(b.firstName || '').trim();
       const lastName = String(b.lastName || '').trim();
-      const username = String(b.username || '').trim();
+      const username = String(b.username || '').trim().toLowerCase();
       if (!firstName) return sendJson(res, 400, { error: 'Add a first name.' });
       if (!/^[a-z0-9_]{3,}$/.test(username)) return sendJson(res, 400, { error: 'Username: lowercase letters, numbers, and underscores only, at least 3 characters.' });
       if (RESERVED_USERNAMES.has(username)) return sendJson(res, 400, { error: 'That username is taken.' });
@@ -2234,7 +2236,7 @@ const server = http.createServer(async (req, res) => {
         // the plain name. Bots have no photo — the client renders the
         // fishstick image / robot for those kinds.
         const oppUser = g.botType === 'human' ? (isOpp ? g.challenger : g.opponent) : null;
-        const opponentUsername = g.botType === 'persona' && g.persona ? '@' + g.persona.username : g.botType === 'competitive' ? 'Competitive Bot' : g.botType === 'fishstick' ? '@fishstick' : (oppUser && oppUser.username ? '@' + oppUser.username : oppName);
+        const opponentUsername = g.botType === 'persona' && g.persona ? '@' + g.persona.username : g.botType === 'competitive' ? '@competitivebot' : g.botType === 'fishstick' ? '@fishstick' : (oppUser && oppUser.username ? '@' + oppUser.username : oppName);
         const opponentPhoto = g.botType === 'persona' && g.persona ? (g.persona.photoData || null) : g.botType === 'human' ? ((oppUser && oppUser.photoData) || null) : null;
         const opponentKind = g.botType === 'persona' ? 'persona' : g.botType === 'competitive' ? 'competitive' : g.botType === 'fishstick' ? 'fishstick' : 'human';
         const result = g.winner === 'draw' ? 'draw' : g.winner === mySide ? 'win' : g.winner === oppSide ? 'loss' : 'loss';

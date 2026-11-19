@@ -303,6 +303,9 @@ same 52px column, right-aligned, on every row including your own
 #pastGamesScreen{display:flex;flex-direction:column;gap:16px}
 #pastGamesScreen.hidden{display:none!important}
 #pastGamesScreen .auth-heading{margin:0}
+/* v133: Back sits closer to Load more — the flex gap (16px) plus a
+   small top margin, instead of the .back-pill default 22px. */
+#pastGamesScreen #pastGamesBackBtn{margin-top:6px}
 #pastGamesScreen .past-games-list{margin-top:0}
 #pastGamesScreen .menu-btn{margin-top:0}
 .menu-btn{display:block;width:100%;padding:9px;border:0;border-radius:10px;background:#03eaff;color:#1a1d24;cursor:pointer;font-weight:800;font-size:13px}
@@ -343,7 +346,10 @@ same 52px column, right-aligned, on every row including your own
 /* Settings (gear) rows — v120 push toggle. iOS-style switch in Duello
    blue when on; the row itself is hidden on the web, where there is
    no push, and shown only under Capacitor. */
-.settings-section{margin-top:18px;border-top:1px solid #2a2f3a;padding-top:14px}
+.settings-section{margin-top:18px}
+/* v133: the single divider line — Push notifications sits above it,
+   Delete account / Definitions / Privacy Policy sit below it. */
+.settings-divider{border:0;border-top:1px solid #2a2f3a;margin:14px 0 0;padding:0}
 .setting-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 2px}
 .setting-label{font-size:15px;font-weight:700;color:#e8ecf1}
 .setting-sub{font-size:12px;color:#8a8f9c;margin-top:2px;line-height:1.35}
@@ -455,14 +461,12 @@ squares are the premium colours, spread out across the whole screen. */
 #introLogoZoom{transform:scale(3)}
 #introLogo{display:block;width:min(88vw,340px);height:auto}
 
-/* ---------- v131: home redesign (faint blue mosaic + daily hook) ---------- */
+/* ---------- v131: home redesign (faint blue texture + daily hook) ---------- */
 #homeScreen{position:relative;display:flex;flex-direction:column;min-height:100dvh;min-height:100svh;padding-bottom:112px}
 #homeScreen .logo-img.home-logo{width:72%;margin-top:0;position:relative;z-index:1}
-.home-mosaic{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0;display:grid;grid-template-columns:repeat(9,1fr);grid-auto-rows:1fr;gap:10px;padding:14px 12px}
-.mtile{border-radius:6px;background:rgba(3,234,255,.05);border:1px solid rgba(3,234,255,.09);color:rgba(3,234,255,.16);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px}
 #homeScreen .home-head,#homeScreen .modes{position:relative;z-index:1}
 .home-head{display:flex;align-items:center;gap:12px;margin:2px 0 16px;text-align:left}
-.home-pfp{width:52px;height:52px;flex:0 0 52px;border-radius:50%;overflow:hidden;background:#3a3f4b;display:flex;align-items:center;justify-content:center;font-size:26px}
+.home-pfp{width:52px;height:52px;flex:0 0 52px;border-radius:50%;overflow:hidden;background:#3a3f4b;display:flex;align-items:center;justify-content:center;font-size:26px;cursor:pointer}
 .home-pfp img{width:100%;height:100%;object-fit:cover;display:block}
 .home-pfp svg{width:52px;height:52px;display:block}
 .home-head-stats{display:flex;align-items:center;gap:18px;flex:1;min-width:0}
@@ -470,18 +474,19 @@ squares are the premium colours, spread out across the whole screen. */
 .home-stat-icon{display:flex}
 .home-stat-value{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
 .home-stat-label{color:#b3b2b1;font-size:12px}
-#homeScreen .modes{flex:1;display:flex;flex-direction:column;gap:12px;margin-top:0}
+#homeScreen .modes{flex:1;display:flex;flex-direction:column;gap:16px;margin-top:0}
 #homeScreen .mode{flex:1 1 0;height:auto;min-height:88px;font-size:20px}
 #homeScreen .mode .sym svg{width:44px;height:44px}
 /* v132: home buttons are big glossy gradient cards (Jeff's screenshot).
-   Each gradient runs from a lighter tint at the top to its brand base
-   color at the bottom, so the base anchors the button: Online #03eaff,
-   Friends #1cff03, Bots #ff8d03, Puzzle #ff03ee. The v131 textures are
+   v133: darkened so the white text pops way more — each gradient runs
+   from its brand base color at the top to a darker shade of that same
+   color at the bottom: Online #03eaff→#0090a8, Friends #1cff03→#0fb300,
+   Bots #ff8d03→#d97300, Puzzle #ff03ee→#c000b2. The v131 textures are
    kept as a faint white overlay so the gradient color dominates. */
-.mode-online{background:repeating-linear-gradient(115deg,rgba(255,255,255,.05) 0 6px,transparent 6px 14px),linear-gradient(180deg,#8ff5ff 0%,#03eaff 100%);border-color:#0096b3;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #006b7d}
-.mode-friends{background:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(180deg,#a5ff94 0%,#1cff03 100%);background-size:22px 22px,22px 22px,100% 100%;border-color:#14c400;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #0e9e00}
-.mode-bots{background:radial-gradient(rgba(255,255,255,.07) 1.5px,transparent 1.5px),linear-gradient(180deg,#ffc27a 0%,#ff8d03 100%);background-size:16px 16px,100% 100%;border-color:#e07a00;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #a85a00}
-.mode-puzzle{background:repeating-linear-gradient(45deg,rgba(255,255,255,.06) 0 10px,transparent 10px 20px),linear-gradient(180deg,#ff8ff5 0%,#ff03ee 100%);border-color:#d600c4;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #9e0091}
+.mode-online{background:repeating-linear-gradient(115deg,rgba(255,255,255,.05) 0 6px,transparent 6px 14px),linear-gradient(180deg,#03eaff 0%,#0090a8 100%);border-color:#007a90;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #00596b}
+.mode-friends{background:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(180deg,#1cff03 0%,#0fb300 100%);background-size:22px 22px,22px 22px,100% 100%;border-color:#0c9600;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #087000}
+.mode-bots{background:radial-gradient(rgba(255,255,255,.07) 1.5px,transparent 1.5px),linear-gradient(180deg,#ff8d03 0%,#d97300 100%);background-size:16px 16px,100% 100%;border-color:#b85f00;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #8a4700}
+.mode-puzzle{background:repeating-linear-gradient(45deg,rgba(255,255,255,.06) 0 10px,transparent 10px 20px),linear-gradient(180deg,#ff03ee 0%,#c000b2 100%);border-color:#9e0091;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #73006a}
 /* Text must pop on the bright gradients: bold white title and near-white
    subtitle, both with a dark shadow; white chevron with a shadow too. */
 #homeScreen .mode .label-col{flex:1;text-align:left;display:flex;flex-direction:column;gap:2px;min-width:0;justify-content:center}
@@ -489,9 +494,14 @@ squares are the premium colours, spread out across the whole screen. */
 #homeScreen .mode .label-col .sub{font-size:13px;color:rgba(255,255,255,.95);font-weight:400;text-shadow:0 1px 2px rgba(0,0,0,.55)}
 #homeScreen .mode .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
 #homeScreen .mode .sym svg{filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
-/* Subtle background texture over the mosaic: faint Duello-blue dots,
-   low opacity, so it reads as texture — not a new color or pattern. */
-#homeScreen::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:0;background-image:radial-gradient(rgba(3,234,255,.055) 1px,transparent 1.4px);background-size:18px 18px}
+/* Subtle background texture (v133): the letter tiles are gone — just
+   faint Duello-blue dots covering the whole home screen edge to edge.
+   The ::after spans the full element (inset:0), and the home screen
+   itself starts at the very top of the viewport (viewport-fit=cover
+   + safe-area padding), so the texture runs right up past the
+   Dynamic Island to the bottom, under the tab bar. Blue-only, faint,
+   so it never fights the buttons. */
+#homeScreen::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:0;background-image:radial-gradient(rgba(3,234,255,.07) 1px,transparent 1.4px);background-size:16px 16px}
 /* Offline grey-out must win over the gradients (same specificity, later in file). */
 #homeScreen .mode.greyed{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#b3b2b1;border-color:#3c424e;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 0 #1e222b;opacity:.55}
 #homeScreen .mode.greyed .chev{color:#b3b2b1}

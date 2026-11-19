@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 132;
+const APP_VERSION = 133;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -111,22 +111,6 @@ function refreshOnlineButtons() {
   }
 }
 // ---------- v131: home redesign + Daily Puzzle ----------
-// Home mosaic: faint Duello-blue letter tiles behind the home screen.
-// Built once (the grid is static); only blue is used anywhere in it.
-let homeMosaicBuilt = false;
-function buildHomeMosaic() {
-  if (homeMosaicBuilt) return;
-  const box = $('homeMosaic'); if (!box) return;
-  homeMosaicBuilt = true;
-  const letters = 'DUELLO';
-  let html = '';
-  for (let i = 0; i < 144; i++) {
-    const ch = Math.random() < 0.4 ? letters[i % letters.length] : String.fromCharCode(65 + Math.floor(Math.random() * 26));
-    const rot = Math.random() < 0.3 ? ` style="transform:rotate(${(Math.random() * 10 - 5).toFixed(1)}deg)"` : '';
-    html += `<span class="mtile"${rot}>${ch}</span>`;
-  }
-  box.innerHTML = html;
-}
 // Daily Puzzle streak: solved dates live in localStorage (per device,
 // offline-safe). A streak is consecutive solved days ending today, or
 // ending yesterday when today is not solved yet.
@@ -151,7 +135,6 @@ function puzzleStreak() {
   return n;
 }
 function renderHomeHeader() {
-  buildHomeMosaic();
   if (!me) return;
   const pfp = $('homePfp');
   if (pfp) { pfp.innerHTML = pfpHTML(me); pfp.classList.toggle('no-photo', !usablePhoto(me)); }
@@ -503,13 +486,13 @@ function preloadHomeTabs() {
         api('/api/users/rank?username=' + encodeURIComponent(f.username)).then(d => setRank(f.username, d.rank)).catch(() => {});
       }
     } catch {}
-    // Warm the Game History list in the background (v126): the first
-    // page (25, Aggregate) is fetched once here so it is already in
-    // hand when the profile tab's Game History button is tapped — no
-    // Loading note, no wait. Fire-and-forget; a failure (offline)
-    // just leaves the cache empty and openPastGames fetches on tap
-    // as before.
-    try { api('/api/games?limit=25&offset=0&scope=aggregate').then(r => { if (r && Array.isArray(r.games)) historyState.aggregate = { games: r.games, hasMore: !!r.hasMore }; }).catch(() => {}); } catch {}
+    // Warm the Game History filters in the background (v126, v133):
+    // the first page (25) of every scope is fetched once here so it
+    // is already in hand when Game History opens or a filter tab is
+    // tapped — no Loading note, no wait. Fire-and-forget; a failure
+    // (offline) just leaves the cache empty and openPastGames /
+    // setHistoryScope fetch on tap as before.
+    try { warmHistoryScopes(); } catch {}
   };
   // Idle-scheduled (v93): the 2s timeout bounds the wait, and the
   // intro now gives it a 3.4s head start, so the profile is ready
@@ -1890,8 +1873,17 @@ function renderReplay() {
   }
   // Status names the step, without the move count (v124): no
   // "Move x of y" — just who played what, or the start / final.
+  // v133: the final board names the last play too ("You played CAT"),
+  // no +score — the same who logic as the intermediate steps. A log
+  // with no moves falls back to 'Final board'.
   if (n === 0) $('status').textContent = 'Start of game';
-  else if (n === total) $('status').textContent = 'Final board';
+  else if (n === total) {
+    const m = log[total - 1];
+    if (m) {
+      const who = m.side === 'human' ? 'You' : ($('botName').textContent || 'Opponent');
+      $('status').textContent = `${who} played ${m.mainWord || ''}`;
+    } else $('status').textContent = 'Final board';
+  }
   else {
     const m = log[n - 1];
     const who = m.side === 'human' ? 'You' : ($('botName').textContent || 'Opponent');
@@ -4580,6 +4572,10 @@ function drawEloChart() {
   ctx.stroke();
 }
 $('tabProfile').onclick = () => { show('profileScreen'); if (!profileData) renderProfileUI(); };
+// Tapping your own pfp on the home screen opens the profile tab
+// (v133): exactly what the profile tab does.
+$('homePfp').onclick = () => { show('profileScreen'); if (!profileData) renderProfileUI(); };
+$('homePfp').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('homePfp').onclick(); } });
 // Game History (v123, item 6; renamed v124): the finished games list, from the
 // server (GET /api/games). Each row shows the opponent's pic and
 // username, the score, and the date; tapping one opens its final board in
@@ -4602,11 +4598,29 @@ let historyState = {
   vsHumans: { games: null, hasMore: true },
   vsBots: { games: null, hasMore: true },
 };
+// Scopes with a first page already in flight (v133): warming never
+// fires a second fetch for a scope that is cached or in flight.
+const historyWarmInFlight = new Set();
 function historyScopeState() { return historyState[historyScope] || historyState.aggregate; }
 async function fetchHistoryPage(scope, offset) {
   const r = await api('/api/games?limit=25&offset=' + offset + '&scope=' + scope);
   return { games: (r && r.games) || [], hasMore: !!(r && r.hasMore) };
 }
+// Warm one scope's first page in the background (v133): a scope
+// with games already cached, or already being fetched, is skipped.
+function warmHistoryScope(scope) {
+  if (!historyState[scope] || historyState[scope].games || historyWarmInFlight.has(scope)) return;
+  if (isOffline()) return;
+  historyWarmInFlight.add(scope);
+  fetchHistoryPage(scope, 0).then(({ games, hasMore }) => {
+    historyState[scope] = { games, hasMore };
+  }).catch(() => {}).finally(() => { historyWarmInFlight.delete(scope); });
+}
+// Warm all three filters' first pages (v133): Vs Humans and Vs Bots
+// are already in hand when their tab is tapped, so the list renders
+// from cache with no network wait. Load more still pages from the
+// cached state (hasMore/offset) as before.
+function warmHistoryScopes() { ['aggregate', 'vsHumans', 'vsBots'].forEach(warmHistoryScope); }
 // The Load more button lives below the list, above Back.
 // It shows only while the active filter still has games on the
 // server; once the last page lands it hides itself.
@@ -4694,6 +4708,9 @@ async function loadMoreHistory() {
 async function openPastGames() {
   show('pastGamesScreen');
   openFailNoteShown = false;
+  // Warm the other filters too (v133): Vs Humans / Vs Bots are
+  // already cached by the time their tab is tapped.
+  try { warmHistoryScopes(); } catch {}
   // The username under the heading (v124): whose history this is.
   const un = (me && me.username) || (profileData && profileData.user && profileData.user.username) || '';
   $('pastGamesUser').textContent = un ? '@' + un : '';
@@ -4910,9 +4927,17 @@ $('editPhotoRemoveBtn').onclick = () => {
   $('editPhotoRemoveBtn').classList.add('hidden');
 };
 $('editCancelBtn').onclick = () => show('profileScreen');
+// Usernames are lowercase-only (v133): force every character to
+// lowercase as it is typed, in the profile edit and the signup
+// flow, so an uppercase letter can never be entered. The server
+// lowercases again as a backstop.
+['editUsername', 'suUsername'].forEach(id => {
+  const el = $(id); if (!el) return;
+  el.addEventListener('input', () => { const v = el.value; if (v !== v.toLowerCase()) el.value = v.toLowerCase(); });
+});
 $('profileEditForm').onsubmit = async e => {
   e.preventDefault();
-  const fn = $('editFirstName').value.trim(), ln = $('editLastName').value.trim(), un = $('editUsername').value.trim(), em = $('editEmail').value.trim().toLowerCase();
+  const fn = $('editFirstName').value.trim(), ln = $('editLastName').value.trim(), un = $('editUsername').value.trim().toLowerCase(), em = $('editEmail').value.trim().toLowerCase();
   if (!fn) { $('editError').textContent = 'Add a first name.'; return; }
   if (!/^[a-z0-9_]{3,}$/.test(un)) { $('editError').textContent = 'Usernames are 3+ lowercase letters, numbers, or underscores.'; return; }
   if (em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { $('editError').textContent = 'Enter a valid email.'; return; }
@@ -5083,7 +5108,7 @@ $('suVerifyBtn').onclick = async () => {
 };
 $('suCreateBtn').onclick = async () => {
   $('suError3').textContent = '';
-  const firstName = $('suFirstName').value.trim(), lastName = $('suLastName').value.trim(), username = $('suUsername').value.trim(), password = $('suPassword').value;
+  const firstName = $('suFirstName').value.trim(), lastName = $('suLastName').value.trim(), username = $('suUsername').value.trim().toLowerCase(), password = $('suPassword').value;
   try {
     if (!firstName || !lastName) throw new Error('First and last name are required.');
     if (!/^[a-z0-9_]{3,}$/.test(username)) throw new Error('Username: lowercase letters, numbers, and underscores only, at least 3 characters.');

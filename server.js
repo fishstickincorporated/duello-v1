@@ -1657,7 +1657,11 @@ const server = http.createServer(async (req, res) => {
     // preflight (OPTIONS) answers with the same headers.
     if (req.method === 'OPTIONS') { res.writeHead(204, CORS_HEADERS); return res.end(); }
     // Static files
-    if (req.method === 'GET' && (pathname === '/' || pathname === '/privacy.html' || pathname.startsWith('/app.js') || pathname.startsWith('/engine.js') || pathname.startsWith('/sw.js') || pathname.startsWith('/words.txt') || pathname.startsWith('/style.css') || pathname.startsWith('/favicon') || pathname.startsWith('/definitions/') || pathname.startsWith('/assets/'))) {
+    // v142: /daily-puzzles.json is served here too — the client fetches the
+    // daily puzzle data from it, and the service worker caches it for
+    // offline play. Without this the whitelist 404s it and the puzzle
+    // never loads.
+    if (req.method === 'GET' && (pathname === '/' || pathname === '/privacy.html' || pathname.startsWith('/app.js') || pathname.startsWith('/engine.js') || pathname.startsWith('/sw.js') || pathname.startsWith('/words.txt') || pathname.startsWith('/style.css') || pathname.startsWith('/favicon') || pathname.startsWith('/definitions/') || pathname.startsWith('/assets/') || pathname.startsWith('/daily-puzzles.json'))) {
       const file = pathname === '/' ? 'index.html' : pathname.slice(1);
       const safe = path.join(ROOT, 'public', file);
       if (!safe.startsWith(path.join(ROOT, 'public'))) { res.writeHead(403); return res.end(); }

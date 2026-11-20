@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 152;
+const APP_VERSION = 153;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -129,16 +129,26 @@ function puzzleUnsolvedDates() {
   try { const raw = JSON.parse(localStorage.getItem(PUZZLE_STORE_KEY) || 'null'); if (raw && Array.isArray(raw.unsolved)) return new Set(raw.unsolved); } catch {}
   return new Set();
 }
-function puzzleWriteStore(solved, unsolved) {
-  try { localStorage.setItem(PUZZLE_STORE_KEY, JSON.stringify({ solved: [...solved].sort(), unsolved: [...unsolved].sort() })); } catch {}
+// v153: the solved move for a date ([{row, col, letter}]) — what the
+// winning play put on the board, so a solved puzzle reopens with the
+// word showing. Stored beside the solved dates and synced the same
+// way (the server's daily_puzzle_solves.placements column).
+function puzzleSolvedMoves() {
+  try { const raw = JSON.parse(localStorage.getItem(PUZZLE_STORE_KEY) || 'null'); if (raw && raw.moves && typeof raw.moves === 'object') return raw.moves; } catch {}
+  return {};
 }
-function puzzleSaveSolved(dateKey) {
+function puzzleWriteStore(solved, unsolved, moves) {
+  try { localStorage.setItem(PUZZLE_STORE_KEY, JSON.stringify({ solved: [...solved].sort(), unsolved: [...unsolved].sort(), moves: moves || puzzleSolvedMoves() })); } catch {}
+}
+function puzzleSaveSolved(dateKey, placements) {
   const set = puzzleSolvedDates(); set.add(dateKey);
   const unsolved = puzzleUnsolvedDates(); unsolved.delete(dateKey);
-  puzzleWriteStore(set, unsolved);
+  const moves = puzzleSolvedMoves();
+  if (Array.isArray(placements) && placements.length) moves[dateKey] = placements.map(p => ({ row: p.row, col: p.col, letter: p.letter }));
+  puzzleWriteStore(set, unsolved, moves);
   // Fire and forget: if this POST fails (offline), the local save
   // stands and the next sync uploads it.
-  if (token && !isOffline()) api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: dateKey }) }).catch(() => {});
+  if (token && !isOffline()) api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: dateKey, placements: moves[dateKey] || undefined }) }).catch(() => {});
 }
 let puzzleServerSynced = false;
 async function puzzleSyncFromServer() {
@@ -148,18 +158,23 @@ async function puzzleSyncFromServer() {
   for (const d of [...unsolved]) {
     try { await api('/api/daily-puzzle/unsolve', { method: 'POST', body: JSON.stringify({ date: d }) }); unsolved.delete(d); } catch {}
   }
-  let serverSolved;
-  try { const j = await api('/api/daily-puzzle'); serverSolved = new Set(Array.isArray(j.solved) ? j.solved : []); }
+  let serverSolved, serverMoves = {};
+  try { const j = await api('/api/daily-puzzle'); serverSolved = new Set(Array.isArray(j.solved) ? j.solved : []); if (j.moves && typeof j.moves === 'object') serverMoves = j.moves; }
   catch { puzzleWriteStore(puzzleSolvedDates(), unsolved); return false; }
   // Then upload local solves the server lacks (offline solves, and
-  // solves from before the account state existed).
+  // solves from before the account state existed) — with the move,
+  // so the other device shows the word too.
   const local = puzzleSolvedDates();
-  for (const d of [...local]) { if (!serverSolved.has(d)) { try { await api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: d }) }); } catch {} } }
+  const localMoves = puzzleSolvedMoves();
+  for (const d of [...local]) { if (!serverSolved.has(d)) { try { await api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: d, placements: localMoves[d] || undefined }) }); } catch {} } }
   // Merge is the union minus tombstones (a reset that has not reached
-  // the server yet must not come back).
+  // the server yet must not come back). A move the server has wins
+  // over a local one for the same date (it is the first solve).
   const merged = new Set([...local, ...serverSolved]);
   for (const d of unsolved) merged.delete(d);
-  puzzleWriteStore(merged, unsolved);
+  const mergedMoves = {};
+  for (const d of merged) { if (serverMoves[d]) mergedMoves[d] = serverMoves[d]; else if (localMoves[d]) mergedMoves[d] = localMoves[d]; }
+  puzzleWriteStore(merged, unsolved, mergedMoves);
   return true;
 }
 function localDateKey(d) {
@@ -528,7 +543,7 @@ function puzzleSolveNow(res) {
   // v152: the solve time feeds the Share message, and confetti rains
   // the moment the optimal move lands.
   st.solvedAt = new Date();
-  puzzleSaveSolved(st.dateKey);
+  puzzleSaveSolved(st.dateKey, st.placed);
   st.lastPct = 100; st.lastScore = res.score;
   // v150: the status reads "That's it!" (the solved branch of
   // puzzleUpdateStatusEl, reached via renderPuzzleBoard), and the
@@ -564,14 +579,18 @@ function renderPuzzleWeekStrip() {
   const strip = $('puzzleWeekStrip'); if (!strip) return;
   const solved = puzzleSolvedDates();
   const letters = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  // v153: the flame is the home page's streak icon (same SVG, same
+  // #ff8d03), not the 🔥 emoji — and it sits above its weekday
+  // letter now, not below it.
+  const flameSvg = '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z" fill="#ff8d03"/></svg>';
   strip.innerHTML = '';
   for (let i = 6; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i);
     const day = document.createElement('div');
     day.className = 'day' + (i === 0 ? ' today' : '') + (solved.has(localDateKey(d)) ? '' : ' missed');
     const letter = document.createElement('span'); letter.className = 'letter'; letter.textContent = letters[d.getDay()];
-    const flame = document.createElement('span'); flame.className = 'flame'; flame.textContent = '🔥';
-    day.appendChild(letter); day.appendChild(flame); strip.appendChild(day);
+    const flame = document.createElement('span'); flame.className = 'flame'; flame.innerHTML = flameSvg;
+    day.appendChild(flame); day.appendChild(letter); strip.appendChild(day);
   }
 }
 // v152: a Share link (?puzzle=...) opens the daily puzzle once the
@@ -814,6 +833,33 @@ function puzzleBoardShuffle() {
   st.selected = null;
   renderPuzzleBoard();
 }
+// v153: a solved puzzle reopens with the played word on the board.
+// The stored move ([{row, col, letter}]) is matched back onto the
+// rack (each letter takes an unused rack tile); the point bubble
+// goes back on the word too. Returns the word's cells (for the
+// bubble) or null when there is no stored move that fits. A move
+// that does not fit the rack is ignored, never fatal — the rack is
+// only touched once the whole move has been matched.
+function puzzleRestoreSolvedMove(st) {
+  if (!st || !st.solved) return null;
+  const move = puzzleSolvedMoves()[st.dateKey];
+  if (!Array.isArray(move) || !move.length) return null;
+  const taken = new Set();
+  const placed = [];
+  for (const p of move) {
+    if (!p || !Number.isInteger(p.row) || !Number.isInteger(p.col) || typeof p.letter !== 'string') return null;
+    const idx = st.rack.findIndex((t, i) => !taken.has(i) && !t.used && t.ch === p.letter);
+    if (idx === -1) return null;
+    taken.add(idx);
+    placed.push({ row: p.row, col: p.col, letter: p.letter, rackIndex: idx });
+  }
+  if (!placed.length) return null;
+  for (const p of placed) st.rack[p.rackIndex].used = true;
+  st.placed = placed;
+  const sameRow = placed.every(p => p.row === placed[0].row);
+  const sorted = placed.slice().sort((a, b) => sameRow ? a.col - b.col : a.row - b.row);
+  return sorted.map(p => [p.row, p.col]);
+}
 async function openDailyPuzzle() {
   show('puzzleBoardScreen');
   const status = $('puzzleBoardStatus');
@@ -842,10 +888,15 @@ async function openDailyPuzzle() {
   // v150: a solved puzzle reopens with the status reading "That's
   // it!" (the solved branch of puzzleUpdateStatusEl) and the bar at
   // 100% — no solved message is stored in st.msg any more.
+  // v153: the played word is on the board too (the stored move is
+  // restored onto the rack), with its point bubble back on it.
+  let solvedCells = null;
   if (solved) {
     puzzleBoardState.lastPct = 100;
+    solvedCells = puzzleRestoreSolvedMove(puzzleBoardState);
   }
   renderPuzzleBoard();
+  if (solvedCells) puzzleShowBubble(puzzleBoardState.puzzle.optimalScore, solvedCells);
   renderPuzzleWeekStrip();
   // The solved-state sync runs in the background (v148): it was
   // already warmed by the preload, and blocking the board on a fresh
@@ -859,11 +910,17 @@ async function openDailyPuzzle() {
     puzzleBoardState.solved = nowSolved;
     if (nowSolved) {
       puzzleBoardState.lastPct = 100;
+      // v153: the move came down with the sync — put the word on
+      // the board (and its bubble) instead of an empty solved board.
+      const cells = puzzleRestoreSolvedMove(puzzleBoardState);
+      renderPuzzleBoard();
+      if (cells) puzzleShowBubble(puzzleBoardState.puzzle.optimalScore, cells);
     } else {
       puzzleBoardState.msg = '';
       puzzleBoardState.lastPct = null;
+      renderPuzzleBoard();
     }
-    renderPuzzleBoard(); renderHomeHeader(); renderPuzzleWeekStrip();
+    renderHomeHeader(); renderPuzzleWeekStrip();
   }).catch(() => {});
 }
 function closeDailyPuzzle() { show('homeScreen'); }
@@ -5731,6 +5788,11 @@ async function openPrivacyScreen() {
     const html = await r.text();
     const m = html.match(/<main>([\s\S]*?)<\/main>/);
     box.innerHTML = m ? m[1] : html;
+    // v153: the policy's bottom link is a standard back button now
+    // (it lives in the injected <main>, so it is wired here, after
+    // the injection). It goes back to Settings, like the top one.
+    const bb = box.querySelector('#privacyBottomBackBtn');
+    if (bb) bb.onclick = () => show('profileEditScreen');
     box.dataset.loaded = '1';
   } catch { box.innerHTML = '<p>Could not load the Privacy Policy. Check your connection and try again.</p>'; }
 }

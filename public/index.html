@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=152"></head>
+<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=153"></head>
 <body><div id="introOverlay"><div id="introFlicker"></div><div id="introInner"><div id="introLogoZoom"><img id="introLogo" src="/assets/logo.png?v=2" alt="DUELLO"></div></div></div><div id="bootError" style="display:none;position:fixed;top:12px;left:12px;right:12px;z-index:9999;background:#ffd166;color:#1a1d24;padding:12px;border-radius:10px;font-size:14px;line-height:1.4" onclick="this.style.display='none'"></div><div id="app">
   <noscript><p style="color:#e8ecf1;text-align:center;padding:40px 20px">Duello needs JavaScript enabled to run. Turn JavaScript on in your browser settings and reload.</p></noscript>
 
@@ -202,7 +202,7 @@
        text is fetched from the bundled /privacy.html and injected
        here; that file stays the single source of truth. -->
   <section id="profilePrivacyScreen" class="screen hidden">
-    <button class="back-pill" id="privacyBackBtn" type="button">&lsaquo; Settings</button>
+    <button class="back-pill" id="privacyBackBtn" type="button">← Back</button>
     <div id="privacyContent" class="privacy-body"></div>
   </section>
 
@@ -365,7 +365,7 @@
   <div id="signOutModal" class="person-modal hidden"><div class="person-card"><div class="crop-title">Are you sure?</div><p class="small">You will be signed out of Duello.</p><div class="challenge-actions"><button class="mini-btn grey" id="signOutCancelBtn">Cancel</button><button class="mini-btn" id="signOutConfirmBtn">Sign out</button></div></div></div>
   <!-- v152: delete confirmation is a modal window like sign-out, not
        a page any more. The confirm + code steps live inside it. -->
-  <div id="deleteModal" class="person-modal hidden"><div class="person-card"><div class="crop-title">Delete account?</div><p class="small">This permanently deletes your account, games, Elo, and stats. This cannot be undone.</p><p id="editDeleteError" class="error"></p><div class="edit-actions stacked" id="editDeleteActions"><button class="btn cancel" type="button" id="editDeleteCancelBtn">Keep my account</button><button class="btn danger" type="button" id="editDeleteConfirmBtn">Yes, delete my account</button></div><div id="editDeleteCode" class="hidden"><p class="small" id="editDeleteCodeMsg"></p><div class="edit-field"><label for="editDeleteCodeInput">Code</label><input id="editDeleteCodeInput" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="one-time-code"></div><p id="editDeleteCodeError" class="error"></p><div class="edit-actions stacked"><button class="btn primary" type="button" id="editDeleteCodeVerifyBtn">Delete my account</button><button class="btn cancel" type="button" id="editDeleteCodeBackBtn">Back</button></div><button class="link" id="editDeleteCodeResendBtn" type="button">Send a new code</button></div></div></div>
+  <div id="deleteModal" class="person-modal hidden"><div class="person-card"><div class="crop-title">Delete account?</div><p class="small">This permanently deletes your account, games, elo, and stats. This cannot be undone.</p><p id="editDeleteError" class="error"></p><div class="edit-actions stacked" id="editDeleteActions"><button class="btn cancel" type="button" id="editDeleteCancelBtn">Keep my account</button><button class="btn danger" type="button" id="editDeleteConfirmBtn">Yes, delete my account</button></div><div id="editDeleteCode" class="hidden"><p class="small" id="editDeleteCodeMsg"></p><div class="edit-field"><label for="editDeleteCodeInput">Code</label><input id="editDeleteCodeInput" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="one-time-code"></div><p id="editDeleteCodeError" class="error"></p><div class="edit-actions stacked"><button class="btn primary" type="button" id="editDeleteCodeVerifyBtn">Delete my account</button><button class="btn cancel" type="button" id="editDeleteCodeBackBtn">Back</button></div><button class="link" id="editDeleteCodeResendBtn" type="button">Send a new code</button></div></div></div>
 </div>
 <script>
 (function () {
@@ -399,5 +399,5 @@
   } catch (e) {}
 })();
 </script>
-<script src="/engine.js?v=152" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
-<script src="/app.js?v=152" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>
+<script src="/engine.js?v=153" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
+<script src="/app.js?v=153" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>

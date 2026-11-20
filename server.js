@@ -114,6 +114,9 @@ async function initDb() {
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_data TEXT');
   // Duello Pro tier (v147): a real account flag, default Free.
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS pro BOOLEAN NOT NULL DEFAULT FALSE');
+  // Daily Puzzle solved move (v153): the placements of the winning
+  // play, so a solved puzzle reopens with the word on the board.
+  await pool.query('ALTER TABLE daily_puzzle_solves ADD COLUMN IF NOT EXISTS placements JSONB');
   // Real friend requests (v53): one row per directed request, pending
   // until accepted; accepted rows are the friendship. Personas are
   // not in users, so they can never be a request target here.
@@ -2078,8 +2081,10 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/daily-puzzle' && req.method === 'GET') {
       const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      const r = await q('SELECT date FROM daily_puzzle_solves WHERE user_id=$1 ORDER BY date', [user.id]);
-      return sendJson(res, 200, { solved: r.rows.map(x => x.date) });
+      const r = await q('SELECT date, placements FROM daily_puzzle_solves WHERE user_id=$1 ORDER BY date', [user.id]);
+      const moves = {};
+      for (const x of r.rows) if (Array.isArray(x.placements)) moves[x.date] = x.placements;
+      return sendJson(res, 200, { solved: r.rows.map(x => x.date), moves });
     }
     if (pathname === '/api/daily-puzzle/solve' && req.method === 'POST') {
       const user = await authUser(req);
@@ -2087,7 +2092,18 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const date = String(b.date || '').trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendJson(res, 400, { error: 'Enter a date.' });
-      await q('INSERT INTO daily_puzzle_solves (user_id, date) VALUES ($1,$2) ON CONFLICT (user_id, date) DO NOTHING', [user.id, date]);
+      // v153: an optional solved move — at most 6 placements of one
+      // letter on the 10x10 board. A bad move is a 400; a missing
+      // one leaves whatever the row already has.
+      let placements = null;
+      if (b.placements !== undefined && b.placements !== null) {
+        if (!Array.isArray(b.placements) || b.placements.length === 0 || b.placements.length > 6) return sendJson(res, 400, { error: 'Bad move.' });
+        for (const p of b.placements) {
+          if (!p || !Number.isInteger(p.row) || !Number.isInteger(p.col) || p.row < 0 || p.row > 9 || p.col < 0 || p.col > 9 || typeof p.letter !== 'string' || !/^[A-Z]$/.test(p.letter)) return sendJson(res, 400, { error: 'Bad move.' });
+        }
+        placements = b.placements.map(p => ({ row: p.row, col: p.col, letter: p.letter }));
+      }
+      await q('INSERT INTO daily_puzzle_solves (user_id, date, placements) VALUES ($1,$2,$3) ON CONFLICT (user_id, date) DO UPDATE SET placements = COALESCE(EXCLUDED.placements, daily_puzzle_solves.placements)', [user.id, date, placements ? JSON.stringify(placements) : null]);
       return sendJson(res, 200, { ok: true });
     }
     if (pathname === '/api/daily-puzzle/unsolve' && req.method === 'POST') {

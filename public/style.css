@@ -527,7 +527,17 @@ squares are the premium colours, spread out across the whole screen. */
 #homeScreen{position:relative;display:flex;flex-direction:column;min-height:100dvh;min-height:100svh;padding-bottom:128px}
 #homeScreen .logo-img.home-logo{width:72%;margin-top:0;position:relative;z-index:1}
 #homeScreen .home-head,#homeScreen .modes{position:relative;z-index:1}
-.home-head{display:flex;align-items:center;gap:12px;margin:2px 0 16px;text-align:left}
+/* v153: the logo→pfp gap equals the pfp→Play Online gap (render-
+   measured at 390x844: with a 2px top margin the gaps were 14px vs
+   59.7px — the buttons are centred in the leftover space, so the
+   lower gap carries ~44px of centering slack. Raising the top
+   margin also shrinks that slack by half the raise, so 32px lands
+   both gaps at ~44.5px. */
+.home-head{display:flex;align-items:center;gap:12px;margin:32px 0 16px;text-align:left}
+/* Short screens (no centering slack left in the modes area, so the
+   lower gap is just the 16px bottom margin): the top margin drops
+   to match it, so the two gaps stay equal there too. */
+@media (max-height:720px){.home-head{margin-top:4px}}
 .home-pfp{width:52px;height:52px;flex:0 0 52px;border-radius:50%;overflow:hidden;background:#3a3f4b;display:flex;align-items:center;justify-content:center;font-size:26px;cursor:pointer}
 .home-pfp img{width:100%;height:100%;object-fit:cover;display:block}
 .home-pfp svg{width:52px;height:52px;display:block}
@@ -732,3 +742,16 @@ squares are the premium colours, spread out across the whole screen. */
 .privacy-body h2{color:#03eaff;font-size:19px;margin-top:28px}
 .privacy-body a{color:#03eaff}
 .privacy-body .small{color:#b3b2b1}
+
+/* ---------- v153 ---------- */
+/* Privacy: the top back button is the standard back button, but
+   left-justified (not centered like the other back pills) with
+   more room below it before the policy text starts. */
+#profilePrivacyScreen #privacyBackBtn{margin:22px 0 20px}
+/* Puzzle week strip: the 7 days spread across the full board width
+   now (was capped at 320px), with more room between the flame and
+   its letter. The flame is the home page's streak SVG (18px, same
+   as the header icon), so the span no longer needs a font size. */
+.puzzle-week{max-width:none;width:100%;margin:12px auto 0}
+.puzzle-week .day{gap:4px}
+.puzzle-week .day .flame svg{display:block}

@@ -1,12 +1,13 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=153"></head>
+<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=154"></head>
 <body><div id="introOverlay"><div id="introFlicker"></div><div id="introInner"><div id="introLogoZoom"><img id="introLogo" src="/assets/logo.png?v=2" alt="DUELLO"></div></div></div><div id="bootError" style="display:none;position:fixed;top:12px;left:12px;right:12px;z-index:9999;background:#ffd166;color:#1a1d24;padding:12px;border-radius:10px;font-size:14px;line-height:1.4" onclick="this.style.display='none'"></div><div id="app">
   <noscript><p style="color:#e8ecf1;text-align:center;padding:40px 20px">Duello needs JavaScript enabled to run. Turn JavaScript on in your browser settings and reload.</p></noscript>
 
   <section id="homeScreen" class="screen hidden">
     <img class="logo-img home-logo" src="/assets/logo.png?v=2" alt="DUELLO">
+    <div class="home-spacer" aria-hidden="true"></div>
     <div class="home-head">
       <div class="pfp home-pfp" id="homePfp" role="button" aria-label="Open profile" tabindex="0"></div>
       <div class="home-head-stats">
@@ -16,12 +17,14 @@
       <div class="home-pro" aria-label="Duello Pro" title="Duello Pro"><svg viewBox="0 0 100 100" width="40" height="40"><path d="M94.0 50.0L98.1 54.2L97.6 58.4L92.5 61.4L87.3 63.6L86.0 66.8L88.1 72.0L89.6 77.7L87.0 81.1L81.1 81.1L75.5 80.4L72.8 82.5L72.0 88.1L70.4 93.8L66.5 95.4L61.4 92.5L56.9 89.1L53.5 89.5L50.0 94.0L45.8 98.1L41.6 97.6L38.6 92.5L36.4 87.3L33.2 86.0L28.0 88.1L22.3 89.6L18.9 87.0L18.9 81.1L19.6 75.5L17.5 72.8L11.9 72.0L6.2 70.4L4.6 66.5L7.5 61.4L10.9 56.9L10.5 53.5L6.0 50.0L1.9 45.8L2.4 41.6L7.5 38.6L12.7 36.4L14.0 33.2L11.9 28.0L10.4 22.3L13.0 18.9L18.9 18.9L24.5 19.6L27.2 17.5L28.0 11.9L29.6 6.2L33.5 4.6L38.6 7.5L43.1 10.9L46.5 10.5L50.0 6.0L54.2 1.9L58.4 2.4L61.4 7.5L63.6 12.7L66.8 14.0L72.0 11.9L77.7 10.4L81.1 13.0L81.1 18.9L80.4 24.5L82.5 27.2L88.1 28.0L93.8 29.6L95.4 33.5L92.5 38.6L89.1 43.1L89.5 46.5L94.0 50.0Z" fill="none" stroke="#ffd166" stroke-width="5" stroke-linejoin="round"/><text x="50" y="56" text-anchor="middle" font-size="19" font-weight="700" fill="#ffd166" font-family="Comfortaa, sans-serif">PRO</text></svg></div>
       <button class="home-upgrade-pill hidden" id="homeUpgradePill">Upgrade to Pro</button>
     </div>
+    <div class="home-spacer" aria-hidden="true"></div>
     <div class="modes">
       <button class="mode mode-online" id="playOnlineBtn"><span class="sym white"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-3 3-3 15 0 18M12 3c3 3 3 15 0 18"/></svg></span><span class="label-col"><span class="label">Play Online</span><span class="sub">Match with players at your skill level</span></span><span class="chev">›</span></button>
       <button class="mode mode-friends" id="playFriendsBtn"><span class="sym white"><svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="3"/><path d="M2 20c0-3 2.7-5 6-5s6 2 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M15 14.5c2.8 0 5 1.7 5 4.5"/></svg></span><span class="label-col"><span class="label">Play Friends</span><span class="sub">Challenge the homies</span></span><span class="chev">›</span></button>
       <button class="mode mode-bots" id="playBotsBtn"><span class="sym white"><svg viewBox="0 0 24 24"><circle cx="12" cy="2.5" r="1.2" fill="#fff" stroke="none"/><path d="M12 4v2"/><rect x="3.5" y="9.5" width="2" height="4" rx="1" fill="#fff"/><rect x="18.5" y="9.5" width="2" height="4" rx="1" fill="#fff"/><rect x="5" y="6" width="14" height="13" rx="3" fill="#fff"/><rect x="8" y="10" width="2.5" height="2.5" fill="#3a3f4b" stroke="none"/><rect x="13.5" y="10" width="2.5" height="2.5" fill="#3a3f4b" stroke="none"/><rect x="10" y="14.5" width="4" height="1.5" fill="#3a3f4b" stroke="none"/></svg></span><span class="label-col"><span class="label">Play Bots</span><span class="sub">Practice against AI</span></span><span class="chev">›</span></button>
       <button class="mode mode-puzzle" id="dailyPuzzleBtn"><span class="sym white"><svg viewBox="0 0 24 24"><path d="M6 6h4a2 2 0 0 1 4 0h4v4a2 2 0 0 1 0 4v4h-4a2 2 0 0 0-4 0H6v-4a2 2 0 0 0 0-4V6z" fill="#fff"/></svg></span><span class="label-col"><span class="label">Daily Puzzle</span><span class="sub" id="puzzleStreakSub">0 day streak!🔥</span></span><span class="soon hidden" id="puzzleSolvedTag">Solved</span><span class="chev">›</span></button>
     </div>
+    <div class="home-spacer" aria-hidden="true"></div>
   </section>
 
   <section id="puzzleBoardScreen" class="screen hidden">
@@ -31,13 +34,12 @@
          recent days to its left; a solid flame for a solved day, a
          grey flame for a missed one. -->
     <div id="puzzleWeekStrip" class="puzzle-week"></div>
+    <div class="puzzle-strength" id="puzzleStrengthWrap">
+      <div class="puzzle-strength-track"><div class="puzzle-strength-fill" id="puzzleStrengthFill"></div><div class="puzzle-strength-knob" id="puzzleStrengthPct">0%</div></div>
+    </div>
     <div class="board-wrap"><div id="puzzleBoard" class="board"></div></div>
     <div class="status puzzle-status" id="puzzleBoardStatus"></div>
     <div id="puzzleRack" class="rack"></div>
-    <div class="puzzle-strength" id="puzzleStrengthWrap">
-      <div class="puzzle-strength-label">Move strength <span id="puzzleStrengthPct"></span></div>
-      <div class="puzzle-strength-track"><div class="puzzle-strength-fill" id="puzzleStrengthFill"></div></div>
-    </div>
     <div class="controls"><button id="puzzleBoardExitBtn">Exit</button><button id="puzzleBoardRecallBtn">Recall</button><button id="puzzleBoardShuffleBtn">Shuffle</button><button id="puzzleBoardShareBtn" class="hidden">Share</button></div>
     <div id="puzzleConfetti" class="puzzle-confetti hidden"></div>
   </section>
@@ -133,7 +135,7 @@
       <button class="settings-row" id="editPasswordRow" type="button"><span class="settings-label">Password</span><span class="settings-chev">&rsaquo;</span></button>
     </div>
     <div class="settings-group">
-      <button class="settings-row" id="editProRow" type="button"><span class="settings-label">Duello Pro</span><span class="settings-value"><span class="settings-val" id="editRowPro"></span><span class="settings-chev">&rsaquo;</span></span></button>
+      <button class="settings-row" id="editProRow" type="button"><span class="settings-label">Subscription</span><span class="settings-value"><span class="settings-val" id="editRowPro"></span><span class="settings-chev">&rsaquo;</span></span></button>
     </div>
     <div class="settings-group">
       <button class="settings-row" id="privacyRow" type="button"><span class="settings-label">Privacy Policy</span><span class="settings-chev">&rsaquo;</span></button>
@@ -187,7 +189,6 @@
 
   <section id="profileProScreen" class="screen hidden">
     <h1 class="auth-heading">Subscription</h1>
-    <p class="small" id="proCurrentLine">You&rsquo;re on Duello Free</p>
     <div class="settings-group">
       <button class="settings-row pro-option" id="proFreeRow" type="button"><span class="settings-label">Duello Free</span><span class="settings-check" id="proFreeCheck">&check;</span></button>
       <button class="settings-row pro-option" id="proProRow" type="button"><span class="settings-label">Duello Pro</span><span class="settings-check" id="proProCheck"></span></button>
@@ -297,7 +298,7 @@
         <button id="replayBackBtn" class="replay-btn" title="Previous move">&#8592;</button>
         <button id="replayFwdBtn" class="replay-btn" title="Next move">&#8594;</button>
       </div>
-      <div class="controls">
+      <div class="controls" id="gameControls">
         <button id="forfeitBtn">Forfeit</button><button id="passBtn">Pass</button>
         <button id="playBtn" disabled>Play</button><button id="recallBtn">Recall</button><button id="shuffleBtn">Shuffle</button>
       </div>
@@ -399,5 +400,5 @@
   } catch (e) {}
 })();
 </script>
-<script src="/engine.js?v=153" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
-<script src="/app.js?v=153" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>
+<script src="/engine.js?v=154" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
+<script src="/app.js?v=154" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>

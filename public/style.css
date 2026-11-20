@@ -470,7 +470,7 @@ html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-
 .stat-box{flex:1;min-width:0;background:#262a33;border:2px solid #e8ecf1;border-radius:16px;padding:14px;text-align:left;font-size:14px;line-height:1.7}
 /* v148: the Optimal moves tally is tappable (the dotted underline
    hints it); the list it opens sits under the stat grid. */
-.opt-tally{cursor:pointer;text-decoration:underline dotted #03eaff;text-underline-offset:3px}
+.opt-tally{cursor:pointer}
 .stat-optimal-list{background:#262a33;border:2px solid #e8ecf1;border-radius:16px;padding:12px 14px;margin-top:12px;text-align:left;font-size:14px;line-height:1.7}
 .stat-optimal-head{display:flex;justify-content:space-between;align-items:center;font-weight:800;margin-bottom:4px}
 .stat-optimal-close{background:none;border:0;color:#e8ecf1;font-size:22px;line-height:1;cursor:pointer;padding:0 4px}
@@ -525,19 +525,22 @@ squares are the premium colours, spread out across the whole screen. */
 
 /* ---------- v131: home redesign (faint blue texture + daily hook) ---------- */
 #homeScreen{position:relative;display:flex;flex-direction:column;min-height:100dvh;min-height:100svh;padding-bottom:128px}
-#homeScreen .logo-img.home-logo{width:72%;margin-top:0;position:relative;z-index:1}
+#homeScreen .logo-img.home-logo{margin-bottom:0;position:relative;z-index:1}
 #homeScreen .home-head,#homeScreen .modes{position:relative;z-index:1}
-/* v153: the logo→pfp gap equals the pfp→Play Online gap (render-
-   measured at 390x844: with a 2px top margin the gaps were 14px vs
-   59.7px — the buttons are centred in the leftover space, so the
-   lower gap carries ~44px of centering slack. Raising the top
-   margin also shrinks that slack by half the raise, so 32px lands
-   both gaps at ~44.5px. */
-.home-head{display:flex;align-items:center;gap:12px;margin:32px 0 16px;text-align:left}
-/* Short screens (no centering slack left in the modes area, so the
-   lower gap is just the 16px bottom margin): the top margin drops
-   to match it, so the two gaps stay equal there too. */
-@media (max-height:720px){.home-head{margin-top:4px}}
+/* v154: the pfp sits centred between the logo and the Play Online
+   button by construction, not by margin arithmetic. v153 tuned the
+   header margins so the two gaps measured equal at 390x844 — but
+   the top safe-area inset (59px on a notched iPhone) eats the
+   centering slack in .modes, so on Jeff's phone the lower gap
+   collapsed to the 16px bottom margin while the upper gap stayed
+   44px. Three equal flex spacers (logo→header, header→buttons,
+   buttons→tab bar) split whatever free space the screen has, so
+   the two gaps stay equal at any height and any inset; each spacer
+   never shrinks below 8px, so the gaps stay open on short screens
+   too. The logo's bottom margin is zeroed above so the top spacer
+   is the whole logo→pfp gap. */
+.home-head{display:flex;align-items:center;gap:12px;margin:0;text-align:left}
+.home-spacer{flex:1 1 0;min-height:8px}
 .home-pfp{width:52px;height:52px;flex:0 0 52px;border-radius:50%;overflow:hidden;background:#3a3f4b;display:flex;align-items:center;justify-content:center;font-size:26px;cursor:pointer}
 .home-pfp img{width:100%;height:100%;object-fit:cover;display:block}
 .home-pfp svg{width:52px;height:52px;display:block}
@@ -567,7 +570,7 @@ squares are the premium colours, spread out across the whole screen. */
    with 24px gaps, centered in the available space. v148: a bit
    shorter with a bit more space between them — 92px with 28px gaps
    (4×92 + 3×28 = 452px, down from 472px, so the stack still fits). */
-#homeScreen .modes{flex:1;display:flex;flex-direction:column;gap:28px;margin-top:0;justify-content:center}
+#homeScreen .modes{flex:none;display:flex;flex-direction:column;gap:28px;margin-top:0}
 /* v139: icons even bigger and slightly further right, at Jeff's
    request ("getting greedy"). Icons 44px→48px and left padding
    8px→14px on both home and bot buttons (right padding stays 8px,
@@ -615,11 +618,12 @@ squares are the premium colours, spread out across the whole screen. */
    Island) to the bottom, under the tab bar. Blue-only, faint, so it
    never fights the buttons or the board. */
 /* ---------- v134: bot selector mirrors the home page ---------- */
-/* Same layout as #homeScreen: logo 72% at the top, the two buttons
+/* Same layout as #homeScreen: the logo at the top (same 100% size
+   as home and the opponent searcher, v154), the two buttons
    filling the screen as full-height cards (same gap, same top
    placement under the logo), Back below them. */
 #botScreen{position:relative;display:flex;flex-direction:column;height:100dvh;height:100svh;min-height:100svh;padding-bottom:128px}
-#botScreen .logo-img.home-logo{width:72%;margin-top:0;position:relative;z-index:1}
+#botScreen .logo-img.home-logo{position:relative;z-index:1}
 #botScreen .bot-options{flex:1;display:flex;flex-direction:column;gap:28px;margin-top:0;position:relative;z-index:1;justify-content:center}
 /* v146: bot buttons are the same fixed 100px as the home buttons — the
    v137 calc (matching the old flex:1 home height) is gone, both now
@@ -645,11 +649,13 @@ squares are the premium colours, spread out across the whole screen. */
 #homeScreen .mode.greyed{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#b3b2b1;border-color:#3c424e;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 0 #1e222b;opacity:.55}
 #homeScreen .mode.greyed .chev{color:#b3b2b1}
 /* Daily Puzzle modal: tiles reuse the real tile design. */
-/* v150: the status is a FIXED height (35px — a one-line message is
-   34.2px), so the deck below it never moves when the status text
-   appears or disappears. The colour is the real game's status colour
-   (the default #e8ecf1, inherited from .status) — no green/red. */
-.puzzle-status{min-height:35px;height:35px;font-size:14px;margin-top:8px}
+/* v154: the status is the base .status now, exactly like the
+   game's — same height, same margins, same 15px text. The base
+   rule is already a fixed height for a one-line message
+   (min-height 22px + 16px padding), so the deck still never moves
+   when the text changes; the v150 fixed 35px was 3px shorter than
+   the game's and sat 8px lower, which moved the deck off the
+   game's position. */
 
 /* ---------- v141: profile settings pass ---------- */
 /* Gear top = pfp top: the pfp starts 8px below the screen's top
@@ -681,20 +687,30 @@ squares are the premium colours, spread out across the whole screen. */
    become .tile.empty placeholders, selected gets the gold outline).
    Only the strength bar and the title/date header are
    puzzle-specific. */
-/* v150: the screen has a DEFINITE height (100svh), not min-height,
-   and the board is the flexible element — it shrinks to fit, so the
-   deck and the Exit/Recall/Shuffle buttons always stay on screen
-   even on short viewports. The board is a square whose side is the
-   smaller of the wrapper's width/height (container query units), so
-   it stays square whether the wrapper is tall or short. */
-#puzzleBoardScreen{display:flex;flex-direction:column;height:100vh;height:100dvh;height:100svh;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
-#puzzleBoardScreen .board-wrap{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;container-type:size;margin-top:14px}
-#puzzleBoard{width:100%;width:min(100cqw,100cqh);aspect-ratio:1}
+/* v150: the screen used to have a DEFINITE height (100svh), not
+   min-height, and the board shrank to fit — v154 removed both, so
+   the screen is min-height like the game's: on a short viewport it
+   grows past the fold and scrolls, exactly like the real game
+   (the v150 shrink crushed the status line to its 22px floor at
+   375x667 and moved the deck/buttons off the game's position). */
+#puzzleBoardScreen{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
+/* v154: the board sits in flow exactly like the game's — no flex
+   centring, no container-query shrink. The v150 shrink kept the
+   buttons on screen on short viewports, but it moved the board off
+   the game's position; Jeff wants the buttons, deck, status line
+   and board in the exact same place as the real game, and the game
+   screen's board is a fixed square too, so the puzzle matches it
+   (same short-screen overflow as the game). The rack's
+   margin-top:auto below is what anchors the deck + buttons to the
+   bottom, like #gameScreen #rack. */
+#puzzleBoardScreen .board-wrap{position:relative;width:100%}
+#puzzleBoard{width:100%;aspect-ratio:1}
+#puzzleBoardScreen #puzzleRack{margin-top:auto}
 #puzzleBoardScreen>.controls{margin-bottom:40px}
 /* v152: the 7-day week strip above the board — one column per day,
    weekday letter over a flame; solid orange for a solved day, grey
    for a missed one. Today is the right-most column. */
-.puzzle-week{display:flex;justify-content:space-between;max-width:320px;margin:10px auto 0}
+.puzzle-week{display:flex;justify-content:space-between;max-width:280px;margin:19px auto 0}
 .puzzle-week .day{display:flex;flex-direction:column;align-items:center;gap:2px;width:32px}
 .puzzle-week .day .letter{font-size:11px;color:#b3b2b1;font-weight:700}
 .puzzle-week .day.today .letter{color:#e8ecf1}
@@ -706,14 +722,20 @@ squares are the premium colours, spread out across the whole screen. */
 .puzzle-confetti{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:60}
 .puzzle-confetti .confetti-piece{position:absolute;top:-14px;border-radius:2px;animation:confetti-fall linear forwards}
 @keyframes confetti-fall{to{transform:translateY(110vh) rotate(720deg);opacity:.85}}
-.puzzle-board-title{font-size:22px;font-weight:800;margin-top:14px}
+.puzzle-board-title{font-size:22px;font-weight:800;margin-top:20px}
 .puzzle-board-date{color:#b3b2b1;font-size:13px;margin-top:2px}
 #puzzleBoard .cell.fixed-tile{cursor:default}
-.puzzle-strength{margin-bottom:14px}
-.puzzle-strength-label{font-size:13px;color:#b3b2b1;margin-bottom:6px}
-.puzzle-strength-label span{color:#e8ecf1;font-weight:700;font-variant-numeric:tabular-nums}
-.puzzle-strength-track{height:12px;border-radius:6px;background:#262a33;overflow:hidden}
+/* v154: the strength dial sits above the board (below the week
+   strip) and shows at all times — no "Move strength x%" text any
+   more. The percentage rides in a white circle at the end of the
+   coloured fill (black Arial text, like the game's numbers); the
+   knob is positioned by JS and clamped to the track ends. The block
+   is a fixed 30px tall so the knob's overhang never moves the
+   board. */
+.puzzle-strength{height:30px;margin:12px 0;display:flex;align-items:center}
+.puzzle-strength-track{position:relative;flex:1;height:12px;border-radius:6px;background:#262a33}
 .puzzle-strength-fill{height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,#03eaff,#1cff03);transition:width .35s ease}
+.puzzle-strength-knob{position:absolute;top:50%;left:15px;transform:translate(-50%,-50%);width:30px;height:30px;border-radius:50%;background:#fff;color:#1a1d24;display:flex;align-items:center;justify-content:center;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:800;font-variant-numeric:tabular-nums;transition:left .35s ease}
 #puzzleBoardShareBtn{background:#03eaff;color:#1a1d24}
 
 /* v147: Apple-style settings — grouped rows in rounded cards, label
@@ -729,8 +751,10 @@ squares are the premium colours, spread out across the whole screen. */
 .settings-row-danger .settings-label{color:#ff453a}
 .settings-pfp{width:32px;height:32px;border-radius:50%;overflow:hidden;display:inline-flex;flex:0 0 auto;background:#1a1d24}
 .settings-pfp img{width:100%;height:100%;object-fit:cover}
-.settings-check{color:#03eaff;font-size:18px;font-weight:700}
-#fieldInput{flex:1;background:none;border:0;color:#fff;font-size:17px;font-family:inherit;outline:none;min-width:0;padding:0}
+/* v154: the check always occupies the same 20px slot, checked or
+   not — the row height no longer changes when the check appears. */
+.settings-check{flex:0 0 20px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;color:#03eaff;font-size:18px;font-weight:700}
+#fieldInput{flex:1;background:none;border:0;color:#fff;font-size:16px;font-family:inherit;outline:none;min-width:0;padding:0}
 /* v151: the change-password fields and criteria bullets sit inside
    the grey box with a 16px inset, not flush against its edges. */
 #profilePasswordScreen .settings-group{padding:10px 16px}
@@ -748,10 +772,37 @@ squares are the premium colours, spread out across the whole screen. */
    left-justified (not centered like the other back pills) with
    more room below it before the policy text starts. */
 #profilePrivacyScreen #privacyBackBtn{margin:22px 0 20px}
-/* Puzzle week strip: the 7 days spread across the full board width
-   now (was capped at 320px), with more room between the flame and
-   its letter. The flame is the home page's streak SVG (18px, same
-   as the header icon), so the span no longer needs a font size. */
-.puzzle-week{max-width:none;width:100%;margin:12px auto 0}
+/* v154: the strip is tighter than the full board width (was 100% in
+   v153) and sits closer to the board, with bigger flames (24px in
+   renderPuzzleWeekStrip). The flame is the home page's streak SVG,
+   so the span needs no font size. */
+.puzzle-week{max-width:280px;width:100%;margin:19px auto 0}
 .puzzle-week .day{gap:4px}
 .puzzle-week .day .flame svg{display:block}
+
+/* ---------- v154 ---------- */
+/* Field editor: the input row gives the text more room (12px sides
+   instead of 16px) so a long email fits — Jeff's
+   jeffsmarquis@gmail.com was clipped at the left edge on his phone
+   (the input is 16px type now, and openFieldEditor resets its
+   scroll after focusing). */
+#profileFieldScreen .settings-row{padding-left:12px;padding-right:12px}
+/* Opponent search: the dots, the "Searching for opponent…" line and
+   Cancel sit in the middle of the space below the logo instead of
+   60px under it. The screen's bottom padding is 12px, not the
+   .screen default 90px (which reserves room for the tab bar — hidden
+   on this screen): 12px matches the logo's bottom margin, so the
+   box's top and bottom insets are equal and its centre is the centre
+   of the space below the logo. */
+#searchingScreen{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding-bottom:12px}
+#searchingScreen .searching-box{flex:1;justify-content:center;margin-top:0}
+/* The puzzle's top section (title, date, week strip, strength dial)
+   never shrinks: on a short screen the flex container overflows and
+   flex-shrink would otherwise collapse it (the strength dial went
+   from 30px to 12px at 375x667), which moved the board off the
+   game's position. The board, status, deck and buttons below it
+   absorb the overflow instead, the same way the game screen does. */
+#puzzleBoardScreen > .puzzle-board-title,
+#puzzleBoardScreen > .puzzle-board-date,
+#puzzleBoardScreen > .puzzle-week,
+#puzzleBoardScreen > .puzzle-strength{flex-shrink:0}

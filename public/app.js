@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 153;
+const APP_VERSION = 154;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -328,6 +328,13 @@ function renderPuzzleBoard() {
   // v149: the buttons are Exit, Recall, Shuffle while playing; once
   // solved they give way to Exit + Share (v152 — Play again is gone;
   // there is no Back button any more — Exit is the way out).
+  // v154: the controls row itself must be visible — a finished real
+  // game used to hide it (renderGame toggled the first .controls in
+  // the document, which was this row), so reopening a solved puzzle
+  // showed no Exit / Share at all. renderGame is scoped now, and
+  // this removes the class here too so a stale hide can never stick.
+  const ctrls = document.querySelector('#puzzleBoardScreen .controls');
+  if (ctrls) ctrls.classList.remove('hidden');
   const exit = $('puzzleBoardExitBtn'), recall = $('puzzleBoardRecallBtn'), shuffle = $('puzzleBoardShuffleBtn'), share = $('puzzleBoardShareBtn');
   if (exit) exit.classList.remove('hidden');
   if (recall) { recall.disabled = st.solved; recall.classList.toggle('hidden', st.solved); }
@@ -469,14 +476,18 @@ function puzzleUpdateStatusEl() {
 // puzzleLiveValidate on every placement and from renderPuzzleBoard.
 function puzzleUpdateStrengthBar() {
   const st = puzzleBoardState; if (!st) return;
-  const fill = $('puzzleStrengthFill'), pct = $('puzzleStrengthPct');
-  // v152: the strength only shows when all placed tiles form a valid
-  // move — an invalid placement (or nothing placed) hides the whole
-  // block instead of leaving a stale percentage up.
-  const wrap = $('puzzleStrengthWrap'); if (wrap) wrap.classList.toggle('hidden', st.lastPct == null);
+  const fill = $('puzzleStrengthFill'), knob = $('puzzleStrengthPct');
+  // v154: the dial shows at all times — no "Move strength x%" text,
+  // and nothing is hidden when the placement is invalid or empty.
+  // The percentage rides in a white circle at the end of the coloured
+  // fill; the knob is clamped to the track ends so it never hangs off
+  // the left edge at 0% or the right edge at 100%.
   const p = st.lastPct == null ? 0 : st.lastPct;
   if (fill) fill.style.width = Math.min(100, p) + '%';
-  if (pct) pct.textContent = st.lastPct == null ? '' : Math.round(p) + '%';
+  if (knob) {
+    knob.textContent = Math.round(p) + '%';
+    knob.style.left = 'clamp(15px, ' + Math.min(100, p) + '%, calc(100% - 15px))';
+  }
 }
 function puzzleHideBubble() { document.querySelectorAll('#puzzleBoard .play-bubble').forEach(e => { if (e.parentElement) e.parentElement.style.zIndex = ''; e.remove(); }); }
 function puzzleShowBubble(score, mainCells) {
@@ -582,7 +593,8 @@ function renderPuzzleWeekStrip() {
   // v153: the flame is the home page's streak icon (same SVG, same
   // #ff8d03), not the 🔥 emoji — and it sits above its weekday
   // letter now, not below it.
-  const flameSvg = '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z" fill="#ff8d03"/></svg>';
+  // v154: 24px (was 18px) — Jeff wants the icons bigger.
+  const flameSvg = '<svg viewBox="0 0 24 24" width="24" height="24"><path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z" fill="#ff8d03"/></svg>';
   strip.innerHTML = '';
   for (let i = 6; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i);
@@ -2850,7 +2862,11 @@ function renderGame() {
   // finished when it ends, so the controls hide with it.
   $('forfeitBtn').disabled = false;
   updateForfeitLabel();
-  document.querySelector('.controls').classList.toggle('hidden', finished);
+  // v154: scoped to the game's own controls row — the unscoped
+  // '.controls' selector used to grab the puzzle screen's row first
+  // (it comes earlier in the document), so finishing a real game
+  // hid the puzzle's Exit / Share buttons until the next game.
+  $('gameControls').classList.toggle('hidden', finished);
   // Post-game buttons (v123, arrows moved out in v124): a finished
   // game shows Main Menu / Play Again / Game Stats — except a game
   // opened from Game History, which shows Exit / Game Stats instead
@@ -3087,31 +3103,34 @@ setInterval(async () => {
 
 let botTimer = null, suppressNextClick = false, botTurnTapTime = 0;
 function parseClockText(txt) { const m = /^([0-9]+):([0-9]{2})$/.exec((txt || '').trim()); return m ? Number(m[1]) * 60000 + Number(m[2]) * 1000 : null; }
+let runoffIv = null, humanRunoffIv = null;
 function animateClockRunoff(fromMs, toMs) {
+  if (runoffIv) { clearInterval(runoffIv); runoffIv = null; }
   if (fromMs !== null && toMs !== null) fromMs = Math.min(fromMs, toMs + 20000);
   if (fromMs === null || toMs === null || fromMs <= toMs) { if (toMs !== null) $('clockBot').textContent = fmtClock(toMs); return; }
   const steps = Math.max(1, Math.round((fromMs - toMs) / 1000));
   // 50ms per displayed second = ~750ms for the 15s runoff to the 20s mark.
   runoffUntil = Date.now() + steps * 50 + 100;
   let i = 0;
-  const iv = setInterval(() => {
+  runoffIv = setInterval(() => {
     i++;
     const v = fromMs - Math.round((fromMs - toMs) * i / steps);
     $('clockBot').textContent = fmtClock(Math.max(toMs, v));
-    if (i >= steps) { clearInterval(iv); $('clockBot').textContent = fmtClock(toMs); runoffUntil = 0; }
+    if (i >= steps) { clearInterval(runoffIv); runoffIv = null; $('clockBot').textContent = fmtClock(toMs); runoffUntil = 0; }
   }, 50);
 }
 function animateHumanRunoff(fromMs, toMs) {
+  if (humanRunoffIv) { clearInterval(humanRunoffIv); humanRunoffIv = null; }
   if (fromMs === null || toMs === null || fromMs <= toMs) { if (toMs !== null) $('clockHuman').textContent = fmtClock(toMs); return; }
   const steps = Math.max(1, Math.round((fromMs - toMs) / 1000));
   humanRunoffUntil = Date.now() + steps * 20 + 100;
   $('clockHuman').textContent = fmtClock(fromMs);
   let i = 0;
-  const iv = setInterval(() => {
+  humanRunoffIv = setInterval(() => {
     i++;
     const v = fromMs - Math.round((fromMs - toMs) * i / steps);
     $('clockHuman').textContent = fmtClock(Math.max(toMs, v));
-    if (i >= steps) { clearInterval(iv); $('clockHuman').textContent = fmtClock(toMs); humanRunoffUntil = 0; }
+    if (i >= steps) { clearInterval(humanRunoffIv); humanRunoffIv = null; $('clockHuman').textContent = fmtClock(toMs); humanRunoffUntil = 0; }
   }, 20);
 }
 let lastBotPollAt = 0;
@@ -3203,11 +3222,18 @@ async function pollBotTurn() {
     if (playInFlight) return;
     if (mySeq <= gameAppliedSeq) return;
     const botMoved = (next.lastBot ? JSON.stringify(next.lastBot) : '') !== prevBot || (next.scores && next.scores.bot !== prevBotScore);
-    game = next; gameAppliedSeq = mySeq; gameFetchAt = Date.now(); pending = []; selectedRack = null; renderGame();
+    game = next; gameAppliedSeq = mySeq; gameFetchAt = Date.now(); pending = []; selectedRack = null;
+    // v154: start the runoff BEFORE the render — renderGame's tick
+    // would otherwise snap the bot clock straight to the stepped
+    // value, and the animation would then jump it back up to
+    // fromMs before counting down (the clock glitch Jeff reported).
+    // Starting it first sets runoffUntil, so the tick leaves the
+    // bot clock to the animation and the display only ever moves down.
+    if (botMoved) animateClockRunoff(fromMs, next.clocks.bot);
+    renderGame();
     // Animate the runoff whenever the bot actually played, even if the
     // server already flipped to the NEXT bot turn (human clock at 0) —
     // the old code returned early in that case and the runoff never ran.
-    if (botMoved) animateClockRunoff(fromMs, next.clocks.bot);
     if (next.clocks.turn === 'bot' && next.status === 'active') {
       // Relative remaining time from the server, never the server's absolute
       // clock: comparing Render time to phone time added a spurious ~2s poll.
@@ -3750,16 +3776,21 @@ async function doLocalPass() {
   if (!game || !game.offline || game.status !== 'active' || game.clocks.turn !== 'human') return;
   // No passing in a one-sided stretch (same rule as the server).
   if (game.clocks.human <= 0 || game.clocks.bot <= 0) return;
-  const fromHuman = game.clocks.human;
   settleLocalClock();
+  // v154: the runoff starts from the live value (elapsed folded in
+  // by the settle above), not the pre-settle stored value — the old
+  // start was the turn time so far too high, so the clock jumped up
+  // when the animation began.
+  const fromHuman = game.clocks.human;
   game.clocks.human = Math.max(0, game.clocks.human - 30000);
   game.consecutivePasses++; game.consecutiveNoMoves = 0;
   game.lastHuman = { word: null, points: 0, passed: true };
   game.lastBy = 'human'; game.lastCells = [];
   if (game.consecutivePasses >= 2) { endLocalGame('Final score', winnerByScore()); return; }
   startLocalBotTurn();
-  persistOfflineGame(); renderGame();
+  // v154: start the runoff before the render (see pollBotTurn).
   animateHumanRunoff(fromHuman, game.clocks.human);
+  persistOfflineGame(); renderGame();
   if (finishLocalIfNeeded()) return;
   if (game.status === 'active' && game.clocks.turn === 'bot') beginBotTurn();
 }
@@ -3795,7 +3826,6 @@ function scheduleLocalBotTurn() {
 async function runLocalBotTurn() {
   botTimer = null;
   if (!game || !game.offline || game.status !== 'active' || game.clocks.turn !== 'bot') return;
-  const fromMs = Math.max(0, game.clocks.bot - (Date.now() - gameFetchAt));
   settleLocalClock();
   if (game.clocks.bot <= 0) {
     game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); game.botThinkUntil = null; game.botThinkMs = null;
@@ -3807,8 +3837,17 @@ async function runLocalBotTurn() {
   let moves = [];
   try { moves = await solveMoves(game.board, offlineBotRack, isFirst, true); } catch { moves = []; }
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
+  // v154: the solve itself takes wall-clock time (Fishstick's
+  // exhaustive search runs seconds on a full board), and the tick
+  // kept draining the displayed clock through it — fold that time
+  // into the stored clock too, or the display jumps back up to the
+  // pre-solve value when the move lands. (The clock glitch Jeff
+  // reported: the clock ticked down through the solve, then jumped
+  // back up when the runoff started from the stale pre-solve value.)
+  settleLocalClock();
+  const fromMs = Math.max(0, game.clocks.bot);
   // The clock may have hit 0 during the solve: the bot never moves then.
-  if (Math.max(0, game.clocks.bot - (Date.now() - gameFetchAt)) <= 0) {
+  if (fromMs <= 0) {
     game.clocks.bot = 0; game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); game.botThinkUntil = null; game.botThinkMs = null;
     renderGame(); finishLocalIfNeeded(); return;
   }
@@ -3841,8 +3880,11 @@ async function runLocalBotTurn() {
   if (game.moveLog && game.moveLog.length) game.moveLog[game.moveLog.length - 1].clocks = { human: game.clocks.human, bot: game.clocks.bot };
   game.botThinkUntil = null; game.botThinkMs = null;
   game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now();
-  persistOfflineGame(); renderGame();
+  // v154: start the runoff before the render (see pollBotTurn) —
+  // the render's tick would snap the clock to the stepped value
+  // first and the animation would jump it back up to fromMs.
   animateClockRunoff(fromMs, game.clocks.bot);
+  persistOfflineGame(); renderGame();
   if (finishLocalIfNeeded()) return;
   await applyHumanNoMovePassLocal();
   if (finishLocalIfNeeded()) return;
@@ -4462,7 +4504,10 @@ $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => {
   const prevHuman = game.clocks.human, prevFetchAt = gameFetchAt;
   game.clocks.human = Math.max(0, game.clocks.human - clientElapsedMs); game.clocks.turn = 'bot'; gameFetchAt = tapAt; renderGame(); tickClocks();
   const fromHuman = game.clocks.human;
-  try { botTurnTapTime = tapAt; game = await api(`/api/games/${game.id}/pass`, { method: 'POST', body: JSON.stringify({ clientElapsedMs }) }); gameAppliedSeq = gameFetchSeq; gameFetchAt = tapAt; pending = []; renderGame(); animateHumanRunoff(fromHuman, game.clocks.human); beginBotTurn(); }
+  // v154: the runoff starts before the render (see pollBotTurn) —
+  // the render's tick would snap the human clock to the post-pass
+  // value first and the animation would jump it back up to fromHuman.
+  try { botTurnTapTime = tapAt; game = await api(`/api/games/${game.id}/pass`, { method: 'POST', body: JSON.stringify({ clientElapsedMs }) }); gameAppliedSeq = gameFetchSeq; gameFetchAt = tapAt; pending = []; animateHumanRunoff(fromHuman, game.clocks.human); renderGame(); beginBotTurn(); }
   catch { game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt; renderGame(); }
 }, '-30s');
 $('forfeitBtn').onclick = armButton($('forfeitBtn'), () => forfeitLabel(), async () => {
@@ -4648,6 +4693,7 @@ function clearStatDelay() { if (statDelayTimer) { clearTimeout(statDelayTimer); 
 // for the two boxes, live here so the list survives a re-render.
 let statOptimalSide = null;
 let statOptimalLabels = { human: 'You', bot: 'Opponent' };
+let statWindowStats = null; // v154: the stats payload the tally counts from, so the list reads the same data.
 function toggleStatOptimalList(side) {
   const list = $('statOptimalList'); if (!list) return;
   if (statOptimalSide === side && !list.classList.contains('hidden')) {
@@ -4657,9 +4703,18 @@ function toggleStatOptimalList(side) {
 }
 function renderStatOptimalList(side) {
   const list = $('statOptimalList'); if (!list) return;
-  const moves = (game && game.moves && game.moves[side]) || [];
+  // v154: the list reads the same data the tally counts — the
+  // optimalMoves the stats payload carries (engine computeStats).
+  // The old code rebuilt it from game.moves, which is empty for
+  // server games and for games opened from Game History, so the
+  // list showed 0 while the tally said several were played.
+  const fromStats = (statWindowStats && statWindowStats[side] && Array.isArray(statWindowStats[side].optimalMoves)) ? statWindowStats[side].optimalMoves : null;
   const optimal = [];
-  moves.forEach((m, i) => { if (m && m.isOptimal) optimal.push({ n: i + 1, word: m.mainWord || '', score: m.score || 0 }); });
+  if (fromStats) for (const o of fromStats) optimal.push({ n: o.n, word: o.word || '', score: o.score || 0 });
+  else {
+    const moves = (game && game.moves && game.moves[side]) || [];
+    moves.forEach((m, i) => { if (m && m.isOptimal) optimal.push({ n: i + 1, word: m.mainWord || '', score: m.score || 0 }); });
+  }
   const label = statOptimalLabels[side] || (side === 'human' ? 'You' : 'Opponent');
   let html = `<div class="stat-optimal-head"><span>${label} — optimal moves (${optimal.length})</span><button class="stat-optimal-close" aria-label="Close">×</button></div>`;
   if (!optimal.length) html += `<div class="stat-optimal-empty">No optimal moves yet.</div>`;
@@ -4675,6 +4730,8 @@ function showStatWindowDelayed(stats) {
   showStatWindow(stats);
 }
 function showStatWindow(stats) {
+  // v154: keep the payload — the optimal-moves list reads it.
+  statWindowStats = stats;
   // A game just ended, so Elos moved and cached Global Ranks are
   // stale — clear them here (Play Again starts a new game without
   // going home, so the refresh there alone would miss it).
@@ -5828,6 +5885,12 @@ function openFieldEditor(kind) {
   $('fieldError').textContent = '';
   show('profileFieldScreen');
   input.focus();
+  // v154: iOS can leave the input scrolled sideways after focus
+  // (Jeff's jeffsmarquis@gmail.com showed with the "j" cut off at
+  // the left edge) — put the scroll back to the start, once now and
+  // once shortly after, so the start of the address is visible.
+  try { input.scrollLeft = 0; } catch {}
+  setTimeout(() => { try { input.scrollLeft = 0; } catch {} }, 60);
 }
 $('fieldInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('fieldSaveBtn').click(); } });
 $('fieldInput').addEventListener('input', () => { if (editFieldKind === 'username') { const el = $('fieldInput'); if (el.value !== el.value.toLowerCase()) el.value = el.value.toLowerCase(); } });
@@ -5882,8 +5945,8 @@ function openPasswordScreen() {
 // switch puts the checkmark back where it was.
 function renderProScreen() {
   const on = !!(me && me.pro);
-  // v152: the free tier is "Duello Free" everywhere now.
-  $('proCurrentLine').textContent = on ? "You're on Duello Pro" : "You're on Duello Free";
+  // v154: the "You're on Duello Pro" line is gone (index.html) — the
+  // checks on the two options say which tier you are on.
   $('proFreeCheck').textContent = on ? '' : '✓';
   $('proProCheck').textContent = on ? '✓' : '';
   $('proError').textContent = '';

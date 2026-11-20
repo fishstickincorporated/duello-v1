@@ -457,10 +457,16 @@
   }
 
   function computeStats(moves) {
-    let best = null, longest = null, optimal = 0, total = 0, unique = new Set(), optimalWords = [];
-    for (const m of moves) {
+    let best = null, longest = null, optimal = 0, total = 0, unique = new Set(), optimalWords = [], optimalMoves = [];
+    for (let i = 0; i < moves.length; i++) {
+      const m = moves[i];
       total++;
-      if (m.isOptimal) { optimal++; if (m.mainWord) optimalWords.push(m.mainWord); }
+      // v154: the stat window's optimal-moves list needs the same
+      // moves the tally counts — with their 1-based number for this
+      // side, the word and the score. (The list used to rebuild from
+      // the client's game.moves, which is empty for server games and
+      // Game History review, so it showed 0 while the tally said N.)
+      if (m.isOptimal) { optimal++; if (m.mainWord) optimalWords.push(m.mainWord); optimalMoves.push({ n: i + 1, word: m.mainWord || '', score: m.score || 0 }); }
       // Highest "word" is the highest-scoring PLAY, named by its main
       // word — same unit as the profile stats (see profileStatsFor).
       if (!best || (m.score || 0) > best.score) best = { word: m.mainWord || '', score: m.score || 0 };
@@ -469,14 +475,14 @@
         if (!longest || w.word.length > longest.word.length) longest = w;
       }
     }
-    return { best, longest, optimal, total, uniqueCount: unique.size, optimalWords };
+    return { best, longest, optimal, total, uniqueCount: unique.size, optimalWords, optimalMoves };
   }
 
   function gameStatsPayload(game, flip) {
     const h = computeStats(game.moves.human || []);
     const b = computeStats(game.moves.bot || []);
-    const hs = { best: h.best, longest: h.longest, optimal: h.optimal, total: h.total, uniqueCount: h.uniqueCount, optimalWords: h.optimalWords };
-    const bs = { best: b.best, longest: b.longest, optimal: b.optimal, total: b.total, uniqueCount: b.uniqueCount, optimalWords: b.optimalWords };
+    const hs = { best: h.best, longest: h.longest, optimal: h.optimal, total: h.total, uniqueCount: h.uniqueCount, optimalWords: h.optimalWords, optimalMoves: h.optimalMoves };
+    const bs = { best: b.best, longest: b.longest, optimal: b.optimal, total: b.total, uniqueCount: b.uniqueCount, optimalWords: b.optimalWords, optimalMoves: b.optimalMoves };
     // The stat window shows the viewer on the left: flip the sides
     // (and the winner, the scores, and the Elo moves) for the
     // opponent of a real game, same rule as serializeGame.

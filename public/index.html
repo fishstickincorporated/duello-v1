@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=150"></head>
+<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=151"></head>
 <body><div id="introOverlay"><div id="introFlicker"></div><div id="introInner"><div id="introLogoZoom"><img id="introLogo" src="/assets/logo.png?v=2" alt="DUELLO"></div></div></div><div id="bootError" style="display:none;position:fixed;top:12px;left:12px;right:12px;z-index:9999;background:#ffd166;color:#1a1d24;padding:12px;border-radius:10px;font-size:14px;line-height:1.4" onclick="this.style.display='none'"></div><div id="app">
   <noscript><p style="color:#e8ecf1;text-align:center;padding:40px 20px">Duello needs JavaScript enabled to run. Turn JavaScript on in your browser settings and reload.</p></noscript>
 
@@ -127,9 +127,11 @@
       <button class="settings-row" id="editEmailRow" type="button"><span class="settings-label">Email</span><span class="settings-chev">&rsaquo;</span></button>
       <button class="settings-row" id="editPasswordRow" type="button"><span class="settings-label">Password</span><span class="settings-chev">&rsaquo;</span></button>
       <div class="settings-row hidden" id="pushSettingRow"><span class="settings-label">Push notifications</span><span class="settings-value"><button class="switch" id="pushToggle" type="button" role="switch" aria-checked="false" aria-label="Push notifications"><span class="switch-knob"></span></button></span></div>
-      <button class="settings-row" id="editProRow" type="button"><span class="settings-label">Duello Pro</span><span class="settings-value"><span class="settings-val" id="editRowPro"></span><span class="settings-chev">&rsaquo;</span></span></button>
     </div>
     <p class="small hidden" id="pushSettingNote"></p>
+    <div class="settings-group">
+      <button class="settings-row" id="editProRow" type="button"><span class="settings-label">Duello Pro</span><span class="settings-value"><span class="settings-val" id="editRowPro"></span><span class="settings-chev">&rsaquo;</span></span></button>
+    </div>
     <div class="settings-group">
       <button class="settings-row" id="privacyRow" type="button"><span class="settings-label">Privacy Policy</span><span class="settings-chev">&rsaquo;</span></button>
     </div>
@@ -142,7 +144,6 @@
   </section>
 
   <section id="profileFieldScreen" class="screen hidden">
-    <button class="back-pill" id="fieldBackBtn" type="button">&lsaquo; Settings</button>
     <h1 class="auth-heading" id="fieldTitle">First name</h1>
     <div class="settings-group"><div class="settings-row"><input id="fieldInput" autocomplete="off"></div></div>
     <p id="fieldError" class="error"></p>
@@ -153,20 +154,19 @@
   </section>
 
   <section id="profilePhotoScreen" class="screen hidden">
-    <button class="back-pill" id="photoBackBtn" type="button">&lsaquo; Settings</button>
     <h1 class="auth-heading">Photo</h1>
     <div class="edit-photo">
       <div class="pfp huge" id="editPfp"></div>
     </div>
     <div class="edit-actions stacked">
       <button class="btn primary" type="button" id="editPhotoChooseBtn">Choose photo</button>
-      <button class="link hidden" id="editPhotoRemoveBtn" type="button">Remove photo</button>
+      <button class="btn danger-outline hidden" id="editPhotoRemoveBtn" type="button">Remove photo</button>
+      <button class="btn cancel" type="button" id="editPhotoCancelBtn">Cancel</button>
     </div>
     <p id="photoError" class="error"></p>
   </section>
 
   <section id="profilePasswordScreen" class="screen hidden">
-    <button class="back-pill" id="passwordBackBtn" type="button">&lsaquo; Settings</button>
     <h1 class="auth-heading">Password</h1>
     <div class="settings-group">
       <div class="pw-wrap"><input id="editCurrentPassword" type="password" placeholder="Current password" autocomplete="off"><button class="pw-eye" type="button" data-target="editCurrentPassword" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
@@ -174,7 +174,10 @@
       <div class="pw-wrap"><input id="editNewPassword2" type="password" placeholder="New password again" autocomplete="off"><button class="pw-eye" type="button" data-target="editNewPassword2" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
       <ul class="pw-reqs" id="editPwReqs"><li data-req="len">At least 8 characters</li><li data-req="upper">A capital letter</li><li data-req="lower">A lowercase letter</li><li data-req="digit">A number</li></ul>
     </div>
-    <button class="btn primary" id="editPasswordSaveBtn" type="button">Save new password</button>
+    <div class="edit-actions stacked">
+      <button class="btn cancel" type="button" id="editPasswordCancelBtn">Cancel</button>
+      <button class="btn primary" id="editPasswordSaveBtn" type="button">Save new password</button>
+    </div>
     <p id="editPasswordError" class="error"></p>
     <p id="editPasswordDone" class="success"></p>
   </section>
@@ -211,6 +214,16 @@
         <button class="link" id="editDeleteCodeResendBtn" type="button">Send a new code</button>
       </div>
     </div>
+  </section>
+
+  <!-- v151: Privacy Policy opens inside the app (window.open with
+       _blank is a no-op in the Capacitor WebView — no Browser plugin
+       — so the row used to do nothing on Jeff's phone). The policy
+       text is fetched from the bundled /privacy.html and injected
+       here; that file stays the single source of truth. -->
+  <section id="profilePrivacyScreen" class="screen hidden">
+    <button class="back-pill" id="privacyBackBtn" type="button">&lsaquo; Settings</button>
+    <div id="privacyContent" class="privacy-body"></div>
   </section>
 
   <section id="authScreen" class="screen hidden">
@@ -369,6 +382,7 @@
   <div id="challengeModal" class="person-modal hidden"><div class="person-card"><span class="person-pfp" id="challengePfp"></span><div class="person-name" id="challengeName"></div><div class="person-user" id="challengeUser"></div><div class="challenge-actions"><button class="mini-btn" id="challengeAcceptBtn">Accept</button><button class="mini-btn grey" id="challengeDeclineBtn">Decline</button></div></div></div>
   <div id="cropModal" class="person-modal hidden"><div class="person-card crop-card"><div class="crop-title">Crop your photo</div><div class="crop-viewport" id="cropViewport"><img id="cropImg" alt=""></div><input type="range" id="cropZoom" min="1" max="3" step="0.01" value="1" aria-label="Zoom"><div class="crop-hint">Drag to move, slide to zoom</div><div class="challenge-actions"><button class="mini-btn grey" id="cropCancelBtn">Cancel</button><button class="mini-btn" id="cropUseBtn">Use photo</button></div></div></div>
   <div id="tenLetterModal" class="person-modal hidden"><div class="person-card"><button class="person-close" id="tenLetterCloseBtn" aria-label="Close list">×</button><div class="crop-title">10 letter words</div><div id="tenLetterList" class="ten-letter-list"></div></div></div>
+  <div id="signOutModal" class="person-modal hidden"><div class="person-card"><div class="crop-title">Are you sure?</div><p class="small">You will be signed out of Duello.</p><div class="challenge-actions"><button class="mini-btn grey" id="signOutCancelBtn">Cancel</button><button class="mini-btn" id="signOutConfirmBtn">Sign out</button></div></div></div>
 </div>
 <script>
 (function () {
@@ -402,5 +416,5 @@
   } catch (e) {}
 })();
 </script>
-<script src="/engine.js?v=150" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
-<script src="/app.js?v=150" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>
+<script src="/engine.js?v=151" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
+<script src="/app.js?v=151" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>

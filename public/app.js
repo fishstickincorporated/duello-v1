@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 150;
+const APP_VERSION = 151;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -839,7 +839,7 @@ function show(id) {
   if (id !== 'rematchScreen') cancelRematch();
   // v142: puzzleBoardScreen is a full screen like gameScreen — it hides
   // the tab bar (it has its own Exit button) and is not a menu screen.
-  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen', 'puzzleBoardScreen', 'profileFieldScreen', 'profilePhotoScreen', 'profilePasswordScreen', 'profileProScreen', 'profileDeleteScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
+  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen', 'puzzleBoardScreen', 'profileFieldScreen', 'profilePhotoScreen', 'profilePasswordScreen', 'profileProScreen', 'profileDeleteScreen', 'profilePrivacyScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
   const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen'].includes(id);
   // Warm the offline engine when the bot screen opens (v107): the
   // dictionary + solver index build used to run on the first bot tap,
@@ -1731,17 +1731,28 @@ async function setPushEnabled(on) {
   const P = pushPlugin();
   if (on) {
     // Turning on asks iOS first: without permission there is no
-    // token and nothing to send. A denied permission leaves the
-    // toggle off and says where to fix it.
+    // token and nothing to send. Check first — a denied permission
+    // never re-prompts, so a doomed requestPermissions call would
+    // just look like a dead toggle; say where to fix it instead.
     if (!P) { setPushNote('Push notifications need the Duello app.'); return; }
     let perm = null;
-    try { perm = await P.requestPermissions(); } catch { perm = null; }
-    if (!perm || perm.receive !== 'granted') {
-      setPushNote('Notifications are off — turn them on in iOS Settings to get challenge alerts.');
+    try { perm = await P.checkPermissions(); } catch { perm = null; }
+    if (perm && perm.receive === 'denied') {
+      setPushNote('Notifications are off for Duello — turn them on in iOS Settings (Duello → Notifications) to get challenge alerts.');
       refreshPushToggle();
       return;
     }
-    try { await api('/api/push/preference', { method: 'POST', body: JSON.stringify({ enabled: true }) }); } catch {}
+    try { perm = await P.requestPermissions(); } catch { perm = null; }
+    if (!perm || perm.receive !== 'granted') {
+      setPushNote('Notifications are off for Duello — turn them on in iOS Settings (Duello → Notifications) to get challenge alerts.');
+      refreshPushToggle();
+      return;
+    }
+    // The preference POST is no longer swallowed: if it fails, the
+    // toggle stays where it was and says so, instead of flipping
+    // locally and flipping back on the next profile re-warm.
+    try { await api('/api/push/preference', { method: 'POST', body: JSON.stringify({ enabled: true }) }); }
+    catch { setPushNote('Could not save the push setting. Check your connection and try again.'); refreshPushToggle(); return; }
     if (me) { me.pushEnabled = true; persistMe(); }
     setPushNote('');
     refreshPushToggle();
@@ -1750,7 +1761,8 @@ async function setPushEnabled(on) {
   }
   // Turning off: the server stops sending for this user, and this
   // device's token is removed so a stale token can never fire.
-  try { await api('/api/push/preference', { method: 'POST', body: JSON.stringify({ enabled: false }) }); } catch {}
+  try { await api('/api/push/preference', { method: 'POST', body: JSON.stringify({ enabled: false }) }); }
+  catch { setPushNote('Could not save the push setting. Check your connection and try again.'); refreshPushToggle(); return; }
   if (pushDeviceToken) { try { await api('/api/push/token/delete', { method: 'POST', body: JSON.stringify({ token: pushDeviceToken }) }); } catch {} }
   if (me) { me.pushEnabled = false; persistMe(); }
   setPushNote('');
@@ -5640,11 +5652,34 @@ $('editEmailRow').onclick = () => openFieldEditor('email');
 $('editPasswordRow').onclick = () => openPasswordScreen();
 $('editProRow').onclick = () => openProScreen();
 $('editPhotoRow').onclick = () => openPhotoScreen();
-$('privacyRow').onclick = () => window.open('/privacy.html', '_blank', 'noopener');
-$('fieldBackBtn').onclick = () => show('profileEditScreen');
+// v151: the policy opens inside the app. window.open('/privacy.html',
+// '_blank') is a no-op in the Capacitor WebView (no Browser plugin,
+// WKWebView swallows _blank), so the row did nothing on Jeff's
+// phone. The bundled /privacy.html stays the single source of truth:
+// its <main> is fetched once and injected here.
+async function openPrivacyScreen() {
+  show('profilePrivacyScreen');
+  const box = $('privacyContent');
+  if (!box || box.dataset.loaded) return;
+  try {
+    const r = await fetch('/privacy.html');
+    if (!r.ok) throw new Error('Privacy Policy could not be loaded.');
+    const html = await r.text();
+    const m = html.match(/<main>([\s\S]*?)<\/main>/);
+    box.innerHTML = m ? m[1] : html;
+    box.dataset.loaded = '1';
+  } catch { box.innerHTML = '<p>Could not load the Privacy Policy. Check your connection and try again.</p>'; }
+}
+$('privacyRow').onclick = () => openPrivacyScreen();
+$('privacyBackBtn').onclick = () => show('profileEditScreen');
+// v151: the field, photo and password editors have no back button
+// any more — Cancel does the same thing (back to Settings without
+// saving). The Pro, Delete and Privacy screens keep theirs (Jeff
+// didn't ask to remove them; Pro applies at once and Privacy is
+// read-only, so there is no Cancel to take its place).
 $('fieldCancelBtn').onclick = () => show('profileEditScreen');
-$('photoBackBtn').onclick = () => show('profileEditScreen');
-$('passwordBackBtn').onclick = () => show('profileEditScreen');
+$('editPhotoCancelBtn').onclick = () => show('profileEditScreen');
+$('editPasswordCancelBtn').onclick = () => show('profileEditScreen');
 $('proBackBtn').onclick = () => show('profileEditScreen');
 $('deleteBackBtn').onclick = () => show('profileEditScreen');
 // v147: one field at a time. Each editor saves that field alone via
@@ -5929,7 +5964,13 @@ function wipeAccountScreens() {
   $('friendSearch').value = '';
   $('noFriendsCard').classList.add('hidden');
 }
-$('profileSignOutBtn').onclick = async () => {
+$('profileSignOutBtn').onclick = () => { $('signOutModal').classList.remove('hidden'); };
+$('signOutCancelBtn').onclick = () => { $('signOutModal').classList.add('hidden'); };
+$('signOutModal').addEventListener('click', e => { if (e.target === $('signOutModal')) $('signOutModal').classList.add('hidden'); });
+// v151: sign out asks first. The confirm runs the old immediate
+// sign-out body unchanged.
+$('signOutConfirmBtn').onclick = async () => {
+  $('signOutModal').classList.add('hidden');
   try { await api('/api/signout', { method: 'POST' }); } catch {}
   token = ''; storeDel('duello_token'); me = null; profileData = null;
   wipeAccountScreens();

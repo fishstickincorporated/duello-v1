@@ -23,7 +23,7 @@ body.game-open::before{display:none}
 .tagline{color:#b3b2b1;margin:0 0 20px}
 input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #333;background:#262a33;color:#fff;font-size:16px}
 .btn,.mode,.bot-opt,.controls button,.back-pill{cursor:pointer;border:0;border-radius:14px}
-.btn.primary{background:#03eaff;color:#1a1d24;padding:12px;width:100%;font-size:17px;margin-top:10px}
+.btn.primary{background:#03eaff;color:#1a1d24;padding:12px;width:100%;font-size:17px;margin-top:10px;border:2px solid #03eaff}
 .link{background:none;border:0;color:#03eaff;margin-top:14px;font-size:15px;cursor:pointer}
 .link.danger{color:#ff1303}
 .error{color:#ff7a7a;min-height:20px}.success{color:#03eaff;min-height:20px}.small{color:#b3b2b1;font-size:12px;line-height:1.5}
@@ -367,7 +367,7 @@ same 52px column, right-aligned, on every row including your own
 .email-row{display:flex;align-items:center;gap:8px}
 .email-row input{flex:1}
 .verified{font-size:18px}
-.btn.secondary{background:#262a33;color:#e8ecf1;padding:12px;width:100%;font-size:16px;margin-top:8px;border:1px solid #333}
+.btn.secondary{background:#262a33;color:#e8ecf1;padding:12px;width:100%;font-size:17px;margin-top:8px;border:2px solid #333}
 .edit-actions{display:flex;gap:12px;margin-top:6px}
 .edit-actions .btn{flex:1;margin-top:0}
 .edit-photo{display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:12px}
@@ -375,13 +375,17 @@ same 52px column, right-aligned, on every row including your own
 .edit-pfp-wrap .pfp{filter:grayscale(0.7) brightness(0.65)}
 .edit-pfp-pencil{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .edit-pfp-pencil svg{filter:drop-shadow(0 1px 2px rgba(0,0,0,0.8))}
-.edit-photo .link{margin-top:0}
 .edit-field{display:flex;align-items:center;gap:10px;margin:6px 0}
 .edit-field label{flex:0 0 88px;color:#b3b2b1;font-size:14px}
 .edit-field input{margin:0;min-width:0}
 .edit-password{margin-top:12px}
-.btn.cancel{background:transparent;color:#03eaff;border:2px solid #03eaff;padding:12px;font-size:17px}
-.btn.danger{background:#ff1303;color:#fff;padding:12px;width:100%;font-size:17px;margin-top:10px}
+.btn.cancel{background:transparent;color:#03eaff;padding:12px;font-size:17px;border:2px solid #03eaff}
+.btn.danger{background:#ff1303;color:#fff;padding:12px;width:100%;font-size:17px;margin-top:10px;border:2px solid #ff1303}
+/* v151: the red-outline twin of .btn.danger — the destructive signal
+   (red) with the same size/shape/typography as the other settings
+   buttons. Used by Remove photo; the delete screen's red-outline
+   Delete is the same treatment, scoped to its own row. */
+.btn.danger-outline{background:transparent;color:#ff1303;border:2px solid #ff1303;padding:12px;width:100%;font-size:17px;margin-top:10px}
 .edit-delete{margin-top:12px}
 .privacy-link{text-align:center}
 .privacy-link a{color:#03eaff}
@@ -655,7 +659,7 @@ squares are the premium colours, spread out across the whole screen. */
    the code step's Back keep the standard outline-blue cancel. */
 .edit-actions.stacked{flex-direction:column}
 .edit-actions.stacked .btn{flex:none;width:100%;margin-top:0}
-#editDeleteActions .btn.cancel{background:#03eaff;color:#1a1d24;border:0}
+#editDeleteActions .btn.cancel{background:#03eaff;color:#1a1d24;border:2px solid #03eaff}
 #editDeleteActions .btn.danger{background:transparent;color:#ff1303;border:2px solid #ff1303}
 #editDeleteCode{margin-top:12px}
 
@@ -702,3 +706,14 @@ squares are the premium colours, spread out across the whole screen. */
 .settings-pfp img{width:100%;height:100%;object-fit:cover}
 .settings-check{color:#03eaff;font-size:18px;font-weight:700}
 #fieldInput{flex:1;background:none;border:0;color:#fff;font-size:17px;font-family:inherit;outline:none;min-width:0;padding:0}
+/* v151: the change-password fields and criteria bullets sit inside
+   the grey box with a 16px inset, not flush against its edges. */
+#profilePasswordScreen .settings-group{padding:10px 16px}
+/* v151: the in-app Privacy Policy (fetched from /privacy.html) —
+   same dark card, blue headings and links as the standalone page,
+   with the title in the same .auth-heading size. */
+.privacy-body{text-align:left;line-height:1.6}
+.privacy-body h1{color:#03eaff;font-size:24px;font-weight:800;margin:6px 0 16px}
+.privacy-body h2{color:#03eaff;font-size:19px;margin-top:28px}
+.privacy-body a{color:#03eaff}
+.privacy-body .small{color:#b3b2b1}

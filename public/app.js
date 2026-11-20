@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 147;
+const APP_VERSION = 148;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -255,6 +255,10 @@ function startPuzzleCountdown() {
   }, 1000);
 }
 let puzzleBoardState = null;
+// Set while a puzzle tile drag is live: renderPuzzleBoard must not
+// rebuild mid-drag (it would detach the captured tile), like the
+// real game's renderGame.
+let puzzleDragLive = false;
 function puzzleBoardBase(entry) {
   const board = localEngine.emptyBoard();
   for (const [r, c, l] of entry.puzzle.board) board[r][c] = l;
@@ -262,6 +266,7 @@ function puzzleBoardBase(entry) {
 }
 function renderPuzzleBoard() {
   const st = puzzleBoardState; if (!st) return;
+  if (puzzleDragLive) return; // never rebuild mid-drag (would detach the captured tile)
   const boardEl = $('puzzleBoard'); if (!boardEl) return;
   boardEl.innerHTML = '';
   const placedByCell = {};
@@ -277,7 +282,7 @@ function renderPuzzleBoard() {
     if (fixed) { const t = document.createElement('div'); t.className = 'tile'; t.innerHTML = tileSVG(fixed); cell.appendChild(t); }
     // v143: a placed tile looks exactly like a pending tile in a real
     // game — the game's .tile.pending gold outline.
-    else if (placed) { const t = document.createElement('div'); t.className = 'tile pending'; t.innerHTML = tileSVG(placed.letter); cell.appendChild(t); }
+    else if (placed) { const t = document.createElement('div'); t.className = 'tile pending'; t.innerHTML = tileSVG(placed.letter); enablePuzzlePlacedDrag(t, placed); cell.appendChild(t); }
     boardEl.appendChild(cell);
   }
   // v143: the rack renders exactly like the game's — .tile with
@@ -291,6 +296,7 @@ function renderPuzzleBoard() {
       const d = document.createElement('div'); d.className = 'tile'; d.dataset.idx = i;
       d.innerHTML = tileSVG(t.ch);
       if (st.selected === i) d.style.outline = '2px solid #ffd166';
+      enablePuzzleRackDrag(d, i);
       rackEl.appendChild(d);
     });
   }
@@ -336,6 +342,284 @@ function puzzleBoardTapCell(r, c) {
   st.msg = ''; st.good = st.bad = false;
   renderPuzzleBoard();
 }
+// ---------- Daily Puzzle drag-and-drop (v148) ----------
+// Mirrors the real game's drag exactly (same pointer handlers, same
+// drop rules, same ghost + rack-shift visuals) so the puzzle feels
+// identical to real play. The only differences are local-only: the
+// puzzle rack is local state, so rack reorders and rack-returns never
+// sync to a server (the real game POSTs /shuffle on those). Tap-to-
+// place still works: a tap (no movement) on a rack tile selects it,
+// and a tap on a board square places / recalls, via the same
+// puzzleBoardSelectRack / puzzleBoardTapCell the click handlers used
+// — the pointerup handlers below call them, so the delegated rack
+// onclick is gone (it would double-toggle after a pointerup tap-
+// select) and the board onclick is guarded by suppressNextClick.
+// One deliberate difference: drop-cell resolution uses the board
+// rect (uniform 10x10 grid, 3px gap) instead of per-cell rects, so
+// it stays testable in the harness stub where every element shares
+// one rect; in a real browser the two agree to within the 3px gap.
+// A render guard (puzzleDragLive) keeps renderPuzzleBoard from
+// rebuilding mid-drag and detaching the captured tile, like the
+// real game's renderGame.
+// A render guard (puzzleDragLive) keeps renderPuzzleBoard from
+// rebuilding mid-drag and detaching the captured tile, like the
+// real game's renderGame.
+function puzzleDropCellForPointer(x, y) {
+  const boardEl = $('puzzleBoard'); if (!boardEl) return null;
+  const b = boardEl.getBoundingClientRect();
+  const TOL = 12;
+  if (x < b.left - TOL || x > b.right + TOL || y < b.top - TOL || y > b.bottom + TOL) return null;
+  const GAP = 3;
+  const cw = (b.width - GAP * 9) / 10, ch = (b.height - GAP * 9) / 10;
+  const c = Math.min(9, Math.max(0, Math.floor((x - b.left) / (cw + GAP))));
+  const row = Math.min(9, Math.max(0, Math.floor((y - b.top) / (ch + GAP))));
+  return { row, col: c };
+}
+function puzzleIsCellFree(r, c) {
+  const st = puzzleBoardState; if (!st) return false;
+  return !st.board[r][c] && !st.placed.some(p => p.row === r && p.col === c);
+}
+function puzzleNearestEmptyCell(r0, c0) {
+  // Only an orthogonally adjacent empty cell counts (same fixed
+  // order as the real game: up, down, left, right). If none is free,
+  // the drop cancels instead of jumping away.
+  const neighbours = [[r0 - 1, c0], [r0 + 1, c0], [r0, c0 - 1], [r0, c0 + 1]];
+  for (const [r, c] of neighbours) {
+    if (r >= 0 && r < 10 && c >= 0 && c < 10 && puzzleIsCellFree(r, c)) return { row: r, col: c };
+  }
+  return null;
+}
+function puzzleClearDropHighlights() {
+  document.querySelectorAll('#puzzleBoard .cell.drop-target').forEach(el => el.classList.remove('drop-target'));
+}
+function puzzleClearRackShift() {
+  const rackEl = $('puzzleRack'); if (!rackEl) return;
+  rackEl.querySelectorAll('.tile').forEach(t => { t.style.transform = ''; t.style.zIndex = ''; });
+}
+function puzzleApplyRackShift(dragIdx, hoverIdx) {
+  // Same slide as the real game: neighbours between the dragged slot
+  // and the hovered slot translate by exactly one slot width, without
+  // moving any DOM node (moving a node mid-drag can strand pointer
+  // capture on iOS). Uses the rack's real slot width, not a constant.
+  const rackEl = $('puzzleRack'); if (!rackEl) return;
+  const slot = rackEl.getBoundingClientRect().width / 6;
+  [...rackEl.querySelectorAll('.tile')].forEach((t, ti) => {
+    let shift = 0;
+    if (ti !== dragIdx) {
+      if (dragIdx < hoverIdx && ti > dragIdx && ti <= hoverIdx) shift = -slot;
+      else if (dragIdx > hoverIdx && ti < dragIdx && ti >= hoverIdx) shift = slot;
+    }
+    t.style.transform = shift ? `translateX(${shift}px)` : '';
+    t.style.zIndex = shift ? '2' : '';
+  });
+}
+function puzzleRecallPlaced(p) {
+  const st = puzzleBoardState; if (!st) return;
+  const i = st.placed.indexOf(p); if (i === -1) return;
+  st.rack[p.rackIndex].used = false;
+  st.placed.splice(i, 1);
+  st.msg = ''; st.good = st.bad = false;
+  renderPuzzleBoard();
+}
+function enablePuzzleRackDrag(el, idx) {
+  let dragging = false, moved = false, startX = 0, startY = 0, drop = null, captureId = null;
+  const cleanup = () => {
+    dragging = false; puzzleDragLive = false; el.style.opacity = '';
+    $('dragGhost').classList.add('hidden');
+    puzzleClearDropHighlights(); puzzleClearRackShift();
+    if (captureId !== null) { try { el.releasePointerCapture(captureId); } catch {} captureId = null; }
+    clearDragCleanup(cleanup);
+  };
+  el.addEventListener('pointerdown', e => {
+    const st = puzzleBoardState; if (!st || st.solved) return;
+    const t = st.rack[idx]; if (!t || t.used) return;
+    cleanupStuckDrag();
+    dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null; captureId = e.pointerId;
+    puzzleDragLive = true;
+    registerDragCleanup(cleanup);
+    try { el.setPointerCapture(e.pointerId); } catch {}
+  });
+  el.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    if (e.buttons === 0) { cleanup(); return; }
+    if (Math.hypot(e.clientX - startX, e.clientY - startY) > 8) moved = true;
+    if (!moved) return;
+    suppressNextClick = true;
+    const st = puzzleBoardState; if (!st) return;
+    // The tile leaves the rack: hide it while the ghost is up, so it
+    // looks like you are dragging that same tile (same as the game).
+    el.style.opacity = '0';
+    showGhost(st.rack[idx].ch, e.clientX, e.clientY);
+    puzzleClearDropHighlights();
+    const hit = puzzleDropCellForPointer(e.clientX, e.clientY);
+    if (hit) {
+      puzzleClearRackShift();
+      // Snaps to the cell under the pointer if free; if dragged over
+      // a placed tile, snaps to the nearest available space.
+      const target = puzzleIsCellFree(hit.row, hit.col) ? hit : puzzleNearestEmptyCell(hit.row, hit.col);
+      if (target) {
+        drop = { kind: 'board', row: target.row, col: target.col };
+        const cells = document.querySelectorAll('#puzzleBoard .cell');
+        if (cells[target.row * 10 + target.col]) cells[target.row * 10 + target.col].classList.add('drop-target');
+      } else drop = null;
+      return;
+    }
+    const rackEl = $('puzzleRack');
+    if (rackEl) {
+      const rect = rackEl.getBoundingClientRect();
+      if (e.clientY >= rect.top && e.clientY <= rect.bottom && e.clientX >= rect.left && e.clientX <= rect.right) {
+        const rel = (e.clientX - rect.left) / Math.max(1, rect.width);
+        drop = { kind: 'rack', hoverIdx: Math.max(0, Math.min(5, Math.floor(rel * 6))) };
+        puzzleApplyRackShift(idx, drop.hoverIdx);
+        return;
+      }
+    }
+    drop = null; puzzleClearRackShift();
+  });
+  el.addEventListener('pointerup', () => {
+    if (!dragging) return;
+    const myDrop = drop, wasMoved = moved;
+    cleanup();
+    // Backstop: the click that follows a drag is suppressed by
+    // suppressNextClick, but if it never fires (the drop re-rendered
+    // the tile away) the flag must not stick and eat the next tap.
+    setTimeout(() => { suppressNextClick = false; }, 150);
+    const st = puzzleBoardState; if (!st || st.solved) return;
+    if (!wasMoved) { puzzleBoardSelectRack(idx); return; }
+    if (myDrop && myDrop.kind === 'board') {
+      const t = st.rack[idx]; if (!t || t.used) return;
+      t.used = true;
+      st.placed.push({ row: myDrop.row, col: myDrop.col, letter: t.ch, rackIndex: idx });
+      st.selected = null; st.msg = ''; st.good = st.bad = false;
+      renderPuzzleBoard();
+      return;
+    }
+    if (myDrop && myDrop.kind === 'rack' && myDrop.hoverIdx !== idx) {
+      // Reorder the rack (local only — no server sync). Resolve each
+      // placed tile to its rack tile object BEFORE the reorder, so
+      // rackIndex follows the tile even when letters repeat.
+      const placedTiles = st.placed.map(p => ({ p, tile: st.rack[p.rackIndex] }));
+      const [movedTile] = st.rack.splice(idx, 1);
+      st.rack.splice(myDrop.hoverIdx, 0, movedTile);
+      for (const { p, tile } of placedTiles) p.rackIndex = st.rack.indexOf(tile);
+      renderPuzzleBoard();
+      return;
+    }
+    // Dropped elsewhere: cancel, keep the tile where it was.
+  });
+  el.addEventListener('pointercancel', () => cleanup());
+  el.addEventListener('lostpointercapture', () => cleanup());
+}
+function enablePuzzlePlacedDrag(el, p) {
+  let dragging = false, moved = false, startX = 0, startY = 0, drop = null, captureId = null, rackSlotEl = null;
+  const clearRackSlot = () => { if (rackSlotEl) { rackSlotEl.style.outline = ''; rackSlotEl = null; } };
+  const cleanup = () => {
+    dragging = false; puzzleDragLive = false; el.style.opacity = '';
+    $('dragGhost').classList.add('hidden');
+    puzzleClearDropHighlights(); clearRackSlot(); puzzleClearRackShift();
+    if (captureId !== null) { try { el.releasePointerCapture(captureId); } catch {} captureId = null; }
+    clearDragCleanup(cleanup);
+  };
+  el.addEventListener('pointerdown', e => {
+    const st = puzzleBoardState; if (!st || st.solved) return;
+    cleanupStuckDrag();
+    dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null; captureId = e.pointerId;
+    puzzleDragLive = true;
+    registerDragCleanup(cleanup);
+    try { el.setPointerCapture(e.pointerId); } catch {}
+  });
+  el.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    if (e.buttons === 0) { cleanup(); return; }
+    if (Math.hypot(e.clientX - startX, e.clientY - startY) > 8) moved = true;
+    if (!moved) return;
+    suppressNextClick = true;
+    const st = puzzleBoardState; if (!st) return;
+    el.style.opacity = '0';
+    showGhost(p.letter, e.clientX, e.clientY);
+    puzzleClearDropHighlights(); clearRackSlot(); puzzleClearRackShift();
+    const hit = puzzleDropCellForPointer(e.clientX, e.clientY);
+    if (!hit) {
+      // Not over the board: check the rack. An empty slot highlights
+      // (open mode: the tile goes back in that slot, no other tile
+      // moves); an occupied tile shifts to show the insert point.
+      // Open vs insert comes from the rack state — a used slot
+      // renders as the empty placeholder — so no DOM class read is
+      // needed, and the highlight is found by querySelectorAll.
+      const rackEl = $('puzzleRack');
+      if (rackEl) {
+        const rect = rackEl.getBoundingClientRect();
+        if (e.clientY >= rect.top && e.clientY <= rect.bottom && e.clientX >= rect.left && e.clientX <= rect.right) {
+          const slot = Math.max(0, Math.min(5, Math.floor((e.clientX - rect.left) / Math.max(1, rect.width) * 6)));
+          const slotTile = st.rack[slot];
+          if (slotTile && slotTile.used) {
+            drop = { kind: 'rack', slot, mode: 'open' };
+            const slotEl = rackEl.querySelectorAll('.tile')[slot];
+            if (slotEl) { rackSlotEl = slotEl; slotEl.style.outline = '2px solid #ffd166'; }
+            return;
+          }
+          if (slotTile) {
+            drop = { kind: 'rack', slot, mode: 'insert' }; puzzleApplyRackShift(p.rackIndex, slot); return;
+          }
+        }
+      }
+      drop = null; return;
+    }
+    // The tile's own cell is placed, not free, so nearestEmptyCell
+    // snaps to a *different* free cell, never back onto itself.
+    const target = puzzleIsCellFree(hit.row, hit.col) ? hit : puzzleNearestEmptyCell(hit.row, hit.col);
+    if (target && !(target.row === p.row && target.col === p.col)) {
+      drop = { row: target.row, col: target.col };
+      const cells = document.querySelectorAll('#puzzleBoard .cell');
+      if (cells[target.row * 10 + target.col]) cells[target.row * 10 + target.col].classList.add('drop-target');
+    } else drop = null;
+  });
+  el.addEventListener('pointerup', () => {
+    if (!dragging) return;
+    const myDrop = drop, wasMoved = moved;
+    cleanup();
+    setTimeout(() => { suppressNextClick = false; }, 150);
+    const st = puzzleBoardState; if (!st || st.solved) return;
+    if (!wasMoved) { puzzleRecallPlaced(p); return; }
+    if (myDrop && myDrop.kind === 'rack') {
+      const orig = p.rackIndex, target = myDrop.slot;
+      if (target === orig) { puzzleRecallPlaced(p); return; }
+      if (myDrop.mode === 'open') {
+        // Open slot: swap with the placed tile that owns that slot.
+        // The rack tiles themselves do not move — only the two
+        // spacers swap, so the returned tile lands in the open slot
+        // and the other placed tile's spacer takes the old slot.
+        const owner = st.placed.find(q => q !== p && q.rackIndex === target);
+        if (!owner) { puzzleRecallPlaced(p); return; }
+        const tileObj = st.rack[orig];
+        [st.rack[orig], st.rack[target]] = [st.rack[target], st.rack[orig]];
+        owner.rackIndex = orig;
+        tileObj.used = false;
+        st.placed.splice(st.placed.indexOf(p), 1);
+        st.msg = ''; st.good = st.bad = false;
+        renderPuzzleBoard();
+        return;
+      }
+      // Occupied deck tile: insert like a rack reorder — the tile
+      // moves to the hovered slot and the tiles between shift by one.
+      const tileObj = st.rack[orig];
+      st.rack.splice(orig, 1); st.rack.splice(target, 0, tileObj);
+      for (const q of st.placed) {
+        if (q === p) continue;
+        if (orig < target && q.rackIndex > orig && q.rackIndex <= target) q.rackIndex--;
+        else if (orig > target && q.rackIndex < orig && q.rackIndex >= target) q.rackIndex++;
+      }
+      tileObj.used = false;
+      st.placed.splice(st.placed.indexOf(p), 1);
+      st.msg = ''; st.good = st.bad = false;
+      renderPuzzleBoard();
+      return;
+    }
+    if (myDrop) { p.row = myDrop.row; p.col = myDrop.col; st.msg = ''; st.good = st.bad = false; renderPuzzleBoard(); }
+  });
+  el.addEventListener('pointercancel', () => cleanup());
+  el.addEventListener('lostpointercapture', () => cleanup());
+}
 function puzzleBoardClear() {
   const st = puzzleBoardState; if (!st || st.solved) return;
   for (const p of st.placed) st.rack[p.rackIndex].used = false;
@@ -375,7 +659,7 @@ async function openDailyPuzzle() {
   show('puzzleBoardScreen');
   const status = $('puzzleBoardStatus');
   if (status) { status.textContent = 'Loading today’s puzzle…'; status.className = 'status puzzle-status'; }
-  const [all, words] = await Promise.all([loadDailyPuzzles(), ensureLocalWords(), puzzleSyncFromServer()]);
+  const [all, words] = await Promise.all([loadDailyPuzzles(), ensureLocalWords()]);
   const entry = dailyPuzzleEntry(all);
   if (!entry || !words || !localEngine) {
     puzzleBoardState = null;
@@ -400,6 +684,26 @@ async function openDailyPuzzle() {
     puzzleBoardState.lastPct = 100;
   }
   renderPuzzleBoard();
+  // The solved-state sync runs in the background (v148): it was
+  // already warmed by the preload, and blocking the board on a fresh
+  // fetch is what made the first tap wait. If the sync finds the
+  // server disagrees with the local solved state (solved on another
+  // device, or unsolved there), show the server's state in place.
+  puzzleSyncFromServer().then(ok => {
+    if (!ok || !puzzleBoardState || puzzleBoardState.dateKey !== entry.dateKey) return;
+    const nowSolved = puzzleSolvedDates().has(entry.dateKey);
+    if (nowSolved === puzzleBoardState.solved) return;
+    puzzleBoardState.solved = nowSolved;
+    if (nowSolved) {
+      puzzleBoardState.msg = `Solved! The best move was ${entry.puzzle.optimalWord} — ${entry.puzzle.optimalScore} pts. Come back tomorrow.`;
+      puzzleBoardState.good = true;
+      puzzleBoardState.lastPct = 100;
+    } else {
+      puzzleBoardState.msg = ''; puzzleBoardState.good = false;
+      puzzleBoardState.lastPct = null;
+    }
+    renderPuzzleBoard(); renderHomeHeader();
+  }).catch(() => {});
 }
 function closeDailyPuzzle() { show('homeScreen'); }
 // v143: Play again clears today's solved date (the solved state lives
@@ -450,7 +754,10 @@ function show(id) {
   if (id === 'botScreen') { try { ensureLocalWords(); } catch {} }
   // v145: no textured background on the game screen — the dot grid
   // hides while the board is open and comes back everywhere else.
-  try { document.body.classList.toggle('game-open', id === 'gameScreen'); } catch {}
+  // v145: hide the dot texture on the game screen. v148: same on the
+  // Daily Puzzle screen — the puzzle is a board too, and the dots
+  // have no business behind it either.
+  try { document.body.classList.toggle('game-open', id === 'gameScreen' || id === 'puzzleBoardScreen'); } catch {}
   const tb = $('tabBar'); if (tb) tb.classList.toggle('hidden', !isMenu);
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   if ((id === 'homeScreen' || id === 'botScreen') && $('tabHome')) $('tabHome').classList.add('active');
@@ -695,6 +1002,15 @@ function preloadHomeTabs() {
     // (offline) just leaves the cache empty and openPastGames /
     // setHistoryScope fetch on tap as before.
     try { warmHistoryScopes(); } catch {}
+    // Warm the Daily Puzzle in the background (v148): the first tap
+    // used to await the puzzle JSON fetch before the board could
+    // render. The JSON is filled here, so the tap renders from
+    // prepared data instead. The solved-state sync is NOT warmed
+    // here: it POSTs solves for local dates the server lacks, which
+    // would fire mid-session and disturb the sync accounting — and
+    // the tap does not need it, because openDailyPuzzle now syncs in
+    // the background and corrects the board if the server disagrees.
+    try { await loadDailyPuzzles(); } catch {}
   };
   // Idle-scheduled (v93): the 2s timeout bounds the wait, and the
   // intro now gives it a 3.4s head start, so the profile is ready
@@ -1528,9 +1844,14 @@ $('dailyPuzzleBtn').onclick = openDailyPuzzle;
 $('puzzleBoardBackBtn').onclick = closeDailyPuzzle;
 $('puzzleBoardCheckBtn').onclick = puzzleBoardCheck;
 $('puzzleBoardClearBtn').onclick = puzzleBoardClear;
-$('puzzleRack').onclick = (e) => { const b = e.target.closest('.tile'); if (b && b.dataset.idx != null) puzzleBoardSelectRack(+b.dataset.idx); };
+// v148: the rack has no delegated click any more — rack-tile taps
+// select via the pointerup handler in enablePuzzleRackDrag, and a
+// delegated click would double-toggle after it.
 $('puzzleBoardAgainBtn').onclick = puzzleBoardAgain;
-$('puzzleBoard').onclick = (e) => { const c = e.target.closest('.cell'); if (c) puzzleBoardTapCell(+c.dataset.r, +c.dataset.c); };
+// v148: the board click is guarded by suppressNextClick (like the
+// real game's cell.onclick) so a drag's trailing click does not
+// also fire a tap.
+$('puzzleBoard').onclick = (e) => { if (suppressNextClick) { suppressNextClick = false; return; } const c = e.target.closest('.cell'); if (c) puzzleBoardTapCell(+c.dataset.r, +c.dataset.c); };
 // Matchmaking, not an instant game: Play Online (the globe) shows a
 // searching screen that ticks for a random 2-3 seconds, then makes
 // the match. Cancel, or any navigation away, abandons the search.
@@ -2041,6 +2362,18 @@ function replayClocksAt(n) {
   if (!found) return { human: game.clocks.human, bot: game.clocks.bot };
   return { human: ch, bot: cb };
 }
+// v148: whether the move at replay step n was optimal. The moveLog
+// entry carries no isOptimal flag — it lives on game.moves[side] —
+// so match by index: the nth play by side S in the log is
+// game.moves[S][n]. Passes are never logged, so the counts align.
+function replayMoveIsOptimal(n) {
+  if (!game || !game.moveLog || n < 1 || n > game.moveLog.length) return false;
+  const m = game.moveLog[n - 1];
+  const moves = (game.moves && game.moves[m.side]) || [];
+  let idx = -1;
+  for (let i = 0; i < n; i++) if (game.moveLog[i].side === m.side) idx++;
+  return !!(moves[idx] && moves[idx].isOptimal);
+}
 function renderReplay() {
   if (replayIndex === null || !game) return;
   const log = game.moveLog || [];
@@ -2091,18 +2424,28 @@ function renderReplay() {
   // v133: the final board names the last play too ("You played CAT"),
   // no +score — the same who logic as the intermediate steps. A log
   // with no moves falls back to 'Final board'.
-  if (n === 0) $('status').textContent = 'Start of game';
+  // v148: every "___ played ___" line is Duello blue, with
+  // "• Optimal move!" when that move was optimal (same optimality
+  // data as the stat window's tally). Start / Final board stay the
+  // default color.
+  const statusEl = $('status');
+  const playedLine = (who, m, withScore) => {
+    const optMark = replayMoveIsOptimal(n) ? ' • Optimal move!' : '';
+    statusEl.textContent = `${who} played ${m.mainWord || ''}${withScore ? ' +' + (m.score || 0) : ''}${optMark}`;
+    statusEl.classList.add('review-played');
+  };
+  if (n === 0) { statusEl.textContent = 'Start of game'; statusEl.classList.remove('review-played'); }
   else if (n === total) {
     const m = log[total - 1];
     if (m) {
       const who = m.side === 'human' ? 'You' : ($('botName').textContent || 'Opponent');
-      $('status').textContent = `${who} played ${m.mainWord || ''}`;
-    } else $('status').textContent = 'Final board';
+      playedLine(who, m, false);
+    } else { statusEl.textContent = 'Final board'; statusEl.classList.remove('review-played'); }
   }
   else {
     const m = log[n - 1];
     const who = m.side === 'human' ? 'You' : ($('botName').textContent || 'Opponent');
-    $('status').textContent = `${who} played ${m.mainWord || ''} +${m.score || 0}`;
+    playedLine(who, m, true);
   }
   // One shared arrows row now (v124): the review buttons are gone,
   // so only these two exist.
@@ -2120,6 +2463,8 @@ function stepReplay(dir) {
 function clearReplay() { replayIndex = null; }
 function renderGame() {
   if (!game) return;
+  // v148: live play never shows the review's blue "played" line.
+  const statusEl = $('status'); if (statusEl) statusEl.classList.remove('review-played');
   // Never rebuild the board/rack while a drag is live: re-creating the
   // captured tile mid-drag destroys it and can strand pointer capture,
   // which is how a drag froze the whole screen. The next render after the
@@ -2417,6 +2762,14 @@ function tickClocks() {
   // the game can never stall on a failed fetch.
   if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) {
     $('status').textContent = 'Out of time, opponent plays on.'; updateForfeitLabel();
+    // The human clock is out: zero the stored value at once (v148).
+    // After the flip below, the tick displays game.clocks.human, and
+    // the stale pre-timeout value (e.g. 1500ms) would otherwise sit
+    // frozen at 0:01 — the human clock no longer drains on the bot's
+    // turn, so nothing ever corrects it until the next fetch. Zeroing
+    // it here also keeps the bot-timeout branch below from flipping
+    // the turn back to the human on the stale value.
+    game.clocks.human = 0;
     if (!playInFlight) {
       cleanupStuckDrag();
       if (pending.length > 0) { pending = []; selectedRack = null; }
@@ -2426,7 +2779,15 @@ function tickClocks() {
     if (game.offline) {
       // No server to confirm the flip: start the local bot turn.
       timeoutFlipUnconfirmed = false;
-      if (game.status === 'active' && !playInFlight && game.clocks.turn === 'bot') { startLocalBotTurn(); beginBotTurn(); }
+      if (game.status === 'active' && !playInFlight && game.clocks.turn === 'bot') {
+        // Both clocks out (v148): the bot has no time either, so
+        // there is no bot turn to start — end it here instead of
+        // arming a think for a dead bot. (The both-0 branch below
+        // would end it on the same tick, but the turn must never be
+        // armed first.)
+        if (game.clocks.bot <= 0) finishLocalIfNeeded();
+        else { startLocalBotTurn(); beginBotTurn(); }
+      }
     } else if (!timeoutFetching && Date.now() - timeoutLastAttempt > 1000) handleTimeoutFetch();
   }
   // Optimistic flip done but the server has not confirmed it yet (the
@@ -2672,6 +3033,11 @@ function beginBotTurn() {
   // (see pollBotTurn), instead of waiting out a bot think that
   // does not exist.
   if (game.botType === 'human') { botTimer = setTimeout(pollBotTurn, 0); return; }
+  // A bot with no time left gets no think either (v148): poll at
+  // once so the server flips the dead turn back — or finishes the
+  // game when both clocks are out — instead of letting the board
+  // sit on a dead bot's 2s/5s think.
+  if (game.clocks.bot <= 0) { botTimer = setTimeout(pollBotTurn, 0); return; }
   // Perceived think is measured from the tap, not from the server reply.
   // Think is 5s normally, 2s once the human clock is at 0 (the server
   // sends its chosen duration as botThinkMs; fall back to the clock rule).
@@ -4042,6 +4408,36 @@ function clearStatDelay() { if (statDelayTimer) { clearTimeout(statDelayTimer); 
 // timeout delay and its isTimeoutFinish check are gone; the
 // statDelayTimer machinery stays as a harmless guard (startGame
 // and navigation still clear it) but nothing ever sets it.
+// v148: the Optimal moves tally is tappable — it lists the optimal
+// moves that side played, built from the same game.moves data the
+// tally counts (isOptimal per move; Fishstick's exhaustive engine
+// decides optimality). Tapping the same tally again (or the ×)
+// closes the list. Which side's list is open, and the display names
+// for the two boxes, live here so the list survives a re-render.
+let statOptimalSide = null;
+let statOptimalLabels = { human: 'You', bot: 'Opponent' };
+function toggleStatOptimalList(side) {
+  const list = $('statOptimalList'); if (!list) return;
+  if (statOptimalSide === side && !list.classList.contains('hidden')) {
+    list.classList.add('hidden'); statOptimalSide = null; return;
+  }
+  renderStatOptimalList(side);
+}
+function renderStatOptimalList(side) {
+  const list = $('statOptimalList'); if (!list) return;
+  const moves = (game && game.moves && game.moves[side]) || [];
+  const optimal = [];
+  moves.forEach((m, i) => { if (m && m.isOptimal) optimal.push({ n: i + 1, word: m.mainWord || '', score: m.score || 0 }); });
+  const label = statOptimalLabels[side] || (side === 'human' ? 'You' : 'Opponent');
+  let html = `<div class="stat-optimal-head"><span>${label} — optimal moves (${optimal.length})</span><button class="stat-optimal-close" aria-label="Close">×</button></div>`;
+  if (!optimal.length) html += `<div class="stat-optimal-empty">No optimal moves yet.</div>`;
+  else for (const o of optimal) html += `<div class="stat-optimal-row"><span class="num">${o.n}.</span><span>${o.word}</span><span class="num">${o.score} pts</span></div>`;
+  list.innerHTML = html;
+  const closeBtn = list.querySelector('.stat-optimal-close');
+  if (closeBtn) closeBtn.onclick = () => { list.classList.add('hidden'); statOptimalSide = null; };
+  statOptimalSide = side;
+  list.classList.remove('hidden');
+}
 function showStatWindowDelayed(stats) {
   if (!game || statShownGameId === game.id || statDelayTimer) return;
   showStatWindow(stats);
@@ -4053,11 +4449,15 @@ function showStatWindow(stats) {
   rankCache.clear();
   clearStatDelay(); if (game) statShownGameId = game.id;
   const w = $('statWindow'); w.classList.remove('hidden');
+  // v148: a fresh stat window starts with the optimal-moves list closed.
+  const optListEl = $('statOptimalList'); if (optListEl) optListEl.classList.add('hidden');
+  statOptimalSide = null;
   $('gameDim').classList.add('dimmed');
   const isPersonaGame = game && game.botType === 'persona';
   const isHumanGame = game && game.botType === 'human';
   const botLabel = (game && game.botType === 'fishstick') ? 'Fishstick' : isPersonaGame ? (game.persona?.firstName || 'Player') : isHumanGame ? (game.opponent?.firstName || 'Player') : 'Doppelgänger';
   const humanLabel = (me && me.firstName) ? me.firstName : 'You';
+  statOptimalLabels = { human: humanLabel, bot: botLabel };
   // Winner is the game's recorded result, not the score comparison:
   // a forfeit is a loss even when the forfeiter is ahead on points.
   // stats.winner comes from the server; the reason check covers any
@@ -4097,7 +4497,7 @@ function showStatWindow(stats) {
   const best = (x) => x.best ? `${x.best.word} (<span class="num">${x.best.score}</span>)` : '—';
   const longest = (x) => x.longest ? `${x.longest.word} (<span class="num">${x.longest.word.length}</span>)` : '—';
   const opt = (x) => `${x.optimal}/${x.total}`;
-  const box = (name, pfp, st, noPhoto, clearBg) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}${clearBg ? ' clear-bg' : ''}">${pfp}</span><span class="stat-box-name">${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span><br><span class="stat-val num">${opt(st)}</span></div></div>`;
+  const box = (name, pfp, st, noPhoto, clearBg, side) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}${clearBg ? ' clear-bg' : ''}">${pfp}</span><span class="stat-box-name">${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span><br><span class="stat-val num opt-tally" data-side="${side}">${opt(st)}</span></div></div>`;
   const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
   // A persona with no photo gets the silhouette in the stat box and
   // the top pfp too (same reasoning as the scoreboard: a person
@@ -4107,7 +4507,7 @@ function showStatWindow(stats) {
   // v135: clear-bg for the stat-box bot pfp on a Doppelgänger game
   // too (its pfp is the 🤖 emoji), so the robot sits straight on the
   // stat-box background with no grey circle, same as Fishstick.
-  $('statGrid').innerHTML = box(humanLabel, humanPfp, stats.human, !usablePhoto(me)) + box(botLabel, botPfpBox, stats.bot, botNoPhoto, game.botType === 'fishstick' || game.botType === 'competitive');
+  $('statGrid').innerHTML = box(humanLabel, humanPfp, stats.human, !usablePhoto(me), false, 'human') + box(botLabel, botPfpBox, stats.bot, botNoPhoto, game.botType === 'fishstick' || game.botType === 'competitive', 'bot');
   if (game.botType === 'fishstick') $('statBotPfp').innerHTML = '<img src="/assets/fishstick.png?v=1" alt="Fishstick">';
   else if (isPersonaGame && usablePhoto(game.persona)) $('statBotPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
   else if (isHumanGame && usablePhoto(game.opponent)) $('statBotPfp').innerHTML = `<img src="${game.opponent.photoData}" alt="">`;
@@ -4147,6 +4547,13 @@ function showStatWindow(stats) {
     const oppBoxPfp = boxes[1] && boxes[1].querySelector('.stat-box-head .pfp');
     if (oppBoxPfp) { oppBoxPfp.style.cursor = 'pointer'; oppBoxPfp.onclick = () => openPersonModal(oppPerson); }
   }
+  // v148: the Optimal moves tally is tappable — it lists the optimal
+  // moves that side played (same data the tally counts). Tapping the
+  // same tally again (or the ×) closes the list.
+  $('statGrid').querySelectorAll('.opt-tally').forEach(el => {
+    el.style.cursor = 'pointer';
+    el.onclick = () => toggleStatOptimalList(el.dataset.side);
+  });
   // A challenge that arrived during the game waited until it ended:
   // check now so its window pops up at once instead of on the next
   // 5-second poll.

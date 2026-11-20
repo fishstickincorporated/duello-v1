@@ -2686,7 +2686,13 @@ const server = http.createServer(async (req, res) => {
           // Timed out: skip this side, let the other side keep playing
           // (you cannot win on time). For a bot opponent that means
           // starting its turn; for a real one the turn just flips.
-          if (game.botType === 'human') { game.turn = oppSide; game.turnStartedAt = Date.now(); game.botThinkUntil = null; }
+          // BUT if the other clock is out too, there is nobody left to
+          // play — the game ends here instead of handing a move to an
+          // opponent with no time (v148: both clocks out, one player
+          // already dead, so the second timeout must finish it).
+          if (game.clocks[oppSide] <= 0) {
+            finishIfNeeded(game, user);
+          } else if (game.botType === 'human') { game.turn = oppSide; game.turnStartedAt = Date.now(); game.botThinkUntil = null; }
           else startBotTurn(game);
           await saveGameRow(game);
           const out = serializeGame(game, user);

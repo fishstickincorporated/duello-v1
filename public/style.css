@@ -37,6 +37,13 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .mode .chev{font-size:30px;line-height:1;color:#03eaff}
 .mode.greyed .chev{color:#b3b2b1}
 .mode .soon{background:#23262e;color:#b3b2b1;border-radius:20px;padding:4px 10px;font-size:11px;letter-spacing:1px;white-space:nowrap}
+/* v148: the Daily Puzzle countdown pill is a FIXED width, the same
+   size whether it shows "Solved" or the ticking countdown, so it
+   never changes size as the clock ticks. 72px fits the widest
+   countdown ("23:59:59", 8 chars, measured 70.83px rendered) with
+   ~1px slack, and the text is centred in it (box-sizing is
+   border-box globally, so 72px includes the padding). */
+#puzzleSolvedTag{width:72px;text-align:center}
 .sym{font-size:34px;line-height:1}.sym.white{color:#fff}.sym.red-disc{background:#ff1303;border-radius:50%;width:52px;height:52px;display:flex;align-items:center;justify-content:center;font-size:30px}
 .sym.fishstick{width:52px;height:52px;border-radius:50%;background:#bfe3ff;position:relative;display:block}
 .sym.fishstick::before{content:"";position:absolute;left:8px;top:14px;width:36px;height:24px;background:#e0a83c;border-radius:12px}
@@ -105,6 +112,8 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .cell .tile{position:absolute;inset:0;width:auto;height:auto}
 .cell.last-word .tile{outline:1px solid #fff}
 .status{display:flex;align-items:center;justify-content:center;min-height:22px;margin:3px 0;padding:8px 0;font-size:15px;line-height:1.3;white-space:nowrap}
+/* v148: in a game review, the "___ played ___" line is Duello blue. */
+.status.review-played{color:#03eaff}
 .rack{display:flex;gap:6px;justify-content:space-between;margin:8px 0;min-height:57px}
 .rack .tile{width:52px;flex:1;aspect-ratio:1;font-size:30px;transition:transform 100ms ease,opacity 100ms ease}
 .rack.greyed{opacity:.55}
@@ -452,6 +461,14 @@ html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-
 
 .stat-grid{display:flex;gap:12px;background:none;border:0;padding:0}
 .stat-box{flex:1;min-width:0;background:#262a33;border:2px solid #e8ecf1;border-radius:16px;padding:14px;text-align:left;font-size:14px;line-height:1.7}
+/* v148: the Optimal moves tally is tappable (the dotted underline
+   hints it); the list it opens sits under the stat grid. */
+.opt-tally{cursor:pointer;text-decoration:underline dotted #03eaff;text-underline-offset:3px}
+.stat-optimal-list{background:#262a33;border:2px solid #e8ecf1;border-radius:16px;padding:12px 14px;margin-top:12px;text-align:left;font-size:14px;line-height:1.7}
+.stat-optimal-head{display:flex;justify-content:space-between;align-items:center;font-weight:800;margin-bottom:4px}
+.stat-optimal-close{background:none;border:0;color:#e8ecf1;font-size:22px;line-height:1;cursor:pointer;padding:0 4px}
+.stat-optimal-row{display:flex;gap:8px;padding:2px 0}
+.stat-optimal-empty{color:#b3b2b1}
 .stat-box-head{display:flex;align-items:center;gap:8px;font-weight:800;letter-spacing:1px;margin-bottom:6px}
 /* v135: shrink the stat-box name so "Doppelgänger" fits whole next
    to the 36px pfp. At 14px bold + 1px letter-spacing it is ~117px
@@ -524,8 +541,10 @@ squares are the premium colours, spread out across the whole screen. */
 .home-stat-value{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
 .home-stat-label{color:#b3b2b1;font-size:12px}
 /* v146: home buttons are a fixed 100px (was flex:1, ~126px at 390x844)
-   with 24px gaps, centered in the available space. */
-#homeScreen .modes{flex:1;display:flex;flex-direction:column;gap:24px;margin-top:0;justify-content:center}
+   with 24px gaps, centered in the available space. v148: a bit
+   shorter with a bit more space between them — 92px with 28px gaps
+   (4×92 + 3×28 = 452px, down from 472px, so the stack still fits). */
+#homeScreen .modes{flex:1;display:flex;flex-direction:column;gap:28px;margin-top:0;justify-content:center}
 /* v139: icons even bigger and slightly further right, at Jeff's
    request ("getting greedy"). Icons 44px→48px and left padding
    8px→14px on both home and bot buttons (right padding stays 8px,
@@ -537,7 +556,7 @@ squares are the premium colours, spread out across the whole screen. */
    12.25px would fit by only 0.5px, too tight to trust). Title
    stays 22px. The title/subtitle keep white-space:nowrap so they
    can never wrap. */
-#homeScreen .mode{flex:0 1 100px;height:auto;font-size:22px}
+#homeScreen .mode{flex:0 1 92px;height:auto;font-size:22px}
 #homeScreen .mode .sym svg{width:48px;height:48px}
 /* v132: home buttons are big glossy gradient cards (Jeff's screenshot).
    v133: darkened so the white text pops way more — each gradient runs
@@ -578,11 +597,11 @@ squares are the premium colours, spread out across the whole screen. */
    placement under the logo), Back below them. */
 #botScreen{position:relative;display:flex;flex-direction:column;height:100dvh;height:100svh;min-height:100svh;padding-bottom:128px}
 #botScreen .logo-img.home-logo{width:72%;margin-top:0;position:relative;z-index:1}
-#botScreen .bot-options{flex:1;display:flex;flex-direction:column;gap:24px;margin-top:0;position:relative;z-index:1;justify-content:center}
+#botScreen .bot-options{flex:1;display:flex;flex-direction:column;gap:28px;margin-top:0;position:relative;z-index:1;justify-content:center}
 /* v146: bot buttons are the same fixed 100px as the home buttons — the
    v137 calc (matching the old flex:1 home height) is gone, both now
-   match by the same number. */
-#botScreen .bot-opt{flex:0 1 100px;height:auto;min-height:88px;font-size:22px}
+   match by the same number. v148: 92px / 28px, same as home. */
+#botScreen .bot-opt{flex:0 1 92px;height:auto;min-height:88px;font-size:22px}
 /* v146: the v137 calc is gone — home and bot buttons are both a fixed
    100px now, so they match by the same number instead of arithmetic.
    (History: the v137 percentage basis `calc((100% - 64.4px)/4)` silently

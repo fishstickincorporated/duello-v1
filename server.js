@@ -112,6 +112,8 @@ async function initDb() {
   // define it, so add it idempotently for later slices. It is not used by
   // bot play itself.
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_data TEXT');
+  // Duello Pro tier (v147): a real account flag, default Free.
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS pro BOOLEAN NOT NULL DEFAULT FALSE');
   // Real friend requests (v53): one row per directed request, pending
   // until accepted; accepted rows are the friendship. Personas are
   // not in users, so they can never be a request target here.
@@ -208,7 +210,7 @@ async function getUserById(id) { const r = await q('SELECT * FROM users WHERE id
 function publicUser(u) {
   if (!u) return null;
   const created = u.created_at instanceof Date ? u.created_at.toISOString() : u.created_at;
-  return { id: u.id, email: u.email, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, eloHigh: u.elo_high, createdAt: created, hasPhoto: !!u.photo_data, photoData: u.photo_data || null, pushEnabled: u.push_enabled !== false };
+  return { id: u.id, email: u.email, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, eloHigh: u.elo_high, createdAt: created, hasPhoto: !!u.photo_data, photoData: u.photo_data || null, pushEnabled: u.push_enabled !== false, pro: !!u.pro };
 }
 async function authUser(req) {
   const h = req.headers.authorization || '';
@@ -1944,6 +1946,19 @@ const server = http.createServer(async (req, res) => {
       if (newEmail) { params.push(newEmail); sets.push(`email=$${params.length}`); }
       params.push(user.id);
       await q(`UPDATE users SET ${sets.join(', ')} WHERE id=$${params.length}`, params);
+      const updated = await getUserById(user.id);
+      return sendJson(res, 200, { user: publicUser(updated) });
+    }
+    // Duello Pro tier (v147): switch between the Free version and
+    // Duello Pro. No payment is wired up — the tier is a plain account
+    // flag the settings screen flips (an App Store purchase would
+    // replace this call when Jeff wants one).
+    if (pathname === '/api/me/pro' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      if (typeof b.pro !== 'boolean') return sendJson(res, 400, { error: 'Pick a plan.' });
+      await q('UPDATE users SET pro=$2 WHERE id=$1', [user.id, b.pro]);
       const updated = await getUserById(user.id);
       return sendJson(res, 200, { user: publicUser(updated) });
     }

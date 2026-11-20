@@ -651,3 +651,19 @@ squares are the premium colours, spread out across the whole screen. */
 .puzzle-strength-fill{height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,#03eaff,#1cff03);transition:width .35s ease}
 #puzzleBoardCheckBtn.play-valid{background:#03eaff;color:#1a1d24;border-color:#03eaff}
 #puzzleBoardAgainBtn{background:#03eaff;color:#1a1d24}
+
+/* v147: Apple-style settings — grouped rows in rounded cards, label
+   left, grey value + chevron right, hairline separators. The screen's
+   own 16px side padding provides the card inset. */
+.settings-group{background:#262a33;border-radius:16px;margin:0 0 20px;overflow:hidden;text-align:left}
+.settings-row{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;background:none;border:0;padding:13px 16px;font-size:17px;color:#fff;text-align:left;cursor:pointer;font-family:inherit}
+.settings-row + .settings-row{border-top:1px solid rgba(255,255,255,.09)}
+.settings-label{flex:0 0 auto}
+.settings-value{display:flex;align-items:center;gap:8px;color:#b3b2b1;min-width:0}
+.settings-val{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.settings-chev{color:#6e6e73;font-size:20px;line-height:1}
+.settings-row-danger .settings-label{color:#ff453a}
+.settings-pfp{width:32px;height:32px;border-radius:50%;overflow:hidden;display:inline-flex;flex:0 0 auto;background:#1a1d24}
+.settings-pfp img{width:100%;height:100%;object-fit:cover}
+.settings-check{color:#03eaff;font-size:18px;font-weight:700}
+#fieldInput{flex:1;background:none;border:0;color:#fff;font-size:17px;font-family:inherit;outline:none;min-width:0;padding:0}

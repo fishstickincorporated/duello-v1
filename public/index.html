@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=146"></head>
+<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=147"></head>
 <body><div id="introOverlay"><div id="introFlicker"></div><div id="introInner"><div id="introLogoZoom"><img id="introLogo" src="/assets/logo.png?v=2" alt="DUELLO"></div></div></div><div id="bootError" style="display:none;position:fixed;top:12px;left:12px;right:12px;z-index:9999;background:#ffd166;color:#1a1d24;padding:12px;border-radius:10px;font-size:14px;line-height:1.4" onclick="this.style.display='none'"></div><div id="app">
   <noscript><p style="color:#e8ecf1;text-align:center;padding:40px 20px">Duello needs JavaScript enabled to run. Turn JavaScript on in your browser settings and reload.</p></noscript>
 
@@ -119,70 +119,99 @@
   </section>
 
   <section id="profileEditScreen" class="screen hidden">
-    <h1 class="auth-heading">Edit profile</h1>
-    <form id="profileEditForm" autocomplete="off">
-      <div class="edit-photo">
-        <div class="edit-pfp-wrap" id="editPfpWrap" title="Change photo">
-          <div class="pfp huge" id="editPfp"></div>
-          <span class="edit-pfp-pencil"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M16.5 4.5 L19.5 7.5 L8 19 L3 20 L4 15 Z" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 7 L17 10" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg></span>
-        </div>
-        <input id="editPhotoInput" type="file" accept="image/*" class="hidden">
-        <button class="link hidden" id="editPhotoRemoveBtn" type="button">Remove photo</button>
-      </div>
-      <div class="edit-field"><label for="editFirstName">First name</label><input id="editFirstName" placeholder="First name" autocomplete="off"></div>
-      <div class="edit-field"><label for="editLastName">Last name</label><input id="editLastName" placeholder="Last name" autocomplete="off"></div>
-      <div class="edit-field"><label for="editUsername">Username</label><input id="editUsername" placeholder="Username" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
-      <div class="edit-field"><label for="editEmail">Email</label><input id="editEmail" type="email" placeholder="Email" autocomplete="off"></div>
-      <div class="settings-section">
-        <div class="setting-row hidden" id="pushSettingRow">
-          <div class="setting-text"><div class="setting-label">Push notifications</div></div>
-          <button class="switch" id="pushToggle" type="button" role="switch" aria-checked="false" aria-label="Push notifications"><span class="switch-knob"></span></button>
-        </div>
-        <p class="small hidden" id="pushSettingNote"></p>
-      </div>
-      <div class="edit-password">
-        <div id="editPasswordFields" class="hidden">
-          <div class="pw-wrap"><input id="editCurrentPassword" type="password" placeholder="Current password" autocomplete="off"><button class="pw-eye" type="button" data-target="editCurrentPassword" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
-          <div class="pw-wrap"><input id="editNewPassword" type="password" placeholder="New password" autocomplete="off"><button class="pw-eye" type="button" data-target="editNewPassword" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
-          <div class="pw-wrap"><input id="editNewPassword2" type="password" placeholder="New password again" autocomplete="off"><button class="pw-eye" type="button" data-target="editNewPassword2" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
-          <ul class="pw-reqs" id="editPwReqs"><li data-req="len">At least 8 characters</li><li data-req="upper">A capital letter</li><li data-req="lower">A lowercase letter</li><li data-req="digit">A number</li></ul>
-          <button class="btn primary" id="editPasswordSaveBtn" type="button">Save new password</button>
-          <p id="editPasswordError" class="error"></p>
-          <p id="editPasswordDone" class="success"></p>
-        </div>
-        <button class="btn secondary" id="editPasswordBtn" type="button">Change password</button>
-      </div>
-      <p id="editError" class="error"></p>
-      <div class="edit-actions">
-        <button class="btn cancel" type="button" id="editCancelBtn">Cancel</button>
-        <button class="btn primary" type="submit" id="editSaveBtn">Save</button>
-      </div>
-    </form>
-    <button class="btn secondary" id="profileSignOutBtn" type="button">Sign out</button>
-    <hr class="settings-divider">
-    <div class="edit-delete">
-      <button class="link danger" id="editDeleteBtn" type="button">Delete account</button>
-      <div id="editDeleteConfirm" class="hidden">
-        <p class="small">This permanently deletes your account, games, Elo, and stats. This cannot be undone.</p>
-        <p id="editDeleteError" class="error"></p>
-        <div class="edit-actions stacked" id="editDeleteActions">
-          <button class="btn cancel" type="button" id="editDeleteCancelBtn">Keep my account</button>
-          <button class="btn danger" type="button" id="editDeleteConfirmBtn">Yes, delete my account</button>
-        </div>
-        <div id="editDeleteCode" class="hidden">
-          <p class="small" id="editDeleteCodeMsg"></p>
-          <div class="edit-field"><label for="editDeleteCodeInput">Code</label><input id="editDeleteCodeInput" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="one-time-code"></div>
-          <p id="editDeleteCodeError" class="error"></p>
-          <div class="edit-actions stacked">
-            <button class="btn primary" type="button" id="editDeleteCodeVerifyBtn">Delete my account</button>
-            <button class="btn cancel" type="button" id="editDeleteCodeBackBtn">Back</button>
-          </div>
-          <button class="link" id="editDeleteCodeResendBtn" type="button">Send a new code</button>
-        </div>
-      </div>
+    <h1 class="auth-heading">Settings</h1>
+    <div class="settings-group">
+      <button class="settings-row" id="editPhotoRow" type="button"><span class="settings-label">Photo</span><span class="settings-value"><span class="settings-pfp" id="editRowPfp"></span><span class="settings-chev">&rsaquo;</span></span></button>
+      <button class="settings-row" id="editFirstNameRow" type="button"><span class="settings-label">First name</span><span class="settings-value"><span class="settings-val" id="editRowFirstName"></span><span class="settings-chev">&rsaquo;</span></span></button>
+      <button class="settings-row" id="editLastNameRow" type="button"><span class="settings-label">Last name</span><span class="settings-value"><span class="settings-val" id="editRowLastName"></span><span class="settings-chev">&rsaquo;</span></span></button>
+      <button class="settings-row" id="editUsernameRow" type="button"><span class="settings-label">Username</span><span class="settings-value"><span class="settings-val" id="editRowUsername"></span><span class="settings-chev">&rsaquo;</span></span></button>
+      <button class="settings-row" id="editEmailRow" type="button"><span class="settings-label">Email</span><span class="settings-chev">&rsaquo;</span></button>
+      <button class="settings-row" id="editPasswordRow" type="button"><span class="settings-label">Password</span><span class="settings-chev">&rsaquo;</span></button>
+      <div class="settings-row hidden" id="pushSettingRow"><span class="settings-label">Push notifications</span><span class="settings-value"><button class="switch" id="pushToggle" type="button" role="switch" aria-checked="false" aria-label="Push notifications"><span class="switch-knob"></span></button></span></div>
+      <button class="settings-row" id="editProRow" type="button"><span class="settings-label">Duello Pro</span><span class="settings-value"><span class="settings-val" id="editRowPro"></span><span class="settings-chev">&rsaquo;</span></span></button>
+    </div>
+    <p class="small hidden" id="pushSettingNote"></p>
+    <div class="settings-group">
+      <button class="settings-row" id="privacyRow" type="button"><span class="settings-label">Privacy Policy</span><span class="settings-chev">&rsaquo;</span></button>
+    </div>
+    <div class="settings-group">
+      <button class="settings-row" id="profileSignOutBtn" type="button"><span class="settings-label">Sign out</span></button>
+      <button class="settings-row settings-row-danger" id="editDeleteBtn" type="button"><span class="settings-label">Delete account</span></button>
     </div>
     <p class="def-credit">Definitions via Wiktionary (CC BY-SA)</p>
-    <p class="small privacy-link"><a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a></p>
+    <input id="editPhotoInput" type="file" accept="image/*" class="hidden">
+  </section>
+
+  <section id="profileFieldScreen" class="screen hidden">
+    <button class="back-pill" id="fieldBackBtn" type="button">&lsaquo; Settings</button>
+    <h1 class="auth-heading" id="fieldTitle">First name</h1>
+    <div class="settings-group"><div class="settings-row"><input id="fieldInput" autocomplete="off"></div></div>
+    <p id="fieldError" class="error"></p>
+    <div class="edit-actions">
+      <button class="btn cancel" type="button" id="fieldCancelBtn">Cancel</button>
+      <button class="btn primary" type="button" id="fieldSaveBtn">Save</button>
+    </div>
+  </section>
+
+  <section id="profilePhotoScreen" class="screen hidden">
+    <button class="back-pill" id="photoBackBtn" type="button">&lsaquo; Settings</button>
+    <h1 class="auth-heading">Photo</h1>
+    <div class="edit-photo">
+      <div class="pfp huge" id="editPfp"></div>
+    </div>
+    <div class="edit-actions stacked">
+      <button class="btn primary" type="button" id="editPhotoChooseBtn">Choose photo</button>
+      <button class="link hidden" id="editPhotoRemoveBtn" type="button">Remove photo</button>
+    </div>
+    <p id="photoError" class="error"></p>
+  </section>
+
+  <section id="profilePasswordScreen" class="screen hidden">
+    <button class="back-pill" id="passwordBackBtn" type="button">&lsaquo; Settings</button>
+    <h1 class="auth-heading">Password</h1>
+    <div class="settings-group">
+      <div class="pw-wrap"><input id="editCurrentPassword" type="password" placeholder="Current password" autocomplete="off"><button class="pw-eye" type="button" data-target="editCurrentPassword" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+      <div class="pw-wrap"><input id="editNewPassword" type="password" placeholder="New password" autocomplete="off"><button class="pw-eye" type="button" data-target="editNewPassword" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+      <div class="pw-wrap"><input id="editNewPassword2" type="password" placeholder="New password again" autocomplete="off"><button class="pw-eye" type="button" data-target="editNewPassword2" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+      <ul class="pw-reqs" id="editPwReqs"><li data-req="len">At least 8 characters</li><li data-req="upper">A capital letter</li><li data-req="lower">A lowercase letter</li><li data-req="digit">A number</li></ul>
+    </div>
+    <button class="btn primary" id="editPasswordSaveBtn" type="button">Save new password</button>
+    <p id="editPasswordError" class="error"></p>
+    <p id="editPasswordDone" class="success"></p>
+  </section>
+
+  <section id="profileProScreen" class="screen hidden">
+    <button class="back-pill" id="proBackBtn" type="button">&lsaquo; Settings</button>
+    <h1 class="auth-heading">Duello Pro</h1>
+    <p class="small" id="proCurrentLine">You&rsquo;re on Free version</p>
+    <div class="settings-group">
+      <button class="settings-row pro-option" id="proFreeRow" type="button"><span class="settings-label">Free version</span><span class="settings-check" id="proFreeCheck">&check;</span></button>
+      <button class="settings-row pro-option" id="proProRow" type="button"><span class="settings-label">Duello Pro</span><span class="settings-check" id="proProCheck"></span></button>
+    </div>
+    <p id="proError" class="error"></p>
+  </section>
+
+  <section id="profileDeleteScreen" class="screen hidden">
+    <button class="back-pill" id="deleteBackBtn" type="button">&lsaquo; Settings</button>
+    <h1 class="auth-heading">Delete account</h1>
+    <div id="editDeleteConfirm">
+      <p class="small">This permanently deletes your account, games, Elo, and stats. This cannot be undone.</p>
+      <p id="editDeleteError" class="error"></p>
+      <div class="edit-actions stacked" id="editDeleteActions">
+        <button class="btn cancel" type="button" id="editDeleteCancelBtn">Keep my account</button>
+        <button class="btn danger" type="button" id="editDeleteConfirmBtn">Yes, delete my account</button>
+      </div>
+      <div id="editDeleteCode" class="hidden">
+        <p class="small" id="editDeleteCodeMsg"></p>
+        <div class="edit-field"><label for="editDeleteCodeInput">Code</label><input id="editDeleteCodeInput" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="one-time-code"></div>
+        <p id="editDeleteCodeError" class="error"></p>
+        <div class="edit-actions stacked">
+          <button class="btn primary" type="button" id="editDeleteCodeVerifyBtn">Delete my account</button>
+          <button class="btn cancel" type="button" id="editDeleteCodeBackBtn">Back</button>
+        </div>
+        <button class="link" id="editDeleteCodeResendBtn" type="button">Send a new code</button>
+      </div>
+    </div>
   </section>
 
   <section id="authScreen" class="screen hidden">
@@ -365,5 +394,5 @@
   } catch (e) {}
 })();
 </script>
-<script src="/engine.js?v=146" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
-<script src="/app.js?v=146" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>
+<script src="/engine.js?v=147" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
+<script src="/app.js?v=147" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>

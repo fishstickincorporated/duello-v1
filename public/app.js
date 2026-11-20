@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 146;
+const APP_VERSION = 147;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -183,6 +183,8 @@ function renderHomeHeader() {
   const pfp = $('homePfp');
   if (pfp) { pfp.innerHTML = pfpHTML(me); pfp.classList.toggle('no-photo', !usablePhoto(me)); }
   const elo = $('homeElo'); if (elo) elo.textContent = me.elo ?? '';
+  // v147: the Pro badge follows the account tier — Free hides it.
+  const proBadge = document.querySelector('.home-pro'); if (proBadge) proBadge.classList.toggle('hidden', !me.pro);
   const streak = $('homeStreak'); if (streak) streak.textContent = puzzleStreak();
   // Daily Puzzle button subtitle is the live streak (v132): "N day
   // streak!🔥". Updated here so it refreshes on every home show and
@@ -437,7 +439,7 @@ function show(id) {
   if (id !== 'rematchScreen') cancelRematch();
   // v142: puzzleBoardScreen is a full screen like gameScreen — it hides
   // the tab bar (it has its own Back button) and is not a menu screen.
-  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen', 'puzzleBoardScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
+  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen', 'puzzleBoardScreen', 'profileFieldScreen', 'profilePhotoScreen', 'profilePasswordScreen', 'profileProScreen', 'profileDeleteScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
   const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen'].includes(id);
   // Warm the offline engine when the bot screen opens (v107): the
   // dictionary + solver index build used to run on the first bot tap,
@@ -5087,20 +5089,131 @@ document.querySelectorAll('.chart-toggle').forEach(b => b.onclick = () => { char
 $('gearBtn').onclick = async () => {
   if (!profileData) await renderProfileUI();
   if (!profileData) return;
-  const u = profileData.user;
-  $('editFirstName').value = u.firstName; $('editLastName').value = u.lastName; $('editUsername').value = u.username; $('editEmail').value = u.email || ''; $('editError').textContent = '';
-  editPhotoData = undefined;
-  $('editPfp').innerHTML = usablePhoto(u) ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44); $('editPfp').classList.toggle('no-photo', !usablePhoto(u));
-  $('editPhotoRemoveBtn').classList.toggle('hidden', !u.photoData);
-  $('editCurrentPassword').value = ''; $('editNewPassword').value = ''; $('editNewPassword2').value = '';
-  $('editPasswordError').textContent = ''; $('editPasswordDone').textContent = '';
-  $('editPasswordFields').classList.add('hidden'); renderPwReqs('editPwReqs', '');
+  renderEditList();
   setPushNote('');
   refreshPushToggle();
   show('profileEditScreen');
 };
-let editPhotoData;
-$('editPfpWrap').onclick = () => $('editPhotoInput').click();
+// v147: the settings list shows the account's current values. The
+// email address is deliberately NOT shown here (Jeff: it appears
+// only when you tap the Email row).
+function renderEditList() {
+  const u = (profileData && profileData.user) || me;
+  if (!u) return;
+  $('editRowFirstName').textContent = u.firstName || '';
+  $('editRowLastName').textContent = u.lastName || '';
+  $('editRowUsername').textContent = '@' + (u.username || '');
+  $('editRowPro').textContent = u.pro ? 'Duello Pro' : 'Free version';
+  $('editRowPfp').innerHTML = usablePhoto(u) ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(32);
+}
+$('editFirstNameRow').onclick = () => openFieldEditor('firstName');
+$('editLastNameRow').onclick = () => openFieldEditor('lastName');
+$('editUsernameRow').onclick = () => openFieldEditor('username');
+$('editEmailRow').onclick = () => openFieldEditor('email');
+$('editPasswordRow').onclick = () => openPasswordScreen();
+$('editProRow').onclick = () => openProScreen();
+$('editPhotoRow').onclick = () => openPhotoScreen();
+$('privacyRow').onclick = () => window.open('/privacy.html', '_blank', 'noopener');
+$('fieldBackBtn').onclick = () => show('profileEditScreen');
+$('fieldCancelBtn').onclick = () => show('profileEditScreen');
+$('photoBackBtn').onclick = () => show('profileEditScreen');
+$('passwordBackBtn').onclick = () => show('profileEditScreen');
+$('proBackBtn').onclick = () => show('profileEditScreen');
+$('deleteBackBtn').onclick = () => show('profileEditScreen');
+// v147: one field at a time. Each editor saves that field alone via
+// /api/me/update (the endpoint always sets first/last/username, so
+// the untouched ones are sent back unchanged; email is only sent
+// when the email itself is edited, otherwise it stays as it is).
+let editFieldKind = null;
+function openFieldEditor(kind) {
+  editFieldKind = kind;
+  const u = (profileData && profileData.user) || me; if (!u) return;
+  const titles = { firstName: 'First name', lastName: 'Last name', username: 'Username', email: 'Email' };
+  const input = $('fieldInput');
+  $('fieldTitle').textContent = titles[kind] || kind;
+  input.value = kind === 'firstName' ? (u.firstName || '') : kind === 'lastName' ? (u.lastName || '') : kind === 'username' ? (u.username || '') : (u.email || '');
+  input.type = kind === 'email' ? 'email' : 'text';
+  input.placeholder = titles[kind] || kind;
+  input.autocapitalize = kind === 'username' ? 'off' : 'sentences';
+  input.autocorrect = kind === 'username' ? 'off' : 'on';
+  input.spellcheck = kind !== 'username';
+  $('fieldError').textContent = '';
+  show('profileFieldScreen');
+  input.focus();
+}
+$('fieldInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('fieldSaveBtn').click(); } });
+$('fieldInput').addEventListener('input', () => { if (editFieldKind === 'username') { const el = $('fieldInput'); if (el.value !== el.value.toLowerCase()) el.value = el.value.toLowerCase(); } });
+$('fieldSaveBtn').onclick = async () => {
+  const u = (profileData && profileData.user) || me; if (!u || !editFieldKind) return;
+  const v = $('fieldInput').value.trim();
+  const body = { firstName: u.firstName, lastName: u.lastName, username: u.username };
+  if (editFieldKind === 'firstName') { if (!v) { $('fieldError').textContent = 'Add a first name.'; return; } body.firstName = v; }
+  if (editFieldKind === 'lastName') body.lastName = v;
+  if (editFieldKind === 'username') { const un = v.toLowerCase(); if (!/^[a-z0-9_]{3,}$/.test(un)) { $('fieldError').textContent = 'Usernames are 3+ lowercase letters, numbers, or underscores.'; return; } body.username = un; }
+  if (editFieldKind === 'email') { if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { $('fieldError').textContent = 'Enter a valid email.'; return; } if (v) body.email = v.toLowerCase(); }
+  try {
+    const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify(body) });
+    me = d.user; persistMe(); profileData = null;
+    renderEditList(); renderHomeHeader();
+    show('profileEditScreen');
+  } catch (err) { $('fieldError').textContent = err.message || 'Could not save.'; }
+};
+// v147: the photo lives on its own screen — Choose opens the picker,
+// and the cropped photo saves at once (no staged form submit any
+// more); Remove clears it the same way.
+function openPhotoScreen() {
+  const u = (profileData && profileData.user) || me; if (!u) return;
+  $('editPfp').innerHTML = usablePhoto(u) ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44); $('editPfp').classList.toggle('no-photo', !usablePhoto(u));
+  $('editPhotoRemoveBtn').classList.toggle('hidden', !u.photoData);
+  $('photoError').textContent = '';
+  show('profilePhotoScreen');
+}
+$('editPhotoChooseBtn').onclick = () => $('editPhotoInput').click();
+$('editPhotoRemoveBtn').onclick = async () => {
+  const u = (profileData && profileData.user) || me; if (!u) return;
+  try {
+    const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify({ firstName: u.firstName, lastName: u.lastName, username: u.username, photoData: null }) });
+    me = d.user; persistMe(); profileData = null;
+    renderEditList(); renderHomeHeader();
+    openPhotoScreen();
+  } catch (err) { $('photoError').textContent = err.message || 'Could not remove the photo.'; }
+};
+// v147: the password screen is always open (no reveal button any
+// more) — the fields, requirements and Save live on their own screen.
+function openPasswordScreen() {
+  $('editCurrentPassword').value = ''; $('editNewPassword').value = ''; $('editNewPassword2').value = '';
+  $('editPasswordError').textContent = ''; $('editPasswordDone').textContent = '';
+  renderPwReqs('editPwReqs', '');
+  show('profilePasswordScreen');
+  $('editCurrentPassword').focus();
+}
+// v147: Duello Pro is a real account flag. Tapping an option applies
+// it at once (Apple-style selection list) — no Save button. A failed
+// switch puts the checkmark back where it was.
+function renderProScreen() {
+  const on = !!(me && me.pro);
+  $('proCurrentLine').textContent = on ? "You're on Duello Pro" : "You're on Free version";
+  $('proFreeCheck').textContent = on ? '' : '✓';
+  $('proProCheck').textContent = on ? '✓' : '';
+  $('proError').textContent = '';
+}
+function openProScreen() { renderProScreen(); show('profileProScreen'); }
+async function setPro(on) {
+  if (!me || !!me.pro === on) { renderProScreen(); return; }
+  $('proError').textContent = '';
+  try {
+    const d = await api('/api/me/pro', { method: 'POST', body: JSON.stringify({ pro: on }) });
+    me = d.user; persistMe(); profileData = null;
+    renderProScreen(); renderEditList(); renderHomeHeader();
+  } catch (err) {
+    // Re-render first (it restores the checkmark AND clears the error
+    // line), then set the error — the other order wipes the message.
+    renderProScreen();
+    $('proError').textContent = err.message || 'Could not change plan.';
+  }
+}
+$('proFreeRow').onclick = () => setPro(false);
+$('proProRow').onclick = () => setPro(true);
 // Photo crop (v92): after picking a photo, the user frames it in a
 // circular viewport — drag to move, slider to zoom — before it is
 // saved. Pfps display round everywhere, so the crop preview is what
@@ -5154,7 +5267,7 @@ $('cropZoom').oninput = () => {
   cropState.zoom = parseFloat($('cropZoom').value) || 1;
   cropClamp(cropState); cropPaint();
 };
-$('cropUseBtn').onclick = () => {
+$('cropUseBtn').onclick = async () => {
   const s = cropState; if (!s) return;
   // Map the viewport square back onto the source image: the image is
   // drawn at (base*zoom) scale, centred on the viewport plus (x, y).
@@ -5167,12 +5280,18 @@ $('cropUseBtn').onclick = () => {
   cv.getContext('2d').drawImage(s.img, sx, sy, side, side, 0, 0, 512, 512);
   let data = cv.toDataURL('image/jpeg', 0.82);
   if (data.length > 750000) data = cv.toDataURL('image/jpeg', 0.7);
-  if (data.length > 750000) { $('editError').textContent = 'That photo is too large. Pick a smaller one.'; return; }
-  editPhotoData = data;
+  if (data.length > 750000) { $('photoError').textContent = 'That photo is too large. Pick a smaller one.'; return; }
+  closeCrop();
   $('editPfp').innerHTML = `<img src="${data}" alt="">`; $('editPfp').classList.remove('no-photo');
   $('editPhotoRemoveBtn').classList.remove('hidden');
-  $('editError').textContent = '';
-  closeCrop();
+  $('photoError').textContent = '';
+  // v147: the photo saves at once (there is no form submit any more).
+  const u = (profileData && profileData.user) || me; if (!u) return;
+  try {
+    const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify({ firstName: u.firstName, lastName: u.lastName, username: u.username, photoData: data }) });
+    me = d.user; persistMe(); profileData = null;
+    renderEditList(); renderHomeHeader();
+  } catch (err) { $('photoError').textContent = err.message || 'Could not save the photo.'; }
 };
 $('cropCancelBtn').onclick = () => closeCrop();
 $('editPhotoInput').onchange = () => {
@@ -5182,46 +5301,22 @@ $('editPhotoInput').onchange = () => {
   rd.onload = () => {
     const img = new Image();
     img.onload = () => openCrop(img);
-    img.onerror = () => { $('editError').textContent = 'That photo could not be read. Try a different one.'; };
+    img.onerror = () => { $('photoError').textContent = 'That photo could not be read. Try a different one.'; };
     img.src = String(rd.result || '');
   };
   rd.readAsDataURL(f);
 };
-$('editPhotoRemoveBtn').onclick = () => {
-  editPhotoData = null;
-  $('editPfp').innerHTML = silhouetteSVG(44); $('editPfp').classList.add('no-photo');
-  $('editPhotoRemoveBtn').classList.add('hidden');
-};
-$('editCancelBtn').onclick = () => show('profileScreen');
+
 // Usernames are lowercase-only (v133): force every character to
 // lowercase as it is typed, in the profile edit and the signup
 // flow, so an uppercase letter can never be entered. The server
 // lowercases again as a backstop.
-['editUsername', 'suUsername'].forEach(id => {
+['suUsername'].forEach(id => {
   const el = $(id); if (!el) return;
   el.addEventListener('input', () => { const v = el.value; if (v !== v.toLowerCase()) el.value = v.toLowerCase(); });
 });
-$('profileEditForm').onsubmit = async e => {
-  e.preventDefault();
-  const fn = $('editFirstName').value.trim(), ln = $('editLastName').value.trim(), un = $('editUsername').value.trim().toLowerCase(), em = $('editEmail').value.trim().toLowerCase();
-  if (!fn) { $('editError').textContent = 'Add a first name.'; return; }
-  if (!/^[a-z0-9_]{3,}$/.test(un)) { $('editError').textContent = 'Usernames are 3+ lowercase letters, numbers, or underscores.'; return; }
-  if (em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { $('editError').textContent = 'Enter a valid email.'; return; }
-  try {
-    const body = { firstName: fn, lastName: ln, username: un };
-    if (em) body.email = em;
-    if (editPhotoData !== undefined) body.photoData = editPhotoData;
-    const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify(body) });
-    me = d.user; persistMe(); profileData = null;
-    show('profileScreen'); renderProfileUI();
-  } catch (err) { $('editError').textContent = err.message || 'Could not save.'; }
-};
-$('editPasswordBtn').onclick = () => {
-  // Reveal-only: the fields carry their own Save button, so there is
-  // always an obvious submit instead of a second tap on this link.
-  $('editPasswordFields').classList.remove('hidden');
-  $('editCurrentPassword').focus();
-};
+
+
 $('editPasswordSaveBtn').onclick = async () => {
   $('editPasswordError').textContent = ''; $('editPasswordDone').textContent = '';
   const currentPassword = $('editCurrentPassword').value, newPassword = $('editNewPassword').value, newPassword2 = $('editNewPassword2').value;
@@ -5234,10 +5329,9 @@ $('editPasswordSaveBtn').onclick = async () => {
     $('editPasswordDone').textContent = 'Password changed.';
   } catch (err) { $('editPasswordError').textContent = err.message || 'Could not change password.'; }
 };
-// The password fields live inside the Edit Profile form (v141), so
-// Enter in one would submit the profile form instead of changing the
-// password. Enter in the last field saves the new password; in the
-// other two it does nothing.
+// The password fields live on their own screen (v147), so
+// Enter in one does nothing by itself. Enter in the last field saves
+// the new password; in the other two it does nothing.
 ['editCurrentPassword', 'editNewPassword', 'editNewPassword2'].forEach(id => {
   const inp = $(id); if (!inp) return;
   inp.addEventListener('keydown', e => {
@@ -5315,12 +5409,10 @@ $('profileSignOutBtn').onclick = async () => {
   setAuthMode('signin'); show('authScreen');
 };
 $('editDeleteBtn').onclick = () => {
-  $('editDeleteConfirm').classList.remove('hidden');
   showDeleteConfirmStep();
+  show('profileDeleteScreen');
 };
-$('editDeleteCancelBtn').onclick = () => {
-  $('editDeleteConfirm').classList.add('hidden');
-};
+$('editDeleteCancelBtn').onclick = () => show('profileEditScreen');
 // Account deletion is code-gated (v141): "Yes, delete my account"
 // emails a 6-digit code to the account's own address, and only the
 // code (via a verified token) authorizes the delete.

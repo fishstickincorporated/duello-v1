@@ -9,6 +9,9 @@
    taps. It covers the whole viewport including the top safe area /
    Dynamic Island. */
 body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background-image:radial-gradient(rgba(3,234,255,.07) 1px,transparent 1.4px);background-size:16px 16px}
+/* v145: the game screen has no textured background — the dot grid
+   stays everywhere else (home, tabs, puzzle) but hides on the board. */
+body.game-open::before{display:none}
 .screen{max-width:390px;margin:0 auto;padding:calc(28px + env(safe-area-inset-top)) 16px 40px;text-align:center}
 .hidden{display:none!important}
 .logo{font-size:56px;font-weight:900;letter-spacing:3px;color:#03eaff;line-height:1;margin:12px 0 4px}

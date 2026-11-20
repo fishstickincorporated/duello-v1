@@ -68,7 +68,7 @@ let optimisticPlay = false;
 // the next full second, and so on. The old ceil problem (runoff parsed
 // back from displayed text jumping up a second) no longer applies:
 // runoff now starts from game state, not from displayed text.
-const fmtClock = ms => { ms = Math.max(0, Math.ceil(ms / 1000) * 1000); if (ms === 0) return '0:00'; const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000); return `${m}:${String(s).padStart(2, '0')}`; };
+const fmtClock = ms => { ms = Math.max(0, Math.floor(ms / 1000) * 1000); if (ms === 0) return '0:00'; const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000); return `${m}:${String(s).padStart(2, '0')}`; };
 // Clock accuracy fix: the old code used Math.ceil, so the display was
 // always rounded UP to the next second — the clock looked a second
 // ahead of the real remaining time, and the bot runoff (parsed back
@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 144;
+const APP_VERSION = 145;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -446,6 +446,9 @@ function show(id) {
   // forget: ensureLocalWords is idempotent and the tap awaits it if
   // it is still in flight.
   if (id === 'botScreen') { try { ensureLocalWords(); } catch {} }
+  // v145: no textured background on the game screen — the dot grid
+  // hides while the board is open and comes back everywhere else.
+  try { document.body.classList.toggle('game-open', id === 'gameScreen'); } catch {}
   const tb = $('tabBar'); if (tb) tb.classList.toggle('hidden', !isMenu);
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   if ((id === 'homeScreen' || id === 'botScreen') && $('tabHome')) $('tabHome').classList.add('active');
@@ -3841,9 +3844,13 @@ $('shuffleBtn').onclick = async () => {
 function armButton(btn, label, fn, penalty) {
   // The label may be a function (the Forfeit button reads "Exit" once
   // your time expires), so resolve it at each use instead of at wiring.
+  // The penalty may be a function too (v145): a free exit against a
+  // bot before any moves carries no penalty, so its confirm is just
+  // "SURE?" with nothing underneath.
   const getLabel = () => (typeof label === 'function' ? label() : label);
+  const getPenalty = () => (typeof penalty === 'function' ? penalty() : penalty);
   return async () => {
-    if (!armed[btn.id]) { armed[btn.id] = true; btn.classList.add('armed-red'); btn.innerHTML = 'SURE?<span class="penalty">' + penalty + '</span>'; setTimeout(() => { armed[btn.id] = false; btn.classList.remove('armed-red'); btn.textContent = getLabel(); }, 3000); return; }
+    if (!armed[btn.id]) { armed[btn.id] = true; btn.classList.add('armed-red'); btn.innerHTML = 'SURE?<span class="penalty">' + getPenalty() + '</span>'; setTimeout(() => { armed[btn.id] = false; btn.classList.remove('armed-red'); btn.textContent = getLabel(); }, 3000); return; }
     armed[btn.id] = false; btn.classList.remove('armed-red'); btn.textContent = getLabel(); await fn();
   };
 }
@@ -3926,7 +3933,7 @@ $('forfeitBtn').onclick = armButton($('forfeitBtn'), () => forfeitLabel(), async
   } else {
     renderGame();
   }
-}, 'you lose');
+}, () => isFreeExitBotGame() ? '' : 'you lose');
 async function doPlay() {
   // Unstick first, and clear the drag's click-suppression flag: after a
   // drag, suppressNextClick stayed true until an empty cell was tapped,

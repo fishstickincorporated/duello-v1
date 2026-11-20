@@ -678,9 +678,24 @@ squares are the premium colours, spread out across the whole screen. */
    smaller of the wrapper's width/height (container query units), so
    it stays square whether the wrapper is tall or short. */
 #puzzleBoardScreen{display:flex;flex-direction:column;height:100vh;height:100dvh;height:100svh;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
-#puzzleBoardScreen .board-wrap{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;container-type:size}
+#puzzleBoardScreen .board-wrap{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;container-type:size;margin-top:14px}
 #puzzleBoard{width:100%;width:min(100cqw,100cqh);aspect-ratio:1}
 #puzzleBoardScreen>.controls{margin-bottom:40px}
+/* v152: the 7-day week strip above the board — one column per day,
+   weekday letter over a flame; solid orange for a solved day, grey
+   for a missed one. Today is the right-most column. */
+.puzzle-week{display:flex;justify-content:space-between;max-width:320px;margin:10px auto 0}
+.puzzle-week .day{display:flex;flex-direction:column;align-items:center;gap:2px;width:32px}
+.puzzle-week .day .letter{font-size:11px;color:#b3b2b1;font-weight:700}
+.puzzle-week .day.today .letter{color:#e8ecf1}
+.puzzle-week .day .flame{font-size:16px;line-height:1}
+.puzzle-week .day.missed .flame{filter:grayscale(1);opacity:.4}
+/* v152: confetti that rains on a puzzle solve — the container covers
+   the puzzle screen and ignores taps; pieces fall from the top and
+   are removed once the animation ends. */
+.puzzle-confetti{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:60}
+.puzzle-confetti .confetti-piece{position:absolute;top:-14px;border-radius:2px;animation:confetti-fall linear forwards}
+@keyframes confetti-fall{to{transform:translateY(110vh) rotate(720deg);opacity:.85}}
 .puzzle-board-title{font-size:22px;font-weight:800;margin-top:14px}
 .puzzle-board-date{color:#b3b2b1;font-size:13px;margin-top:2px}
 #puzzleBoard .cell.fixed-tile{cursor:default}
@@ -689,7 +704,7 @@ squares are the premium colours, spread out across the whole screen. */
 .puzzle-strength-label span{color:#e8ecf1;font-weight:700;font-variant-numeric:tabular-nums}
 .puzzle-strength-track{height:12px;border-radius:6px;background:#262a33;overflow:hidden}
 .puzzle-strength-fill{height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,#03eaff,#1cff03);transition:width .35s ease}
-#puzzleBoardAgainBtn{background:#03eaff;color:#1a1d24}
+#puzzleBoardShareBtn{background:#03eaff;color:#1a1d24}
 
 /* v147: Apple-style settings — grouped rows in rounded cards, label
    left, grey value + chevron right, hairline separators. The screen's

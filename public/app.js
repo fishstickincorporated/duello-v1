@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 151;
+const APP_VERSION = 152;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -311,13 +311,13 @@ function renderPuzzleBoard() {
   // the same pattern as the game's last-play bubble.
   if (st.bubble && st.placed.length) puzzleShowBubble(st.bubble.score, st.bubble.mainCells);
   // v149: the buttons are Exit, Recall, Shuffle while playing; once
-  // solved they give way to Exit + Play again (there is no Back
-  // button any more — Exit is the way out).
-  const exit = $('puzzleBoardExitBtn'), recall = $('puzzleBoardRecallBtn'), shuffle = $('puzzleBoardShuffleBtn'), again = $('puzzleBoardAgainBtn');
+  // solved they give way to Exit + Share (v152 — Play again is gone;
+  // there is no Back button any more — Exit is the way out).
+  const exit = $('puzzleBoardExitBtn'), recall = $('puzzleBoardRecallBtn'), shuffle = $('puzzleBoardShuffleBtn'), share = $('puzzleBoardShareBtn');
   if (exit) exit.classList.remove('hidden');
   if (recall) { recall.disabled = st.solved; recall.classList.toggle('hidden', st.solved); }
   if (shuffle) { shuffle.disabled = st.solved; shuffle.classList.toggle('hidden', st.solved); }
-  if (again) again.classList.toggle('hidden', !st.solved);
+  if (share) share.classList.toggle('hidden', !st.solved);
 }
 function puzzleBoardSelectRack(i) {
   const st = puzzleBoardState; if (!st || st.solved) return;
@@ -455,6 +455,10 @@ function puzzleUpdateStatusEl() {
 function puzzleUpdateStrengthBar() {
   const st = puzzleBoardState; if (!st) return;
   const fill = $('puzzleStrengthFill'), pct = $('puzzleStrengthPct');
+  // v152: the strength only shows when all placed tiles form a valid
+  // move — an invalid placement (or nothing placed) hides the whole
+  // block instead of leaving a stale percentage up.
+  const wrap = $('puzzleStrengthWrap'); if (wrap) wrap.classList.toggle('hidden', st.lastPct == null);
   const p = st.lastPct == null ? 0 : st.lastPct;
   if (fill) fill.style.width = Math.min(100, p) + '%';
   if (pct) pct.textContent = st.lastPct == null ? '' : Math.round(p) + '%';
@@ -499,6 +503,11 @@ function puzzleLiveValidate() {
     if (res.invalidWords && res.invalidWords.length) st.msg = invalidWordsStatus(res.invalidWords);
     else if (res.error && res.error.toLowerCase().includes('connected')) st.msg = 'All tiles must be connected.';
     else st.msg = '';
+    // v152: the strength only shows when all placed tiles form a
+    // valid move — an invalid placement clears it instead of
+    // leaving a stale percentage up.
+    st.lastPct = null; st.lastScore = null;
+    puzzleUpdateStrengthBar();
     puzzleUpdateStatusEl();
     return;
   }
@@ -516,12 +525,67 @@ function puzzleLiveValidate() {
 function puzzleSolveNow(res) {
   const st = puzzleBoardState; if (!st || st.solved) return;
   st.solved = true;
+  // v152: the solve time feeds the Share message, and confetti rains
+  // the moment the optimal move lands.
+  st.solvedAt = new Date();
   puzzleSaveSolved(st.dateKey);
   st.lastPct = 100; st.lastScore = res.score;
   // v150: the status reads "That's it!" (the solved branch of
   // puzzleUpdateStatusEl, reached via renderPuzzleBoard), and the
   // bubble stays on the solved word (the game's last-play bubble).
-  renderPuzzleBoard(); renderHomeHeader();
+  renderPuzzleBoard(); renderHomeHeader(); renderPuzzleWeekStrip(); puzzleConfetti();
+}
+// v152: confetti rains from the top of the screen on a puzzle solve
+// — brand-colour pieces, random sizes and fall speeds, cleaned up
+// once the animation ends.
+function puzzleConfetti() {
+  const box = $('puzzleConfetti'); if (!box) return;
+  const colors = ['#03eaff', '#ffd166', '#ff1303', '#ff8d03', '#1cff03', '#ff03ee', '#e8ecf1'];
+  box.innerHTML = '';
+  box.classList.remove('hidden');
+  for (let i = 0; i < 70; i++) {
+    const p = document.createElement('div');
+    p.className = 'confetti-piece';
+    const size = 6 + Math.floor(Math.random() * 7);
+    p.style.left = (Math.random() * 100) + '%';
+    p.style.width = size + 'px';
+    p.style.height = (size * 0.6) + 'px';
+    p.style.background = colors[i % colors.length];
+    p.style.animationDuration = (2.2 + Math.random() * 1.3) + 's';
+    p.style.animationDelay = (Math.random() * 0.6) + 's';
+    box.appendChild(p);
+  }
+  setTimeout(() => { box.innerHTML = ''; box.classList.add('hidden'); }, 4200);
+}
+// v152: the 7-day strip above the puzzle board — today on the right,
+// the 6 most recent days to its left. A solid flame for a day the
+// puzzle was solved, a grey flame for a missed one.
+function renderPuzzleWeekStrip() {
+  const strip = $('puzzleWeekStrip'); if (!strip) return;
+  const solved = puzzleSolvedDates();
+  const letters = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  strip.innerHTML = '';
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const day = document.createElement('div');
+    day.className = 'day' + (i === 0 ? ' today' : '') + (solved.has(localDateKey(d)) ? '' : ' missed');
+    const letter = document.createElement('span'); letter.className = 'letter'; letter.textContent = letters[d.getDay()];
+    const flame = document.createElement('span'); flame.className = 'flame'; flame.textContent = '🔥';
+    day.appendChild(letter); day.appendChild(flame); strip.appendChild(day);
+  }
+}
+// v152: a Share link (?puzzle=...) opens the daily puzzle once the
+// app is up. The param is consumed (cleared from the URL) so a later
+// trip home doesn't re-open it.
+function maybeOpenPuzzleDeepLink() {
+  try {
+    const u = new URLSearchParams(window.location.search);
+    if (!u.has('puzzle')) return;
+    u.delete('puzzle');
+    const rest = u.toString();
+    history.replaceState(null, '', window.location.pathname + (rest ? '?' + rest : ''));
+    openDailyPuzzle();
+  } catch {}
 }
 function enablePuzzleRackDrag(el, idx) {
   let dragging = false, moved = false, startX = 0, startY = 0, drop = null, captureId = null;
@@ -782,6 +846,7 @@ async function openDailyPuzzle() {
     puzzleBoardState.lastPct = 100;
   }
   renderPuzzleBoard();
+  renderPuzzleWeekStrip();
   // The solved-state sync runs in the background (v148): it was
   // already warmed by the preload, and blocking the board on a fresh
   // fetch is what made the first tap wait. If the sync finds the
@@ -798,33 +863,23 @@ async function openDailyPuzzle() {
       puzzleBoardState.msg = '';
       puzzleBoardState.lastPct = null;
     }
-    renderPuzzleBoard(); renderHomeHeader();
+    renderPuzzleBoard(); renderHomeHeader(); renderPuzzleWeekStrip();
   }).catch(() => {});
 }
 function closeDailyPuzzle() { show('homeScreen'); }
-// v143: Play again clears today's solved date (the solved state lives
-// in localStorage on the device, not on the account) and reopens the
-// puzzle unsolved, so a finished puzzle can be played again — and so
-// Jeff can test today's puzzle from the start.
-function puzzleRemoveSolved(dateKey) {
-  const set = puzzleSolvedDates(); set.delete(dateKey);
-  const unsolved = puzzleUnsolvedDates(); unsolved.add(dateKey);
-  puzzleWriteStore(set, unsolved);
-  // Fire and forget: the tombstone keeps the reset local until the
-  // unsolve reaches the server (the next sync retries it).
-  if (token && !isOffline()) api('/api/daily-puzzle/unsolve', { method: 'POST', body: JSON.stringify({ date: dateKey }) }).then(() => {
-    const u = puzzleUnsolvedDates(); u.delete(dateKey); puzzleWriteStore(puzzleSolvedDates(), u);
-  }).catch(() => {});
-}
-function puzzleBoardAgain() {
-  const st = puzzleBoardState; if (!st) return;
-  puzzleRemoveSolved(st.dateKey);
-  st.solved = false;
-  st.placed = []; st.selected = null;
-  for (const t of st.rack) t.used = false;
-  st.lastPct = null; st.lastScore = null; st.bubble = null;
-  st.msg = '';
-  renderPuzzleBoard(); renderHomeHeader();
+// v152: after solving, Share replaces Play again. It opens the
+// Messages app with the solve time and a link that opens the puzzle
+// in the app (the ?puzzle link is picked up on load by
+// maybeOpenPuzzleDeepLink). Play again is gone, so the v143
+// unsolve/reset path is gone with it — the server unsolve endpoint
+// stays, just uncalled by the client.
+function puzzleBoardShare() {
+  const st = puzzleBoardState; if (!st || !st.solved) return;
+  const when = st.solvedAt || new Date();
+  let h = when.getHours(); const m = String(when.getMinutes()).padStart(2, '0');
+  const ap = h >= 12 ? 'pm' : 'am'; h = h % 12 || 12;
+  const msg = 'I solved the Duello Daily Puzzle at ' + h + ':' + m + ap + '! https://duellogame.com/?puzzle=today';
+  window.location.href = 'sms:?&body=' + encodeURIComponent(msg);
 }
 function show(id) {
   // Leaving the board closes the live game stream (a new game opens
@@ -839,7 +894,7 @@ function show(id) {
   if (id !== 'rematchScreen') cancelRematch();
   // v142: puzzleBoardScreen is a full screen like gameScreen — it hides
   // the tab bar (it has its own Exit button) and is not a menu screen.
-  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen', 'puzzleBoardScreen', 'profileFieldScreen', 'profilePhotoScreen', 'profilePasswordScreen', 'profileProScreen', 'profileDeleteScreen', 'profilePrivacyScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
+  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen', 'puzzleBoardScreen', 'profileFieldScreen', 'profilePhotoScreen', 'profilePasswordScreen', 'profileProScreen', 'profilePrivacyScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
   const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen'].includes(id);
   // Warm the offline engine when the bot screen opens (v107): the
   // dictionary + solver index build used to run on the first bot tap,
@@ -1768,12 +1823,6 @@ async function setPushEnabled(on) {
   setPushNote('');
   refreshPushToggle();
 }
-$('pushToggle').onclick = async () => {
-  // The switch shows the current preference; tapping flips it.
-  // setPushEnabled re-reads the real state (and can refuse the
-  // flip when iOS permission is denied), then refreshes the UI.
-  await setPushEnabled(!pushPrefOn());
-};
 async function openChallengeFromPush(challengeId) {
   // A push tap opens the accept/decline window for that challenge.
   // The challenge may already be gone (declined, cancelled, timed
@@ -1819,13 +1868,26 @@ function initPushNotifications() {
     });
   } catch {}
   // Re-register when the preference is on and permission is already
-  // granted — this is what refreshes a rotated token. A 'prompt'
-  // (never asked) result means: wait for the toggle, don't prompt.
+  // granted — this is what refreshes a rotated token. v152: there
+  // is no Settings toggle any more, so a 'prompt' (never asked)
+  // permission gets one request at app setup (see
+  // maybeRequestPushAtSetup), never twice.
   if (pushPrefOn() && token) {
     P.checkPermissions().then((perm) => {
       if (perm && perm.receive === 'granted') registerPushToken();
+      else if (perm && perm.receive === 'prompt') maybeRequestPushAtSetup();
     }).catch(() => {});
   }
+}
+// v152: push is requested once at app setup (the Settings toggle is
+// gone). Safe to call any time — the flag makes it ask at most once,
+// and setPushEnabled re-checks the permission first, so a denied
+// permission never re-prompts.
+function maybeRequestPushAtSetup() {
+  if (!IS_CAPACITOR || !token) return;
+  const P = pushPlugin(); if (!P) return;
+  try { if (localStorage.getItem('duello-push-setup-asked')) return; localStorage.setItem('duello-push-setup-asked', '1'); } catch { return; }
+  setPushEnabled(true).catch(() => {});
 }
 function showFriendsTab() {
   lbScope = 'friends';
@@ -1955,10 +2017,12 @@ $('homeUpgradePill').onclick = () => openProScreen();
 $('puzzleBoardExitBtn').onclick = closeDailyPuzzle;
 $('puzzleBoardRecallBtn').onclick = puzzleBoardRecall;
 $('puzzleBoardShuffleBtn').onclick = puzzleBoardShuffle;
+$('puzzleBoardShareBtn').onclick = puzzleBoardShare;
 // v148: the rack has no delegated click any more — rack-tile taps
 // select via the pointerup handler in enablePuzzleRackDrag, and a
 // delegated click would double-toggle after it.
-$('puzzleBoardAgainBtn').onclick = puzzleBoardAgain;
+// v152: Share replaces Play again — wired just above with the other
+// puzzle controls.
 // v148: the board click is guarded by suppressNextClick (like the
 // real game's cell.onclick) so a drag's trailing click does not
 // also fire a tap.
@@ -5166,7 +5230,7 @@ function enablePlacedDrag(el, pend) {
   try { await refreshOfflineTotals(); } catch {}
   let resumed = false;
   try { resumed = await maybeResumeOfflineGame(); } catch {}
-  if (!resumed) show('homeScreen');
+  if (!resumed) { show('homeScreen'); try { maybeOpenPuzzleDeepLink(); } catch {} }
   // Push notifications (v120): register the listeners and, when the
   // preference is on and iOS permission is already granted,
   // (re-)register the device token. Fire and forget — a push setup
@@ -5642,7 +5706,7 @@ function renderEditList() {
   $('editRowFirstName').textContent = u.firstName || '';
   $('editRowLastName').textContent = u.lastName || '';
   $('editRowUsername').textContent = '@' + (u.username || '');
-  $('editRowPro').textContent = u.pro ? 'Duello Pro' : 'Free version';
+  $('editRowPro').textContent = u.pro ? 'Duello Pro' : 'Duello Free';
   $('editRowPfp').innerHTML = usablePhoto(u) ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(32);
 }
 $('editFirstNameRow').onclick = () => openFieldEditor('firstName');
@@ -5672,16 +5736,14 @@ async function openPrivacyScreen() {
 }
 $('privacyRow').onclick = () => openPrivacyScreen();
 $('privacyBackBtn').onclick = () => show('profileEditScreen');
-// v151: the field, photo and password editors have no back button
-// any more — Cancel does the same thing (back to Settings without
-// saving). The Pro, Delete and Privacy screens keep theirs (Jeff
-// didn't ask to remove them; Pro applies at once and Privacy is
-// read-only, so there is no Cancel to take its place).
-$('fieldCancelBtn').onclick = () => show('profileEditScreen');
-$('editPhotoCancelBtn').onclick = () => show('profileEditScreen');
-$('editPasswordCancelBtn').onclick = () => show('profileEditScreen');
+// v152: Cancel is gone from every settings screen — a standard back
+// button (the grey .back-pill, same as the bot selector's) sits below
+// each Save, and in the Cancel spot on the photo screen (which has
+// no Save). All of them go back to Settings without saving.
+$('fieldBackBtn').onclick = () => show('profileEditScreen');
+$('editPhotoBackBtn').onclick = () => show('profileEditScreen');
+$('editPasswordBackBtn').onclick = () => show('profileEditScreen');
 $('proBackBtn').onclick = () => show('profileEditScreen');
-$('deleteBackBtn').onclick = () => show('profileEditScreen');
 // v147: one field at a time. Each editor saves that field alone via
 // /api/me/update (the endpoint always sets first/last/username, so
 // the untouched ones are sent back unchanged; email is only sent
@@ -5690,9 +5752,11 @@ let editFieldKind = null;
 function openFieldEditor(kind) {
   editFieldKind = kind;
   const u = (profileData && profileData.user) || me; if (!u) return;
-  const titles = { firstName: 'First name', lastName: 'Last name', username: 'Username', email: 'Email' };
+  const titles = { firstName: 'First Name', lastName: 'Last Name', username: 'Username', email: 'Email' };
   const input = $('fieldInput');
-  $('fieldTitle').textContent = titles[kind] || kind;
+  // v152: the top says what you are changing ("Change First Name"),
+  // like the photo screen's "Change Photo".
+  $('fieldTitle').textContent = 'Change ' + (titles[kind] || kind);
   input.value = kind === 'firstName' ? (u.firstName || '') : kind === 'lastName' ? (u.lastName || '') : kind === 'username' ? (u.username || '') : (u.email || '');
   input.type = kind === 'email' ? 'email' : 'text';
   input.placeholder = titles[kind] || kind;
@@ -5727,6 +5791,8 @@ function openPhotoScreen() {
   const u = (profileData && profileData.user) || me; if (!u) return;
   $('editPfp').innerHTML = usablePhoto(u) ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44); $('editPfp').classList.toggle('no-photo', !usablePhoto(u));
   $('editPhotoRemoveBtn').classList.toggle('hidden', !u.photoData);
+  // v152: no photo yet → the button says "Add photo", not "Choose".
+  $('editPhotoChooseBtn').textContent = u.photoData ? 'Choose photo' : 'Add photo';
   $('photoError').textContent = '';
   show('profilePhotoScreen');
 }
@@ -5754,7 +5820,8 @@ function openPasswordScreen() {
 // switch puts the checkmark back where it was.
 function renderProScreen() {
   const on = !!(me && me.pro);
-  $('proCurrentLine').textContent = on ? "You're on Duello Pro" : "You're on Free version";
+  // v152: the free tier is "Duello Free" everywhere now.
+  $('proCurrentLine').textContent = on ? "You're on Duello Pro" : "You're on Duello Free";
   $('proFreeCheck').textContent = on ? '' : '✓';
   $('proProCheck').textContent = on ? '✓' : '';
   $('proError').textContent = '';
@@ -5852,6 +5919,10 @@ $('cropUseBtn').onclick = async () => {
   try {
     const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify({ firstName: u.firstName, lastName: u.lastName, username: u.username, photoData: data }) });
     me = d.user; persistMe(); profileData = null;
+    // v152: a photo exists now, so the button reads "Choose photo"
+    // (openPhotoScreen only sets the label on open — without this the
+    // button kept saying "Add photo" after a successful save).
+    $('editPhotoChooseBtn').textContent = 'Choose photo';
     renderEditList(); renderHomeHeader(); rewarmProfile();
   } catch (err) { $('photoError').textContent = err.message || 'Could not save the photo.'; }
 };
@@ -5976,11 +6047,14 @@ $('signOutConfirmBtn').onclick = async () => {
   wipeAccountScreens();
   setAuthMode('signin'); show('authScreen');
 };
+// v152: delete confirmation is a modal window like sign-out (same
+// .person-modal/.person-card), not a page. Backdrop tap closes it.
 $('editDeleteBtn').onclick = () => {
   showDeleteConfirmStep();
-  show('profileDeleteScreen');
+  $('deleteModal').classList.remove('hidden');
 };
-$('editDeleteCancelBtn').onclick = () => show('profileEditScreen');
+$('editDeleteCancelBtn').onclick = () => $('deleteModal').classList.add('hidden');
+$('deleteModal').addEventListener('click', e => { if (e.target === $('deleteModal')) $('deleteModal').classList.add('hidden'); });
 // Account deletion is code-gated (v141): "Yes, delete my account"
 // emails a 6-digit code to the account's own address, and only the
 // code (via a verified token) authorizes the delete.
@@ -6025,7 +6099,7 @@ $('editDeleteCodeVerifyBtn').onclick = async () => {
   } catch (err) { $('editDeleteCodeError').textContent = err.message || 'Could not delete account.'; return; }
   token = ''; storeDel('duello_token'); me = null; profileData = null; game = null;
   wipeAccountScreens();
-  $('editDeleteConfirm').classList.add('hidden');
+  $('deleteModal').classList.add('hidden');
   setAuthMode('signin'); show('authScreen');
 };
 let suEmail = '', suVerifiedToken = '';
@@ -6054,6 +6128,7 @@ $('authForm').onsubmit = async e => {
     const d = await api('/api/signin', { method: 'POST', body: JSON.stringify({ email, password }) });
     token = d.token; storeSet('duello_token', token); me = d.user; persistMe(); profileData = null;
     show('homeScreen');
+    try { initPushNotifications(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); } catch {}
   } catch (err) { $('authError').textContent = err.message || 'Something went wrong.'; }
 };
 $('suSendBtn').onclick = async () => {
@@ -6092,6 +6167,7 @@ $('suCreateBtn').onclick = async () => {
     const d = await api('/api/signup', { method: 'POST', body: JSON.stringify({ firstName, lastName, username, email: suEmail, password, verifiedToken: suVerifiedToken }) });
     token = d.token; storeSet('duello_token', token); me = d.user; persistMe(); profileData = null;
     show('homeScreen');
+    try { initPushNotifications(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); } catch {}
   } catch (err) { $('suError3').textContent = err.message || 'Something went wrong.'; }
 };
 let rpEmail = '', rpVerifiedToken = '';

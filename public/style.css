@@ -39,11 +39,14 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .mode .soon{background:#23262e;color:#b3b2b1;border-radius:20px;padding:4px 10px;font-size:11px;letter-spacing:1px;white-space:nowrap}
 /* v148: the Daily Puzzle countdown pill is a FIXED width, the same
    size whether it shows "Solved" or the ticking countdown, so it
-   never changes size as the clock ticks. 72px fits the widest
-   countdown ("23:59:59", 8 chars, measured 70.83px rendered) with
-   ~1px slack, and the text is centred in it (box-sizing is
-   border-box globally, so 72px includes the padding). */
-#puzzleSolvedTag{width:72px;text-align:center}
+   never changes size as the clock ticks. v150: the countdown renders
+   in Arial with tabular numbers — Comfortaa's digits are
+   proportional (a narrow "1" is narrower than "0"), so the text
+   wobbled as it ticked even inside the fixed pill. In Arial the
+   widest countdown ("23:59:59") is ~43px, so 72px has ample slack,
+   and the text is centred in it (box-sizing is border-box globally,
+   so 72px includes the padding). */
+#puzzleSolvedTag{width:72px;text-align:center;font-variant-numeric:tabular-nums}
 .sym{font-size:34px;line-height:1}.sym.white{color:#fff}.sym.red-disc{background:#ff1303;border-radius:50%;width:52px;height:52px;display:flex;align-items:center;justify-content:center;font-size:30px}
 .sym.fishstick{width:52px;height:52px;border-radius:50%;background:#bfe3ff;position:relative;display:block}
 .sym.fishstick::before{content:"";position:absolute;left:8px;top:14px;width:36px;height:24px;background:#e0a83c;border-radius:12px}
@@ -501,7 +504,7 @@ itself clips anything left over. */
 
 /* Numbers anywhere in the game are Arial/Helvetica; words and letters stay
    Comfortaa. Tile point values already use Arial inside their SVG. */
-.num,.game-score,.clock,.elo,.elo-move,.stat-score,.play-bubble,.countdown-num,.lastplay .pts{font-family:Arial, Helvetica, sans-serif}
+.num,.game-score,.clock,.elo,.elo-move,.stat-score,.play-bubble,.countdown-num,.lastplay .pts,#puzzleSolvedTag{font-family:Arial, Helvetica, sans-serif}
 /* The one exception: the numbers in the profile stats list are Comfortaa
    (the .num spans numify wraps digits in). Every other number stays Arial. */
 .stats-list .num{font-family:"Comfortaa",sans-serif}
@@ -628,9 +631,11 @@ squares are the premium colours, spread out across the whole screen. */
 #homeScreen .mode.greyed{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#b3b2b1;border-color:#3c424e;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 0 #1e222b;opacity:.55}
 #homeScreen .mode.greyed .chev{color:#b3b2b1}
 /* Daily Puzzle modal: tiles reuse the real tile design. */
-.puzzle-status{min-height:22px;font-size:14px;margin-top:8px}
-.puzzle-status.good{color:#4ade80}
-.puzzle-status.bad{color:#ff7a7a}
+/* v150: the status is a FIXED height (35px — a one-line message is
+   34.2px), so the deck below it never moves when the status text
+   appears or disappears. The colour is the real game's status colour
+   (the default #e8ecf1, inherited from .status) — no green/red. */
+.puzzle-status{min-height:35px;height:35px;font-size:14px;margin-top:8px}
 
 /* ---------- v141: profile settings pass ---------- */
 /* Gear top = pfp top: the pfp starts 8px below the screen's top
@@ -660,14 +665,20 @@ squares are the premium colours, spread out across the whole screen. */
    .controls row. Placed tiles use the game's .tile.pending (gold
    outline); the rack renders exactly like the game's (used tiles
    become .tile.empty placeholders, selected gets the gold outline).
-   Only the strength bar and the title/date/hint header are
+   Only the strength bar and the title/date header are
    puzzle-specific. */
-#puzzleBoardScreen{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
+/* v150: the screen has a DEFINITE height (100svh), not min-height,
+   and the board is the flexible element — it shrinks to fit, so the
+   deck and the Exit/Recall/Shuffle buttons always stay on screen
+   even on short viewports. The board is a square whose side is the
+   smaller of the wrapper's width/height (container query units), so
+   it stays square whether the wrapper is tall or short. */
+#puzzleBoardScreen{display:flex;flex-direction:column;height:100vh;height:100dvh;height:100svh;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
+#puzzleBoardScreen .board-wrap{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;container-type:size}
+#puzzleBoard{width:100%;width:min(100cqw,100cqh);aspect-ratio:1}
 #puzzleBoardScreen>.controls{margin-bottom:40px}
 .puzzle-board-title{font-size:22px;font-weight:800;margin-top:14px}
 .puzzle-board-date{color:#b3b2b1;font-size:13px;margin-top:2px}
-/* v149: the hint is blue and reads exactly "Find the best move." */
-.puzzle-board-hint{color:#03eaff;font-size:13px;margin:10px 0 14px}
 #puzzleBoard .cell.fixed-tile{cursor:default}
 .puzzle-strength{margin-bottom:14px}
 .puzzle-strength-label{font-size:13px;color:#b3b2b1;margin-bottom:6px}

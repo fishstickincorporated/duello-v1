@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 149;
+const APP_VERSION = 150;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -303,10 +303,7 @@ function renderPuzzleBoard() {
       rackEl.appendChild(d);
     });
   }
-  const fill = $('puzzleStrengthFill'), pct = $('puzzleStrengthPct');
-  const p = st.lastPct == null ? 0 : st.lastPct;
-  if (fill) fill.style.width = Math.min(100, p) + '%';
-  if (pct) pct.textContent = st.lastPct == null ? '' : Math.round(p) + '%';
+  puzzleUpdateStrengthBar();
   puzzleUpdateStatusEl();
   // v149: the point bubble rides on the last cell of the main word.
   // renderPuzzleBoard rebuilds the board (which destroys the bubble
@@ -337,7 +334,7 @@ function puzzleBoardTapCell(r, c) {
     const p = st.placed[placedIdx];
     st.rack[p.rackIndex].used = false;
     st.placed.splice(placedIdx, 1);
-    st.msg = ''; st.good = st.bad = false;
+    st.msg = '';
     renderPuzzleBoard();
     puzzleLiveValidate();
     return;
@@ -347,7 +344,7 @@ function puzzleBoardTapCell(r, c) {
   t.used = true;
   st.placed.push({ row: r, col: c, letter: t.ch, rackIndex: st.selected });
   st.selected = null;
-  st.msg = ''; st.good = st.bad = false;
+  st.msg = '';
   renderPuzzleBoard();
   puzzleLiveValidate();
 }
@@ -427,21 +424,40 @@ function puzzleRecallPlaced(p) {
   const i = st.placed.indexOf(p); if (i === -1) return;
   st.rack[p.rackIndex].used = false;
   st.placed.splice(i, 1);
-  st.msg = ''; st.good = st.bad = false;
+  st.msg = '';
   renderPuzzleBoard();
   puzzleLiveValidate();
 }
-// ---------- Daily Puzzle live validation + point bubble (v149) ----------
+// ---------- Daily Puzzle live validation + point bubble (v149, v150) ----------
 // Mirrors the game's updateStatus / showBubble exactly: the placed
 // word is validated live as tiles move, an invalid word names itself
 // ("___ is not a word", the game's exact wording), and a valid word
 // shows the point bubble on the last cell of the main word. There is
 // no Check button any more — the evaluation runs automatically when
 // a placement completes, and the optimal word solves at once.
+// v150: the status line only ever says one of four things. "That's
+// it!" when the optimal move is placed (st.solved); the invalid /
+// disconnected message when a bad word is placed (st.msg holds only
+// those); "Find the best move." otherwise — at the start, when
+// nothing is placed, or when a valid word isn't the best move.
+// The colour is the real game's status colour (the default #e8ecf1):
+// no green/red good/bad classes any more.
 function puzzleUpdateStatusEl() {
   const st = puzzleBoardState; if (!st) return;
   const status = $('puzzleBoardStatus');
-  if (status) { status.textContent = st.msg || ''; status.className = 'status puzzle-status' + (st.good ? ' good' : st.bad ? ' bad' : ''); }
+  if (!status) return;
+  status.textContent = st.solved ? "That's it!" : (st.msg || 'Find the best move.');
+  status.className = 'status puzzle-status';
+}
+// v150: the strength bar tracks the currently placed word and moves
+// the moment a tile lands (no commit delay). Called from
+// puzzleLiveValidate on every placement and from renderPuzzleBoard.
+function puzzleUpdateStrengthBar() {
+  const st = puzzleBoardState; if (!st) return;
+  const fill = $('puzzleStrengthFill'), pct = $('puzzleStrengthPct');
+  const p = st.lastPct == null ? 0 : st.lastPct;
+  if (fill) fill.style.width = Math.min(100, p) + '%';
+  if (pct) pct.textContent = st.lastPct == null ? '' : Math.round(p) + '%';
 }
 function puzzleHideBubble() { document.querySelectorAll('#puzzleBoard .play-bubble').forEach(e => { if (e.parentElement) e.parentElement.style.zIndex = ''; e.remove(); }); }
 function puzzleShowBubble(score, mainCells) {
@@ -462,70 +478,50 @@ function puzzleShowBubble(score, mainCells) {
   const b = document.createElement('div'); b.className = 'play-bubble'; b.textContent = score;
   cell.style.position = 'relative'; cell.style.zIndex = '50'; cell.appendChild(b);
 }
-// A valid non-optimal word commits after a short pause, not at once:
-// the player is often mid-word (a prefix of the optimal word is
-// often a valid word itself — MON inside MONEYS — and committing on
-// every placement would bounce the word before it is finished). The
-// pause lets the player keep building; placing another tile, or
-// recalling, clears and re-arms it.
-let puzzleCommitTimer = null;
-function puzzleClearCommitTimer() { if (puzzleCommitTimer) { clearTimeout(puzzleCommitTimer); puzzleCommitTimer = null; } }
+// v150: the placed word is evaluated live as tiles move, and placed
+// tiles STAY on the board — there is no bounce-back and no commit
+// timer any more. A valid word updates the strength bar immediately
+// on placement; only the optimal move solves. The player uses Recall
+// (or drags tiles back) to try a different word. The status line
+// only ever carries an invalid / disconnected message (st.msg) —
+// anything else defaults to "Find the best move." in
+// puzzleUpdateStatusEl, and a solved puzzle reads "That's it!".
 function puzzleLiveValidate() {
   const st = puzzleBoardState; if (!st || st.solved) return;
-  puzzleClearCommitTimer();
-  if (!st.placed.length) { st.msg = ''; st.good = st.bad = false; st.bubble = null; puzzleHideBubble(); puzzleUpdateStatusEl(); return; }
-  if (!localEngine) { st.msg = 'Words still loading — try again.'; st.bad = true; st.good = false; st.bubble = null; puzzleHideBubble(); puzzleUpdateStatusEl(); return; }
+  if (!st.placed.length) { st.msg = ''; st.lastPct = null; st.lastScore = null; st.bubble = null; puzzleHideBubble(); puzzleUpdateStatusEl(); puzzleUpdateStrengthBar(); return; }
+  if (!localEngine) { st.msg = ''; st.bubble = null; puzzleHideBubble(); puzzleUpdateStatusEl(); return; }
   const res = localEngine.validatePlay(st.board, st.puzzle.rack, st.placed.map(p => ({ row: p.row, col: p.col, letter: p.letter })), st.puzzle.premiums, false);
   if (!res.valid) {
     st.bubble = null; puzzleHideBubble();
+    // v150: only two invalid messages are ever shown — the invalid
+    // word(s), or the disconnected message. Any other engine error
+    // falls back to the default status (no fifth message).
     if (res.invalidWords && res.invalidWords.length) st.msg = invalidWordsStatus(res.invalidWords);
-    else st.msg = res.error ? res.error.charAt(0).toUpperCase() + res.error.slice(1) + (res.error.endsWith('.') ? '' : '.') : 'Invalid play.';
-    st.bad = true; st.good = false;
+    else if (res.error && res.error.toLowerCase().includes('connected')) st.msg = 'All tiles must be connected.';
+    else st.msg = '';
     puzzleUpdateStatusEl();
     return;
   }
-  // Valid: the point bubble shows the score, and the status stays
-  // clear (the bubble is the feedback, exactly like the game).
+  // Valid: the point bubble shows the score, the strength bar moves
+  // at once, and the tiles stay on the board.
   st.bubble = { score: res.score, mainCells: res.mainCells };
-  st.msg = ''; st.good = st.bad = false;
+  st.msg = '';
+  st.lastPct = Math.min(100, res.score / st.puzzle.optimalScore * 100);
+  st.lastScore = res.score;
+  puzzleUpdateStrengthBar();
   puzzleShowBubble(res.score, res.mainCells);
   puzzleUpdateStatusEl();
-  if (res.score >= st.puzzle.optimalScore) { puzzleSolveNow(res); return; }
-  puzzleCommitTimer = setTimeout(() => {
-    puzzleCommitTimer = null;
-    // A drag is live: do not commit under the player's finger — run
-    // the validation again instead, which re-arms the timer for the
-    // still-current word.
-    if (puzzleDragLive) { puzzleLiveValidate(); return; }
-    const st2 = puzzleBoardState; if (!st2 || st2.solved || !st2.placed.length || !localEngine) return;
-    const res2 = localEngine.validatePlay(st2.board, st2.puzzle.rack, st2.placed.map(p => ({ row: p.row, col: p.col, letter: p.letter })), st2.puzzle.premiums, false);
-    if (!res2.valid) { puzzleLiveValidate(); return; }
-    if (res2.score >= st2.puzzle.optimalScore) { puzzleSolveNow(res2); return; }
-    puzzleCommitNonOptimal(res2);
-  }, 1200);
+  if (res.score >= st.puzzle.optimalScore) puzzleSolveNow(res);
 }
 function puzzleSolveNow(res) {
   const st = puzzleBoardState; if (!st || st.solved) return;
-  puzzleClearCommitTimer();
   st.solved = true;
   puzzleSaveSolved(st.dateKey);
   st.lastPct = 100; st.lastScore = res.score;
-  st.msg = `Solved! ${res.mainWord} — ${res.score} pts, the best move. Streak: ${puzzleStreak()} day${puzzleStreak() === 1 ? '' : 's'}.`;
-  st.good = true; st.bad = false;
-  // The bubble stays on the solved word (the game's last-play bubble).
+  // v150: the status reads "That's it!" (the solved branch of
+  // puzzleUpdateStatusEl, reached via renderPuzzleBoard), and the
+  // bubble stays on the solved word (the game's last-play bubble).
   renderPuzzleBoard(); renderHomeHeader();
-}
-function puzzleCommitNonOptimal(res) {
-  const st = puzzleBoardState; if (!st || st.solved) return;
-  const pct = Math.min(100, (res.score / st.puzzle.optimalScore) * 100);
-  st.lastPct = pct; st.lastScore = res.score;
-  st.msg = `${res.mainWord} — ${res.score} pts, ${Math.round(pct)}% of the best move. Try again.`;
-  st.bad = true; st.good = false;
-  st.bubble = null; puzzleHideBubble();
-  // The attempt bounces back to the rack; the bar keeps the last score.
-  for (const p of st.placed) st.rack[p.rackIndex].used = false;
-  st.placed = []; st.selected = null;
-  renderPuzzleBoard();
 }
 function enablePuzzleRackDrag(el, idx) {
   let dragging = false, moved = false, startX = 0, startY = 0, drop = null, captureId = null;
@@ -596,7 +592,7 @@ function enablePuzzleRackDrag(el, idx) {
       const t = st.rack[idx]; if (!t || t.used) return;
       t.used = true;
       st.placed.push({ row: myDrop.row, col: myDrop.col, letter: t.ch, rackIndex: idx });
-      st.selected = null; st.msg = ''; st.good = st.bad = false;
+      st.selected = null; st.msg = '';
       renderPuzzleBoard();
       puzzleLiveValidate();
       return;
@@ -703,7 +699,7 @@ function enablePuzzlePlacedDrag(el, p) {
         owner.rackIndex = orig;
         tileObj.used = false;
         st.placed.splice(st.placed.indexOf(p), 1);
-        st.msg = ''; st.good = st.bad = false;
+        st.msg = '';
         renderPuzzleBoard();
         puzzleLiveValidate();
         return;
@@ -719,12 +715,12 @@ function enablePuzzlePlacedDrag(el, p) {
       }
       tileObj.used = false;
       st.placed.splice(st.placed.indexOf(p), 1);
-      st.msg = ''; st.good = st.bad = false;
+      st.msg = '';
       renderPuzzleBoard();
       puzzleLiveValidate();
       return;
     }
-    if (myDrop) { p.row = myDrop.row; p.col = myDrop.col; st.msg = ''; st.good = st.bad = false; renderPuzzleBoard(); puzzleLiveValidate(); }
+    if (myDrop) { p.row = myDrop.row; p.col = myDrop.col; st.msg = ''; renderPuzzleBoard(); puzzleLiveValidate(); }
   });
   el.addEventListener('pointercancel', () => cleanup());
   el.addEventListener('lostpointercapture', () => cleanup());
@@ -736,7 +732,7 @@ function enablePuzzlePlacedDrag(el, p) {
 function puzzleBoardRecall() {
   const st = puzzleBoardState; if (!st || st.solved) return;
   for (const p of st.placed) st.rack[p.rackIndex].used = false;
-  st.placed = []; st.selected = null; st.msg = ''; st.good = st.bad = false;
+  st.placed = []; st.selected = null; st.msg = '';
   renderPuzzleBoard();
   puzzleLiveValidate();
 }
@@ -757,12 +753,14 @@ function puzzleBoardShuffle() {
 async function openDailyPuzzle() {
   show('puzzleBoardScreen');
   const status = $('puzzleBoardStatus');
-  if (status) { status.textContent = 'Loading today’s puzzle…'; status.className = 'status puzzle-status'; }
+  // v150: while loading, the status shows the start-of-game default
+  // (the status line only ever says one of the four puzzle messages).
+  if (status) { status.textContent = 'Find the best move.'; status.className = 'status puzzle-status'; }
   const [all, words] = await Promise.all([loadDailyPuzzles(), ensureLocalWords()]);
   const entry = dailyPuzzleEntry(all);
   if (!entry || !words || !localEngine) {
     puzzleBoardState = null;
-    if (status) { status.textContent = !entry ? 'No puzzle loaded yet — check your connection and try again.' : 'Words still loading — check your connection and try again.'; status.className = 'status puzzle-status bad'; }
+    if (status) { status.textContent = !entry ? 'No puzzle loaded yet — check your connection and try again.' : 'Words still loading — check your connection and try again.'; status.className = 'status puzzle-status'; }
     return;
   }
   const dateEl = $('puzzleBoardDate');
@@ -774,12 +772,13 @@ async function openDailyPuzzle() {
   puzzleBoardState = {
     entry, dateKey: entry.dateKey, puzzle: entry.puzzle, board: puzzleBoardBase(entry),
     rack: entry.puzzle.rack.map(ch => ({ ch, used: false })),
-    placed: [], selected: null, solved, msg: '', good: false, bad: false,
+    placed: [], selected: null, solved, msg: '',
     lastPct: null, lastScore: null, bubble: null,
   };
+  // v150: a solved puzzle reopens with the status reading "That's
+  // it!" (the solved branch of puzzleUpdateStatusEl) and the bar at
+  // 100% — no solved message is stored in st.msg any more.
   if (solved) {
-    puzzleBoardState.msg = `Solved! The best move was ${entry.puzzle.optimalWord} — ${entry.puzzle.optimalScore} pts. Come back tomorrow.`;
-    puzzleBoardState.good = true;
     puzzleBoardState.lastPct = 100;
   }
   renderPuzzleBoard();
@@ -794,11 +793,9 @@ async function openDailyPuzzle() {
     if (nowSolved === puzzleBoardState.solved) return;
     puzzleBoardState.solved = nowSolved;
     if (nowSolved) {
-      puzzleBoardState.msg = `Solved! The best move was ${entry.puzzle.optimalWord} — ${entry.puzzle.optimalScore} pts. Come back tomorrow.`;
-      puzzleBoardState.good = true;
       puzzleBoardState.lastPct = 100;
     } else {
-      puzzleBoardState.msg = ''; puzzleBoardState.good = false;
+      puzzleBoardState.msg = '';
       puzzleBoardState.lastPct = null;
     }
     renderPuzzleBoard(); renderHomeHeader();
@@ -822,12 +819,11 @@ function puzzleRemoveSolved(dateKey) {
 function puzzleBoardAgain() {
   const st = puzzleBoardState; if (!st) return;
   puzzleRemoveSolved(st.dateKey);
-  puzzleClearCommitTimer();
   st.solved = false;
   st.placed = []; st.selected = null;
   for (const t of st.rack) t.used = false;
   st.lastPct = null; st.lastScore = null; st.bubble = null;
-  st.msg = ''; st.good = st.bad = false;
+  st.msg = '';
   renderPuzzleBoard(); renderHomeHeader();
 }
 function show(id) {

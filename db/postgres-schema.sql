@@ -52,6 +52,14 @@ CREATE TABLE IF NOT EXISTS delete_codes (
   verified_token TEXT, verified_expires_at TIMESTAMPTZ
 );
 
+-- v144: Daily Puzzle solved dates live on the account, not the device.
+-- One row per user per solved date. The client keeps a local copy as
+-- its offline fallback and syncs both ways when online.
+CREATE TABLE IF NOT EXISTS daily_puzzle_solves (
+  user_id TEXT NOT NULL, date TEXT NOT NULL,
+  solved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, date)
+);
 CREATE TABLE IF NOT EXISTS personas (
   id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL,
   first_name TEXT NOT NULL, last_name TEXT NOT NULL, gender TEXT NOT NULL,

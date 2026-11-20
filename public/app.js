@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 143;
+const APP_VERSION = 144;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -119,9 +119,48 @@ function puzzleSolvedDates() {
   try { const raw = JSON.parse(localStorage.getItem(PUZZLE_STORE_KEY) || 'null'); if (raw && Array.isArray(raw.solved)) return new Set(raw.solved); } catch {}
   return new Set();
 }
+// v144: solved dates live on the account. The local set is the
+// offline fallback; when online the client syncs both ways — it
+// uploads local solves the server lacks, and merges the server's
+// dates into the local set. A Play again (unsolve) leaves a tombstone
+// in the same store so an offline reset is never resurrected by the
+// next sync; the tombstone clears once the unsolve reaches the server.
+function puzzleUnsolvedDates() {
+  try { const raw = JSON.parse(localStorage.getItem(PUZZLE_STORE_KEY) || 'null'); if (raw && Array.isArray(raw.unsolved)) return new Set(raw.unsolved); } catch {}
+  return new Set();
+}
+function puzzleWriteStore(solved, unsolved) {
+  try { localStorage.setItem(PUZZLE_STORE_KEY, JSON.stringify({ solved: [...solved].sort(), unsolved: [...unsolved].sort() })); } catch {}
+}
 function puzzleSaveSolved(dateKey) {
   const set = puzzleSolvedDates(); set.add(dateKey);
-  try { localStorage.setItem(PUZZLE_STORE_KEY, JSON.stringify({ solved: [...set].sort() })); } catch {}
+  const unsolved = puzzleUnsolvedDates(); unsolved.delete(dateKey);
+  puzzleWriteStore(set, unsolved);
+  // Fire and forget: if this POST fails (offline), the local save
+  // stands and the next sync uploads it.
+  if (token && !isOffline()) api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: dateKey }) }).catch(() => {});
+}
+let puzzleServerSynced = false;
+async function puzzleSyncFromServer() {
+  if (!token || isOffline()) return false;
+  // First, push any Play again resets the server has not seen yet.
+  const unsolved = puzzleUnsolvedDates();
+  for (const d of [...unsolved]) {
+    try { await api('/api/daily-puzzle/unsolve', { method: 'POST', body: JSON.stringify({ date: d }) }); unsolved.delete(d); } catch {}
+  }
+  let serverSolved;
+  try { const j = await api('/api/daily-puzzle'); serverSolved = new Set(Array.isArray(j.solved) ? j.solved : []); }
+  catch { puzzleWriteStore(puzzleSolvedDates(), unsolved); return false; }
+  // Then upload local solves the server lacks (offline solves, and
+  // solves from before the account state existed).
+  const local = puzzleSolvedDates();
+  for (const d of [...local]) { if (!serverSolved.has(d)) { try { await api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: d }) }); } catch {} } }
+  // Merge is the union minus tombstones (a reset that has not reached
+  // the server yet must not come back).
+  const merged = new Set([...local, ...serverSolved]);
+  for (const d of unsolved) merged.delete(d);
+  puzzleWriteStore(merged, unsolved);
+  return true;
 }
 function localDateKey(d) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -136,6 +175,11 @@ function puzzleStreak() {
 }
 function renderHomeHeader() {
   if (!me) return;
+  // v144: once per session, pull the account's solved dates so the
+  // Daily Puzzle tag (countdown vs Solved) follows the account, not
+  // just this device. The re-render after the sync picks the change
+  // up; the flag stops it looping.
+  if (!puzzleServerSynced) { puzzleServerSynced = true; puzzleSyncFromServer().then(ok => { if (ok) renderHomeHeader(); }).catch(() => {}); }
   const pfp = $('homePfp');
   if (pfp) { pfp.innerHTML = pfpHTML(me); pfp.classList.toggle('no-photo', !usablePhoto(me)); }
   const elo = $('homeElo'); if (elo) elo.textContent = me.elo ?? '';
@@ -329,7 +373,7 @@ async function openDailyPuzzle() {
   show('puzzleBoardScreen');
   const status = $('puzzleBoardStatus');
   if (status) { status.textContent = 'Loading today’s puzzle…'; status.className = 'status puzzle-status'; }
-  const [all, words] = await Promise.all([loadDailyPuzzles(), ensureLocalWords()]);
+  const [all, words] = await Promise.all([loadDailyPuzzles(), ensureLocalWords(), puzzleSyncFromServer()]);
   const entry = dailyPuzzleEntry(all);
   if (!entry || !words || !localEngine) {
     puzzleBoardState = null;
@@ -362,7 +406,13 @@ function closeDailyPuzzle() { show('homeScreen'); }
 // Jeff can test today's puzzle from the start.
 function puzzleRemoveSolved(dateKey) {
   const set = puzzleSolvedDates(); set.delete(dateKey);
-  try { localStorage.setItem(PUZZLE_STORE_KEY, JSON.stringify({ solved: [...set].sort() })); } catch {}
+  const unsolved = puzzleUnsolvedDates(); unsolved.add(dateKey);
+  puzzleWriteStore(set, unsolved);
+  // Fire and forget: the tombstone keeps the reset local until the
+  // unsolve reaches the server (the next sync retries it).
+  if (token && !isOffline()) api('/api/daily-puzzle/unsolve', { method: 'POST', body: JSON.stringify({ date: dateKey }) }).then(() => {
+    const u = puzzleUnsolvedDates(); u.delete(dateKey); puzzleWriteStore(puzzleSolvedDates(), u);
+  }).catch(() => {});
 }
 function puzzleBoardAgain() {
   const st = puzzleBoardState; if (!st) return;

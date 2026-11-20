@@ -2042,6 +2042,7 @@ const server = http.createServer(async (req, res) => {
         await client.query('DELETE FROM friend_requests WHERE from_user_id=$1 OR to_user_id=$1', [user.id]);
         await client.query('DELETE FROM games WHERE user_id=$1', [user.id]);
         await client.query('DELETE FROM elo_history WHERE user_id=$1', [user.id]);
+        await client.query('DELETE FROM daily_puzzle_solves WHERE user_id=$1', [user.id]);
         await client.query('DELETE FROM verification_codes WHERE email=$1', [user.email]);
         await client.query('DELETE FROM password_reset_codes WHERE email=$1', [user.email]);
         await client.query('DELETE FROM delete_codes WHERE email=$1', [user.email]);
@@ -2051,6 +2052,36 @@ const server = http.createServer(async (req, res) => {
         try { await client.query('ROLLBACK'); } catch {}
         return sendJson(res, 500, { error: 'Could not delete account.' });
       } finally { client.release(); }
+      return sendJson(res, 200, { ok: true });
+    }
+    // ---------- Daily Puzzle solved state (v144) ----------
+    // Solved dates live on the account, not the device: GET returns
+    // the user's solved dates, POST solve marks one solved
+    // (idempotent), POST unsolve clears one (Play again). All three
+    // need the signed-in session; the date is a YYYY-MM-DD local
+    // date key, so a bad date is a 400, not a row.
+    if (pathname === '/api/daily-puzzle' && req.method === 'GET') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const r = await q('SELECT date FROM daily_puzzle_solves WHERE user_id=$1 ORDER BY date', [user.id]);
+      return sendJson(res, 200, { solved: r.rows.map(x => x.date) });
+    }
+    if (pathname === '/api/daily-puzzle/solve' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const date = String(b.date || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendJson(res, 400, { error: 'Enter a date.' });
+      await q('INSERT INTO daily_puzzle_solves (user_id, date) VALUES ($1,$2) ON CONFLICT (user_id, date) DO NOTHING', [user.id, date]);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/daily-puzzle/unsolve' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const date = String(b.date || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendJson(res, 400, { error: 'Enter a date.' });
+      await q('DELETE FROM daily_puzzle_solves WHERE user_id=$1 AND date=$2', [user.id, date]);
       return sendJson(res, 200, { ok: true });
     }
     if (pathname === '/api/leaderboard' && req.method === 'GET') {

@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=142"></head>
+<title>Duello bot play</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=143"></head>
 <body><div id="introOverlay"><div id="introFlicker"></div><div id="introInner"><div id="introLogoZoom"><img id="introLogo" src="/assets/logo.png?v=2" alt="DUELLO"></div></div></div><div id="bootError" style="display:none;position:fixed;top:12px;left:12px;right:12px;z-index:9999;background:#ffd166;color:#1a1d24;padding:12px;border-radius:10px;font-size:14px;line-height:1.4" onclick="this.style.display='none'"></div><div id="app">
   <noscript><p style="color:#e8ecf1;text-align:center;padding:40px 20px">Duello needs JavaScript enabled to run. Turn JavaScript on in your browser settings and reload.</p></noscript>
 
@@ -13,7 +13,7 @@
         <div class="home-stat"><span class="home-stat-icon"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z" fill="#ffd166"/></svg></span><span class="home-stat-value" id="homeElo"></span><span class="home-stat-label">Elo</span></div>
         <div class="home-stat"><span class="home-stat-icon"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z" fill="#ff8d03"/></svg></span><span class="home-stat-value" id="homeStreak"></span><span class="home-stat-label">day streak</span></div>
       </div>
-      <div class="home-pro" aria-label="Duello Pro" title="Duello Pro"><svg viewBox="0 0 100 100" width="52" height="52"><path d="M94.0 50.0L98.1 54.2L97.6 58.4L92.5 61.4L87.3 63.6L86.0 66.8L88.1 72.0L89.6 77.7L87.0 81.1L81.1 81.1L75.5 80.4L72.8 82.5L72.0 88.1L70.4 93.8L66.5 95.4L61.4 92.5L56.9 89.1L53.5 89.5L50.0 94.0L45.8 98.1L41.6 97.6L38.6 92.5L36.4 87.3L33.2 86.0L28.0 88.1L22.3 89.6L18.9 87.0L18.9 81.1L19.6 75.5L17.5 72.8L11.9 72.0L6.2 70.4L4.6 66.5L7.5 61.4L10.9 56.9L10.5 53.5L6.0 50.0L1.9 45.8L2.4 41.6L7.5 38.6L12.7 36.4L14.0 33.2L11.9 28.0L10.4 22.3L13.0 18.9L18.9 18.9L24.5 19.6L27.2 17.5L28.0 11.9L29.6 6.2L33.5 4.6L38.6 7.5L43.1 10.9L46.5 10.5L50.0 6.0L54.2 1.9L58.4 2.4L61.4 7.5L63.6 12.7L66.8 14.0L72.0 11.9L77.7 10.4L81.1 13.0L81.1 18.9L80.4 24.5L82.5 27.2L88.1 28.0L93.8 29.6L95.4 33.5L92.5 38.6L89.1 43.1L89.5 46.5L94.0 50.0Z" fill="none" stroke="#03eaff" stroke-width="4" stroke-linejoin="round"/><text x="50" y="56" text-anchor="middle" font-size="15" font-weight="700" fill="#03eaff" font-family="Comfortaa, sans-serif">PRO</text></svg></div>
+      <div class="home-pro" aria-label="Duello Pro" title="Duello Pro"><svg viewBox="0 0 100 100" width="40" height="40"><path d="M94.0 50.0L98.1 54.2L97.6 58.4L92.5 61.4L87.3 63.6L86.0 66.8L88.1 72.0L89.6 77.7L87.0 81.1L81.1 81.1L75.5 80.4L72.8 82.5L72.0 88.1L70.4 93.8L66.5 95.4L61.4 92.5L56.9 89.1L53.5 89.5L50.0 94.0L45.8 98.1L41.6 97.6L38.6 92.5L36.4 87.3L33.2 86.0L28.0 88.1L22.3 89.6L18.9 87.0L18.9 81.1L19.6 75.5L17.5 72.8L11.9 72.0L6.2 70.4L4.6 66.5L7.5 61.4L10.9 56.9L10.5 53.5L6.0 50.0L1.9 45.8L2.4 41.6L7.5 38.6L12.7 36.4L14.0 33.2L11.9 28.0L10.4 22.3L13.0 18.9L18.9 18.9L24.5 19.6L27.2 17.5L28.0 11.9L29.6 6.2L33.5 4.6L38.6 7.5L43.1 10.9L46.5 10.5L50.0 6.0L54.2 1.9L58.4 2.4L61.4 7.5L63.6 12.7L66.8 14.0L72.0 11.9L77.7 10.4L81.1 13.0L81.1 18.9L80.4 24.5L82.5 27.2L88.1 28.0L93.8 29.6L95.4 33.5L92.5 38.6L89.1 43.1L89.5 46.5L94.0 50.0Z" fill="none" stroke="#03eaff" stroke-width="5" stroke-linejoin="round"/><text x="50" y="56" text-anchor="middle" font-size="19" font-weight="700" fill="#03eaff" font-family="Comfortaa, sans-serif">PRO</text></svg></div>
     </div>
     <div class="modes">
       <button class="mode mode-online" id="playOnlineBtn"><span class="sym white"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-3 3-3 15 0 18M12 3c3 3 3 15 0 18"/></svg></span><span class="label-col"><span class="label">Play Online</span><span class="sub">Match with players at your skill level</span></span><span class="chev">›</span></button>
@@ -29,13 +29,13 @@
     <div class="puzzle-board-date" id="puzzleBoardDate"></div>
     <div class="puzzle-board-hint">Find the best move. The bar shows how close your play is to the optimal one.</div>
     <div class="board-wrap"><div id="puzzleBoard" class="board"></div></div>
+    <div class="status puzzle-status" id="puzzleBoardStatus"></div>
+    <div id="puzzleRack" class="rack"></div>
     <div class="puzzle-strength">
       <div class="puzzle-strength-label">Move strength <span id="puzzleStrengthPct"></span></div>
       <div class="puzzle-strength-track"><div class="puzzle-strength-fill" id="puzzleStrengthFill"></div></div>
     </div>
-    <div class="puzzle-rack" id="puzzleRack"></div>
-    <div class="puzzle-status" id="puzzleBoardStatus"></div>
-    <div class="challenge-actions"><button class="mini-btn grey" id="puzzleBoardClearBtn">Clear</button><button class="mini-btn" id="puzzleBoardCheckBtn">Check</button></div>
+    <div class="controls"><button id="puzzleBoardClearBtn">Clear</button><button id="puzzleBoardCheckBtn">Check</button><button id="puzzleBoardAgainBtn" class="hidden">Play again</button></div>
   </section>
 
   <section id="botScreen" class="screen hidden">
@@ -365,5 +365,5 @@
   } catch (e) {}
 })();
 </script>
-<script src="/engine.js?v=142" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
-<script src="/app.js?v=142" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>
+<script src="/engine.js?v=143" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
+<script src="/app.js?v=143" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>

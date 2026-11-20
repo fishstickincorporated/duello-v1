@@ -434,7 +434,7 @@ html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-
    is rendered as empty slots (see .tile.empty), so nothing jumps
    when the letters appear after the wait. */
 #gameScreen.counting #rack,#gameScreen.counting .controls{visibility:visible}
-#rack .tile.empty{background:#262a33;box-shadow:none;cursor:default;z-index:0}
+#rack .tile.empty,#puzzleRack .tile.empty{background:#262a33;box-shadow:none;cursor:default;z-index:0}
 #rack .tile:not(.empty){position:relative;z-index:1}
 .stat-winner{text-align:center;font-size:22px;font-weight:900;margin:0 0 12px}
 .stat-window>div{max-width:96vw}
@@ -512,7 +512,7 @@ squares are the premium colours, spread out across the whole screen. */
    column now, so the star is directly above the flame. */
 .home-stat-icon{display:flex;width:18px;flex:0 0 18px;justify-content:center}
 /* v142: the Duello Pro badge, right-justified in line with the pfp. */
-.home-pro{margin-left:auto;flex:0 0 52px;width:52px;height:52px;display:flex;align-items:center;justify-content:center}
+.home-pro{margin-left:auto;flex:0 0 40px;width:40px;height:40px;display:flex;align-items:center;justify-content:center}
 .home-pro svg{display:block}
 .home-stat-value{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
 .home-stat-label{color:#b3b2b1;font-size:12px}
@@ -645,23 +645,24 @@ squares are the premium colours, spread out across the whole screen. */
 #editDeleteCode{margin-top:12px}
 
 /* ---------- v142: Daily Puzzle is a 10x10 board puzzle ---------- */
-/* The puzzle board reuses .board/.cell/.tile; only the placed tiles
-   (the player's current attempt) and the rack need their own rules. */
-#puzzleBoardScreen{padding-bottom:128px}
+/* v143: the puzzle screen is the real game board — same shell, same
+   .board/.cell/.tile, same .status line, same .rack deck, same
+   .controls row. Placed tiles use the game's .tile.pending (gold
+   outline); the rack renders exactly like the game's (used tiles
+   become .tile.empty placeholders, selected gets the gold outline).
+   Only the strength bar and the title/date/hint header are
+   puzzle-specific. */
+#puzzleBoardScreen{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
+#puzzleBoardScreen>.controls{margin-bottom:40px}
 .puzzle-board-back{margin:22px 0 0}
 .puzzle-board-title{font-size:22px;font-weight:800;margin-top:14px}
 .puzzle-board-date{color:#b3b2b1;font-size:13px;margin-top:2px}
 .puzzle-board-hint{color:#b3b2b1;font-size:13px;margin:10px 0 14px}
-#puzzleBoardScreen .board-wrap{margin-bottom:16px}
 #puzzleBoard .cell.fixed-tile{cursor:default}
-#puzzleBoard .tile.puzzle-placed{outline:2px solid #03eaff;outline-offset:-2px}
 .puzzle-strength{margin-bottom:14px}
 .puzzle-strength-label{font-size:13px;color:#b3b2b1;margin-bottom:6px}
 .puzzle-strength-label span{color:#e8ecf1;font-weight:700;font-variant-numeric:tabular-nums}
 .puzzle-strength-track{height:12px;border-radius:6px;background:#262a33;overflow:hidden}
 .puzzle-strength-fill{height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,#03eaff,#1cff03);transition:width .35s ease}
-.puzzle-rack{display:flex;justify-content:center;gap:8px;min-height:52px;margin-bottom:6px}
-.puzzle-rack-tile{width:44px;height:52px;flex:0 0 44px;cursor:pointer}
-.puzzle-rack-tile.used{opacity:.25;pointer-events:none}
-.puzzle-rack-tile.selected{outline:2px solid #ffd166;outline-offset:2px}
-#puzzleBoardStatus{text-align:center}
+#puzzleBoardCheckBtn.play-valid{background:#03eaff;color:#1a1d24;border-color:#03eaff}
+#puzzleBoardAgainBtn{background:#03eaff;color:#1a1d24}

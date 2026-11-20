@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 142;
+const APP_VERSION = 143;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -229,20 +229,39 @@ function renderPuzzleBoard() {
     cell.dataset.r = r; cell.dataset.c = c;
     cell.textContent = fixed ? '' : (prem || '');
     if (fixed) { const t = document.createElement('div'); t.className = 'tile'; t.innerHTML = tileSVG(fixed); cell.appendChild(t); }
-    else if (placed) { const t = document.createElement('div'); t.className = 'tile puzzle-placed'; t.innerHTML = tileSVG(placed.letter); cell.appendChild(t); }
+    // v143: a placed tile looks exactly like a pending tile in a real
+    // game — the game's .tile.pending gold outline.
+    else if (placed) { const t = document.createElement('div'); t.className = 'tile pending'; t.innerHTML = tileSVG(placed.letter); cell.appendChild(t); }
     boardEl.appendChild(cell);
   }
+  // v143: the rack renders exactly like the game's — .tile with
+  // data-idx, a used tile becomes a .tile.empty placeholder, and the
+  // selected tile gets the game's gold outline (inline, like renderGame).
   const rackEl = $('puzzleRack');
-  if (rackEl) rackEl.innerHTML = st.rack.map((t, i) => `<div class="tile puzzle-rack-tile${t.used ? ' used' : ''}${st.selected === i ? ' selected' : ''}" data-i="${i}">${tileSVG(t.ch)}</div>`).join('');
+  if (rackEl) {
+    rackEl.innerHTML = '';
+    st.rack.forEach((t, i) => {
+      if (t.used) { const e = document.createElement('div'); e.className = 'tile empty'; rackEl.appendChild(e); return; }
+      const d = document.createElement('div'); d.className = 'tile'; d.dataset.idx = i;
+      d.innerHTML = tileSVG(t.ch);
+      if (st.selected === i) d.style.outline = '2px solid #ffd166';
+      rackEl.appendChild(d);
+    });
+  }
   const fill = $('puzzleStrengthFill'), pct = $('puzzleStrengthPct');
   const p = st.lastPct == null ? 0 : st.lastPct;
   if (fill) fill.style.width = Math.min(100, p) + '%';
   if (pct) pct.textContent = st.lastPct == null ? '' : Math.round(p) + '%';
   const status = $('puzzleBoardStatus');
-  if (status) { status.textContent = st.msg || ''; status.className = 'puzzle-status' + (st.good ? ' good' : st.bad ? ' bad' : ''); }
-  const check = $('puzzleBoardCheckBtn'), clear = $('puzzleBoardClearBtn');
-  if (check) check.disabled = st.solved;
-  if (clear) clear.disabled = st.solved;
+  if (status) { status.textContent = st.msg || ''; status.className = 'status puzzle-status' + (st.good ? ' good' : st.bad ? ' bad' : ''); }
+  // v143: the controls match the game's finished-state swap — while
+  // playing, Clear + Check show (Check goes blue once tiles are
+  // placed, like the game's Play button); once solved, they give way
+  // to Play again alone.
+  const check = $('puzzleBoardCheckBtn'), clear = $('puzzleBoardClearBtn'), again = $('puzzleBoardAgainBtn');
+  if (check) { check.disabled = st.solved; check.classList.toggle('hidden', st.solved); check.classList.toggle('play-valid', !st.solved && st.placed.length > 0); }
+  if (clear) { clear.disabled = st.solved; clear.classList.toggle('hidden', st.solved); }
+  if (again) again.classList.toggle('hidden', !st.solved);
 }
 function puzzleBoardSelectRack(i) {
   const st = puzzleBoardState; if (!st || st.solved) return;
@@ -309,12 +328,12 @@ function puzzleBoardCheck() {
 async function openDailyPuzzle() {
   show('puzzleBoardScreen');
   const status = $('puzzleBoardStatus');
-  if (status) { status.textContent = 'Loading today’s puzzle…'; status.className = 'puzzle-status'; }
+  if (status) { status.textContent = 'Loading today’s puzzle…'; status.className = 'status puzzle-status'; }
   const [all, words] = await Promise.all([loadDailyPuzzles(), ensureLocalWords()]);
   const entry = dailyPuzzleEntry(all);
   if (!entry || !words || !localEngine) {
     puzzleBoardState = null;
-    if (status) { status.textContent = !entry ? 'No puzzle loaded yet — check your connection and try again.' : 'Words still loading — check your connection and try again.'; status.className = 'puzzle-status bad'; }
+    if (status) { status.textContent = !entry ? 'No puzzle loaded yet — check your connection and try again.' : 'Words still loading — check your connection and try again.'; status.className = 'status puzzle-status bad'; }
     return;
   }
   const dateEl = $('puzzleBoardDate');
@@ -337,6 +356,24 @@ async function openDailyPuzzle() {
   renderPuzzleBoard();
 }
 function closeDailyPuzzle() { show('homeScreen'); }
+// v143: Play again clears today's solved date (the solved state lives
+// in localStorage on the device, not on the account) and reopens the
+// puzzle unsolved, so a finished puzzle can be played again — and so
+// Jeff can test today's puzzle from the start.
+function puzzleRemoveSolved(dateKey) {
+  const set = puzzleSolvedDates(); set.delete(dateKey);
+  try { localStorage.setItem(PUZZLE_STORE_KEY, JSON.stringify({ solved: [...set].sort() })); } catch {}
+}
+function puzzleBoardAgain() {
+  const st = puzzleBoardState; if (!st) return;
+  puzzleRemoveSolved(st.dateKey);
+  st.solved = false;
+  st.placed = []; st.selected = null;
+  for (const t of st.rack) t.used = false;
+  st.lastPct = null; st.lastScore = null;
+  st.msg = ''; st.good = st.bad = false;
+  renderPuzzleBoard(); renderHomeHeader();
+}
 function show(id) {
   // Leaving the board closes the live game stream (a new game opens
   // its own in enterGameScreen); the stat window is an overlay on
@@ -1436,7 +1473,8 @@ $('dailyPuzzleBtn').onclick = openDailyPuzzle;
 $('puzzleBoardBackBtn').onclick = closeDailyPuzzle;
 $('puzzleBoardCheckBtn').onclick = puzzleBoardCheck;
 $('puzzleBoardClearBtn').onclick = puzzleBoardClear;
-$('puzzleRack').onclick = (e) => { const b = e.target.closest('.puzzle-rack-tile'); if (b) puzzleBoardSelectRack(+b.dataset.i); };
+$('puzzleRack').onclick = (e) => { const b = e.target.closest('.tile'); if (b && b.dataset.idx != null) puzzleBoardSelectRack(+b.dataset.idx); };
+$('puzzleBoardAgainBtn').onclick = puzzleBoardAgain;
 $('puzzleBoard').onclick = (e) => { const c = e.target.closest('.cell'); if (c) puzzleBoardTapCell(+c.dataset.r, +c.dataset.c); };
 // Matchmaking, not an instant game: Play Online (the globe) shows a
 // searching screen that ticks for a random 2-3 seconds, then makes

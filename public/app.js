@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 148;
+const APP_VERSION = 149;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -184,7 +184,10 @@ function renderHomeHeader() {
   if (pfp) { pfp.innerHTML = pfpHTML(me); pfp.classList.toggle('no-photo', !usablePhoto(me)); }
   const elo = $('homeElo'); if (elo) elo.textContent = me.elo ?? '';
   // v147: the Pro badge follows the account tier — Free hides it.
+  // v149: the badge is accent gold; on Free a blue "Upgrade to Pro"
+  // pill shows in its place instead, opening the Pro screen.
   const proBadge = document.querySelector('.home-pro'); if (proBadge) proBadge.classList.toggle('hidden', !me.pro);
+  const upPill = $('homeUpgradePill'); if (upPill) upPill.classList.toggle('hidden', !!me.pro);
   const streak = $('homeStreak'); if (streak) streak.textContent = puzzleStreak();
   // Daily Puzzle button subtitle is the live streak (v132): "N day
   // streak!🔥". Updated here so it refreshes on every home show and
@@ -304,15 +307,19 @@ function renderPuzzleBoard() {
   const p = st.lastPct == null ? 0 : st.lastPct;
   if (fill) fill.style.width = Math.min(100, p) + '%';
   if (pct) pct.textContent = st.lastPct == null ? '' : Math.round(p) + '%';
-  const status = $('puzzleBoardStatus');
-  if (status) { status.textContent = st.msg || ''; status.className = 'status puzzle-status' + (st.good ? ' good' : st.bad ? ' bad' : ''); }
-  // v143: the controls match the game's finished-state swap — while
-  // playing, Clear + Check show (Check goes blue once tiles are
-  // placed, like the game's Play button); once solved, they give way
-  // to Play again alone.
-  const check = $('puzzleBoardCheckBtn'), clear = $('puzzleBoardClearBtn'), again = $('puzzleBoardAgainBtn');
-  if (check) { check.disabled = st.solved; check.classList.toggle('hidden', st.solved); check.classList.toggle('play-valid', !st.solved && st.placed.length > 0); }
-  if (clear) { clear.disabled = st.solved; clear.classList.toggle('hidden', st.solved); }
+  puzzleUpdateStatusEl();
+  // v149: the point bubble rides on the last cell of the main word.
+  // renderPuzzleBoard rebuilds the board (which destroys the bubble
+  // element), so re-attach it from the state after every rebuild —
+  // the same pattern as the game's last-play bubble.
+  if (st.bubble && st.placed.length) puzzleShowBubble(st.bubble.score, st.bubble.mainCells);
+  // v149: the buttons are Exit, Recall, Shuffle while playing; once
+  // solved they give way to Exit + Play again (there is no Back
+  // button any more — Exit is the way out).
+  const exit = $('puzzleBoardExitBtn'), recall = $('puzzleBoardRecallBtn'), shuffle = $('puzzleBoardShuffleBtn'), again = $('puzzleBoardAgainBtn');
+  if (exit) exit.classList.remove('hidden');
+  if (recall) { recall.disabled = st.solved; recall.classList.toggle('hidden', st.solved); }
+  if (shuffle) { shuffle.disabled = st.solved; shuffle.classList.toggle('hidden', st.solved); }
   if (again) again.classList.toggle('hidden', !st.solved);
 }
 function puzzleBoardSelectRack(i) {
@@ -332,6 +339,7 @@ function puzzleBoardTapCell(r, c) {
     st.placed.splice(placedIdx, 1);
     st.msg = ''; st.good = st.bad = false;
     renderPuzzleBoard();
+    puzzleLiveValidate();
     return;
   }
   if (st.selected == null) return;
@@ -341,6 +349,7 @@ function puzzleBoardTapCell(r, c) {
   st.selected = null;
   st.msg = ''; st.good = st.bad = false;
   renderPuzzleBoard();
+  puzzleLiveValidate();
 }
 // ---------- Daily Puzzle drag-and-drop (v148) ----------
 // Mirrors the real game's drag exactly (same pointer handlers, same
@@ -420,6 +429,103 @@ function puzzleRecallPlaced(p) {
   st.placed.splice(i, 1);
   st.msg = ''; st.good = st.bad = false;
   renderPuzzleBoard();
+  puzzleLiveValidate();
+}
+// ---------- Daily Puzzle live validation + point bubble (v149) ----------
+// Mirrors the game's updateStatus / showBubble exactly: the placed
+// word is validated live as tiles move, an invalid word names itself
+// ("___ is not a word", the game's exact wording), and a valid word
+// shows the point bubble on the last cell of the main word. There is
+// no Check button any more — the evaluation runs automatically when
+// a placement completes, and the optimal word solves at once.
+function puzzleUpdateStatusEl() {
+  const st = puzzleBoardState; if (!st) return;
+  const status = $('puzzleBoardStatus');
+  if (status) { status.textContent = st.msg || ''; status.className = 'status puzzle-status' + (st.good ? ' good' : st.bad ? ' bad' : ''); }
+}
+function puzzleHideBubble() { document.querySelectorAll('#puzzleBoard .play-bubble').forEach(e => { if (e.parentElement) e.parentElement.style.zIndex = ''; e.remove(); }); }
+function puzzleShowBubble(score, mainCells) {
+  puzzleHideBubble();
+  const st = puzzleBoardState; if (!st || !st.placed.length) return;
+  // Bubble goes over the positionally last letter of the word string,
+  // not the last tile the player happened to drop (same as the game).
+  let target = null;
+  if (mainCells && mainCells.length) target = mainCells[mainCells.length - 1];
+  else {
+    const sameRow = st.placed.every(p => p.row === st.placed[0].row);
+    const sorted = st.placed.slice().sort((a, b) => sameRow ? a.col - b.col : a.row - b.row);
+    target = [sorted[sorted.length - 1].row, sorted[sorted.length - 1].col];
+  }
+  const cells = document.querySelectorAll('#puzzleBoard .cell');
+  const cell = cells[target[0] * 10 + target[1]];
+  if (!cell) return;
+  const b = document.createElement('div'); b.className = 'play-bubble'; b.textContent = score;
+  cell.style.position = 'relative'; cell.style.zIndex = '50'; cell.appendChild(b);
+}
+// A valid non-optimal word commits after a short pause, not at once:
+// the player is often mid-word (a prefix of the optimal word is
+// often a valid word itself — MON inside MONEYS — and committing on
+// every placement would bounce the word before it is finished). The
+// pause lets the player keep building; placing another tile, or
+// recalling, clears and re-arms it.
+let puzzleCommitTimer = null;
+function puzzleClearCommitTimer() { if (puzzleCommitTimer) { clearTimeout(puzzleCommitTimer); puzzleCommitTimer = null; } }
+function puzzleLiveValidate() {
+  const st = puzzleBoardState; if (!st || st.solved) return;
+  puzzleClearCommitTimer();
+  if (!st.placed.length) { st.msg = ''; st.good = st.bad = false; st.bubble = null; puzzleHideBubble(); puzzleUpdateStatusEl(); return; }
+  if (!localEngine) { st.msg = 'Words still loading — try again.'; st.bad = true; st.good = false; st.bubble = null; puzzleHideBubble(); puzzleUpdateStatusEl(); return; }
+  const res = localEngine.validatePlay(st.board, st.puzzle.rack, st.placed.map(p => ({ row: p.row, col: p.col, letter: p.letter })), st.puzzle.premiums, false);
+  if (!res.valid) {
+    st.bubble = null; puzzleHideBubble();
+    if (res.invalidWords && res.invalidWords.length) st.msg = invalidWordsStatus(res.invalidWords);
+    else st.msg = res.error ? res.error.charAt(0).toUpperCase() + res.error.slice(1) + (res.error.endsWith('.') ? '' : '.') : 'Invalid play.';
+    st.bad = true; st.good = false;
+    puzzleUpdateStatusEl();
+    return;
+  }
+  // Valid: the point bubble shows the score, and the status stays
+  // clear (the bubble is the feedback, exactly like the game).
+  st.bubble = { score: res.score, mainCells: res.mainCells };
+  st.msg = ''; st.good = st.bad = false;
+  puzzleShowBubble(res.score, res.mainCells);
+  puzzleUpdateStatusEl();
+  if (res.score >= st.puzzle.optimalScore) { puzzleSolveNow(res); return; }
+  puzzleCommitTimer = setTimeout(() => {
+    puzzleCommitTimer = null;
+    // A drag is live: do not commit under the player's finger — run
+    // the validation again instead, which re-arms the timer for the
+    // still-current word.
+    if (puzzleDragLive) { puzzleLiveValidate(); return; }
+    const st2 = puzzleBoardState; if (!st2 || st2.solved || !st2.placed.length || !localEngine) return;
+    const res2 = localEngine.validatePlay(st2.board, st2.puzzle.rack, st2.placed.map(p => ({ row: p.row, col: p.col, letter: p.letter })), st2.puzzle.premiums, false);
+    if (!res2.valid) { puzzleLiveValidate(); return; }
+    if (res2.score >= st2.puzzle.optimalScore) { puzzleSolveNow(res2); return; }
+    puzzleCommitNonOptimal(res2);
+  }, 1200);
+}
+function puzzleSolveNow(res) {
+  const st = puzzleBoardState; if (!st || st.solved) return;
+  puzzleClearCommitTimer();
+  st.solved = true;
+  puzzleSaveSolved(st.dateKey);
+  st.lastPct = 100; st.lastScore = res.score;
+  st.msg = `Solved! ${res.mainWord} — ${res.score} pts, the best move. Streak: ${puzzleStreak()} day${puzzleStreak() === 1 ? '' : 's'}.`;
+  st.good = true; st.bad = false;
+  // The bubble stays on the solved word (the game's last-play bubble).
+  renderPuzzleBoard(); renderHomeHeader();
+}
+function puzzleCommitNonOptimal(res) {
+  const st = puzzleBoardState; if (!st || st.solved) return;
+  const pct = Math.min(100, (res.score / st.puzzle.optimalScore) * 100);
+  st.lastPct = pct; st.lastScore = res.score;
+  st.msg = `${res.mainWord} — ${res.score} pts, ${Math.round(pct)}% of the best move. Try again.`;
+  st.bad = true; st.good = false;
+  st.bubble = null; puzzleHideBubble();
+  // The attempt bounces back to the rack; the bar keeps the last score.
+  for (const p of st.placed) st.rack[p.rackIndex].used = false;
+  st.placed = []; st.selected = null;
+  renderPuzzleBoard();
 }
 function enablePuzzleRackDrag(el, idx) {
   let dragging = false, moved = false, startX = 0, startY = 0, drop = null, captureId = null;
@@ -492,6 +598,7 @@ function enablePuzzleRackDrag(el, idx) {
       st.placed.push({ row: myDrop.row, col: myDrop.col, letter: t.ch, rackIndex: idx });
       st.selected = null; st.msg = ''; st.good = st.bad = false;
       renderPuzzleBoard();
+      puzzleLiveValidate();
       return;
     }
     if (myDrop && myDrop.kind === 'rack' && myDrop.hoverIdx !== idx) {
@@ -598,6 +705,7 @@ function enablePuzzlePlacedDrag(el, p) {
         st.placed.splice(st.placed.indexOf(p), 1);
         st.msg = ''; st.good = st.bad = false;
         renderPuzzleBoard();
+        puzzleLiveValidate();
         return;
       }
       // Occupied deck tile: insert like a rack reorder — the tile
@@ -613,47 +721,38 @@ function enablePuzzlePlacedDrag(el, p) {
       st.placed.splice(st.placed.indexOf(p), 1);
       st.msg = ''; st.good = st.bad = false;
       renderPuzzleBoard();
+      puzzleLiveValidate();
       return;
     }
-    if (myDrop) { p.row = myDrop.row; p.col = myDrop.col; st.msg = ''; st.good = st.bad = false; renderPuzzleBoard(); }
+    if (myDrop) { p.row = myDrop.row; p.col = myDrop.col; st.msg = ''; st.good = st.bad = false; renderPuzzleBoard(); puzzleLiveValidate(); }
   });
   el.addEventListener('pointercancel', () => cleanup());
   el.addEventListener('lostpointercapture', () => cleanup());
 }
-function puzzleBoardClear() {
+// v149: Recall sends every placed tile back to the rack (the game's
+// Recall button). There is no Check button any more — the word is
+// evaluated live as tiles move (puzzleLiveValidate) and the optimal
+// word solves at once.
+function puzzleBoardRecall() {
   const st = puzzleBoardState; if (!st || st.solved) return;
   for (const p of st.placed) st.rack[p.rackIndex].used = false;
   st.placed = []; st.selected = null; st.msg = ''; st.good = st.bad = false;
   renderPuzzleBoard();
+  puzzleLiveValidate();
 }
-function puzzleBoardCheck() {
+function puzzleBoardShuffle() {
   const st = puzzleBoardState; if (!st || st.solved) return;
-  if (!st.placed.length) { st.msg = 'Place some tiles first.'; st.bad = true; renderPuzzleBoard(); return; }
-  if (!localEngine) { st.msg = 'Words still loading — try again.'; st.bad = true; renderPuzzleBoard(); return; }
-  const res = localEngine.validatePlay(st.board, st.puzzle.rack, st.placed.map(p => ({ row: p.row, col: p.col, letter: p.letter })), st.puzzle.premiums, false);
-  if (!res.valid) {
-    const bad = res.invalidWords && res.invalidWords.length ? ': ' + res.invalidWords.join(', ') : '';
-    st.msg = (res.error === 'not a word' ? 'Not a word' + bad : res.error || 'That does not play.') + ' Try again.';
-    st.bad = true; st.good = false;
-    renderPuzzleBoard();
-    return;
+  // Shuffle the rack (local only — no server sync). Resolve each
+  // placed tile to its rack tile object BEFORE the shuffle, so
+  // rackIndex follows the tile even when letters repeat.
+  const placedTiles = st.placed.map(p => ({ p, tile: st.rack[p.rackIndex] }));
+  for (let i = st.rack.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [st.rack[i], st.rack[j]] = [st.rack[j], st.rack[i]];
   }
-  const pct = Math.min(100, (res.score / st.puzzle.optimalScore) * 100);
-  st.lastPct = pct; st.lastScore = res.score;
-  if (res.score >= st.puzzle.optimalScore) {
-    st.solved = true;
-    puzzleSaveSolved(st.dateKey);
-    st.msg = `Solved! ${res.mainWord} — ${res.score} pts, the best move. Streak: ${puzzleStreak()} day${puzzleStreak() === 1 ? '' : 's'}.`;
-    st.good = true; st.bad = false;
-    renderPuzzleBoard(); renderHomeHeader();
-  } else {
-    st.msg = `${res.mainWord} — ${res.score} pts, ${Math.round(pct)}% of the best move. Try again.`;
-    st.bad = true; st.good = false;
-    // The attempt bounces back to the rack; the bar keeps the last score.
-    for (const p of st.placed) st.rack[p.rackIndex].used = false;
-    st.placed = []; st.selected = null;
-    renderPuzzleBoard();
-  }
+  for (const { p, tile } of placedTiles) p.rackIndex = st.rack.indexOf(tile);
+  st.selected = null;
+  renderPuzzleBoard();
 }
 async function openDailyPuzzle() {
   show('puzzleBoardScreen');
@@ -676,7 +775,7 @@ async function openDailyPuzzle() {
     entry, dateKey: entry.dateKey, puzzle: entry.puzzle, board: puzzleBoardBase(entry),
     rack: entry.puzzle.rack.map(ch => ({ ch, used: false })),
     placed: [], selected: null, solved, msg: '', good: false, bad: false,
-    lastPct: null, lastScore: null,
+    lastPct: null, lastScore: null, bubble: null,
   };
   if (solved) {
     puzzleBoardState.msg = `Solved! The best move was ${entry.puzzle.optimalWord} — ${entry.puzzle.optimalScore} pts. Come back tomorrow.`;
@@ -723,10 +822,11 @@ function puzzleRemoveSolved(dateKey) {
 function puzzleBoardAgain() {
   const st = puzzleBoardState; if (!st) return;
   puzzleRemoveSolved(st.dateKey);
+  puzzleClearCommitTimer();
   st.solved = false;
   st.placed = []; st.selected = null;
   for (const t of st.rack) t.used = false;
-  st.lastPct = null; st.lastScore = null;
+  st.lastPct = null; st.lastScore = null; st.bubble = null;
   st.msg = ''; st.good = st.bad = false;
   renderPuzzleBoard(); renderHomeHeader();
 }
@@ -742,7 +842,7 @@ function show(id) {
   if (id !== 'searchingScreen') cancelSearch();
   if (id !== 'rematchScreen') cancelRematch();
   // v142: puzzleBoardScreen is a full screen like gameScreen — it hides
-  // the tab bar (it has its own Back button) and is not a menu screen.
+  // the tab bar (it has its own Exit button) and is not a menu screen.
   ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen', 'puzzleBoardScreen', 'profileFieldScreen', 'profilePhotoScreen', 'profilePasswordScreen', 'profileProScreen', 'profileDeleteScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
   const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen'].includes(id);
   // Warm the offline engine when the bot screen opens (v107): the
@@ -1841,9 +1941,12 @@ async function loadMe() {
 $('playBotsBtn').onclick = () => show('botScreen');
 $('playFriendsBtn').onclick = showFriendsTab;
 $('dailyPuzzleBtn').onclick = openDailyPuzzle;
-$('puzzleBoardBackBtn').onclick = closeDailyPuzzle;
-$('puzzleBoardCheckBtn').onclick = puzzleBoardCheck;
-$('puzzleBoardClearBtn').onclick = puzzleBoardClear;
+// v149: on Free the Pro badge is replaced by this pill, which opens
+// the Duello Pro settings page.
+$('homeUpgradePill').onclick = () => openProScreen();
+$('puzzleBoardExitBtn').onclick = closeDailyPuzzle;
+$('puzzleBoardRecallBtn').onclick = puzzleBoardRecall;
+$('puzzleBoardShuffleBtn').onclick = puzzleBoardShuffle;
 // v148: the rack has no delegated click any more — rack-tile taps
 // select via the pointerup handler in enablePuzzleRackDrag, and a
 // delegated click would double-toggle after it.
@@ -4573,8 +4676,19 @@ async function refreshLeaderboards() {
   // friends refetch below. Ranks moved too, so the rank cache
   // goes with them.
   profileData = null; rankCache.clear();
-  try { const d = await api('/api/me'); me = d.user; persistMe(); } catch (err) { deadSession(err); return; }
+  // v149: d is declared OUTSIDE the try — a const inside the try
+  // block is scoped to it, so the re-warm below would throw a
+  // ReferenceError (silently swallowed by its own catch) and the
+  // profile would never re-warm. Caught by the v149 harness (W1b).
+  let d = null;
+  try { d = await api('/api/me'); me = d.user; persistMe(); } catch (err) { deadSession(err); return; }
   globalRows = null;
+  // v149: re-warm the profile with the fresh payload. The invalidation
+  // above used to leave the next Profile tap blanking the screen and
+  // waiting on a fresh /api/me fetch — the tab looked like it never
+  // preloaded, even though the boot preload had filled it. Filling
+  // the (hidden) profile screen here makes the next tap instant again.
+  try { await renderProfileUI(d); } catch {}
   await loadServerFriends(true);
 }
 function goHome() { clearStatDelay(); clearReplay(); reviewMode = false; $('statWindow').classList.add('hidden'); show('homeScreen'); refreshLeaderboards(); }
@@ -5141,6 +5255,16 @@ async function renderProfileUI(prefetched) {
   }
   renderStatsList(); drawEloChart();
 }
+// v149: re-warm the (hidden) profile screen in the background after
+// a profile edit. The save handlers null profileData so the next
+// Profile tap refetches fresh data — but without a re-warm the tap
+// blanked the screen and waited on /api/me, which is the same "not
+// preloading" the post-game path had. Fire and forget: the screen
+// is hidden while the user is on an edit screen, so the blank-and-
+// fill is invisible, and the next Profile tap is instant again.
+function rewarmProfile() {
+  try { renderProfileUI().catch(() => {}); } catch {}
+}
 function fmt1(v) { return (Number(v) || 0).toFixed(1); }
 function renderStatsList() {
   if (!profileData || !profileData.profileStats) return;
@@ -5561,7 +5685,7 @@ $('fieldSaveBtn').onclick = async () => {
   try {
     const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify(body) });
     me = d.user; persistMe(); profileData = null;
-    renderEditList(); renderHomeHeader();
+    renderEditList(); renderHomeHeader(); rewarmProfile();
     show('profileEditScreen');
   } catch (err) { $('fieldError').textContent = err.message || 'Could not save.'; }
 };
@@ -5581,7 +5705,7 @@ $('editPhotoRemoveBtn').onclick = async () => {
   try {
     const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify({ firstName: u.firstName, lastName: u.lastName, username: u.username, photoData: null }) });
     me = d.user; persistMe(); profileData = null;
-    renderEditList(); renderHomeHeader();
+    renderEditList(); renderHomeHeader(); rewarmProfile();
     openPhotoScreen();
   } catch (err) { $('photoError').textContent = err.message || 'Could not remove the photo.'; }
 };
@@ -5611,7 +5735,7 @@ async function setPro(on) {
   try {
     const d = await api('/api/me/pro', { method: 'POST', body: JSON.stringify({ pro: on }) });
     me = d.user; persistMe(); profileData = null;
-    renderProScreen(); renderEditList(); renderHomeHeader();
+    renderProScreen(); renderEditList(); renderHomeHeader(); rewarmProfile();
   } catch (err) {
     // Re-render first (it restores the checkmark AND clears the error
     // line), then set the error — the other order wipes the message.
@@ -5697,7 +5821,7 @@ $('cropUseBtn').onclick = async () => {
   try {
     const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify({ firstName: u.firstName, lastName: u.lastName, username: u.username, photoData: data }) });
     me = d.user; persistMe(); profileData = null;
-    renderEditList(); renderHomeHeader();
+    renderEditList(); renderHomeHeader(); rewarmProfile();
   } catch (err) { $('photoError').textContent = err.message || 'Could not save the photo.'; }
 };
 $('cropCancelBtn').onclick = () => closeCrop();

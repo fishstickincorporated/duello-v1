@@ -171,9 +171,13 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .drag-ghost{position:fixed;width:92px;height:92px;border-radius:12px;overflow:hidden;background:linear-gradient(180deg,#7df3ff 0%,#03eaff 50%,#00b8d2 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.65),inset 0 -2px 0 rgba(0,90,110,.35);color:#1a1d24;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;z-index:60;pointer-events:none;transform:translate(-50%,-90%)}
 
 /* Bottom tabs: main menu only, no text under icons */
-.tab-bar{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:390px;display:flex;justify-content:space-around;align-items:center;background:#1a1d24;border-top:1px solid #2a2f3a;padding:10px 0 calc(14px + env(safe-area-inset-bottom));z-index:40}
-.tab-btn{background:none;border:0;cursor:pointer;padding:6px 18px;border-radius:12px}
-.tab-btn.active{background:#262a33;outline:2px solid #03eaff}
+.tab-bar{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:390px;display:flex;justify-content:space-around;align-items:center;background:#1a1d24;border-top:1px solid #2a2f3a;padding:14px 0 calc(10px + env(safe-area-inset-bottom));z-index:40}
+/* v146: every tab button is exactly 40px tall with its icon centered,
+   so the top pixel of all three tabs sits at the same height; the active
+   ring is an inset shadow, not an outline — the 2px outline used to poke
+   above the active tab's top and make it look taller than the rest. */
+.tab-btn{background:none;border:0;cursor:pointer;padding:6px 18px;border-radius:12px;height:40px;display:flex;align-items:center;justify-content:center}
+.tab-btn.active{background:#262a33;box-shadow:inset 0 0 0 2px #03eaff}
 .tab-btn svg,.tab-btn img{display:block;width:28px;height:28px}
 .tab-btn img{border-radius:50%;object-fit:cover}
 .screen{padding-bottom:calc(90px + env(safe-area-inset-bottom))}
@@ -519,7 +523,9 @@ squares are the premium colours, spread out across the whole screen. */
 .home-pro svg{display:block}
 .home-stat-value{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
 .home-stat-label{color:#b3b2b1;font-size:12px}
-#homeScreen .modes{flex:1;display:flex;flex-direction:column;gap:16px;margin-top:0}
+/* v146: home buttons are a fixed 100px (was flex:1, ~126px at 390x844)
+   with 24px gaps, centered in the available space. */
+#homeScreen .modes{flex:1;display:flex;flex-direction:column;gap:24px;margin-top:0;justify-content:center}
 /* v139: icons even bigger and slightly further right, at Jeff's
    request ("getting greedy"). Icons 44px→48px and left padding
    8px→14px on both home and bot buttons (right padding stays 8px,
@@ -531,7 +537,7 @@ squares are the premium colours, spread out across the whole screen. */
    12.25px would fit by only 0.5px, too tight to trust). Title
    stays 22px. The title/subtitle keep white-space:nowrap so they
    can never wrap. */
-#homeScreen .mode{flex:1 1 0;height:auto;min-height:88px;font-size:22px}
+#homeScreen .mode{flex:0 1 100px;height:auto;font-size:22px}
 #homeScreen .mode .sym svg{width:48px;height:48px}
 /* v132: home buttons are big glossy gradient cards (Jeff's screenshot).
    v133: darkened so the white text pops way more — each gradient runs
@@ -572,41 +578,17 @@ squares are the premium colours, spread out across the whole screen. */
    placement under the logo), Back below them. */
 #botScreen{position:relative;display:flex;flex-direction:column;height:100dvh;height:100svh;min-height:100svh;padding-bottom:128px}
 #botScreen .logo-img.home-logo{width:72%;margin-top:0;position:relative;z-index:1}
-#botScreen .bot-options{flex:1;display:flex;flex-direction:column;gap:16px;margin-top:0;position:relative;z-index:1}
-#botScreen .bot-opt{flex:0 0 calc((100% - 64.4px)/4);height:auto;min-height:88px;font-size:22px}
-/* v137: each bot button is exactly one home-button tall. The home
-   list has 4 buttons sharing its height with three 16px gaps, so one
-   home button is (modes height - 48px)/4. The bot-options list is
-   16.4px TALLER than the home list — the home screen has a 70px
-   home-head (52px pfp + 18px margins) where the bot screen has a
-   53.6px Back button (31.6px tall: 14px text at Comfortaa's 1.115
-   line-height + 16px padding, plus 22px margin-top) — so the plain
-   (100% - 48px)/4 (v135) made each bot button 16.4/4 = 4.1px too
-   tall. Subtracting the 16.4px difference here makes the bot button
-   exactly one home-button tall on every viewport (125.8px at
-   390x844, 147.8px at 390x932; on short screens like 375x667 both
-   bind at the shared 88px min-height). The leftover space stays
-   empty below the buttons, above Back. flex:0 0 keeps them from
-   stretching to fill the screen.
-   v139 ROOT CAUSE + FIX: the v137 calc was arithmetically right but
-   the buttons still rendered 88px (the min-height) on a real phone,
-   ~35px shorter than the ~123px home buttons — verified by rendering
-   the actual page in headless Chromium. The percentage flex-basis
-   `calc((100% - 64.4px)/4)` does NOT resolve against the
-   .bot-options height, because that height is indefinite: it comes
-   from `flex:1` inside a screen that only has `min-height:100svh`
-   (no definite `height`), so the percentage falls back to `auto`
-   (content height) and the buttons collapse to min-height:88px.
-   The home buttons never had this problem — they use `flex:1 1 0`
-   (no percentage). The fix is one property: `#botScreen` now has a
-   definite `height:100svh` (plus the 100dvh fallback, min-height
-   kept as a floor), so .bot-options gets a definite height and the
-   percentage basis resolves. Rendered and measured: bot buttons
-   122.73px vs home buttons 122.83px at 390x844 (the 0.1px is the
-   headless-Chrome Arial Back button at 32px vs Comfortaa's 31.6px;
-   on a real phone with Comfortaa the 64.4px constant is exact). Do
-   NOT go back to a min-height-only screen here — the percentage
-   basis silently stops resolving. */
+#botScreen .bot-options{flex:1;display:flex;flex-direction:column;gap:24px;margin-top:0;position:relative;z-index:1;justify-content:center}
+/* v146: bot buttons are the same fixed 100px as the home buttons — the
+   v137 calc (matching the old flex:1 home height) is gone, both now
+   match by the same number. */
+#botScreen .bot-opt{flex:0 1 100px;height:auto;min-height:88px;font-size:22px}
+/* v146: the v137 calc is gone — home and bot buttons are both a fixed
+   100px now, so they match by the same number instead of arithmetic.
+   (History: the v137 percentage basis `calc((100% - 64.4px)/4)` silently
+   collapsed to the 88px min-height until v139 gave #botScreen a definite
+   height:100svh — a percentage flex-basis needs a definite parent height
+   to resolve. Keep that height on #botScreen.) */
 #botScreen .bot-opt .sym svg{width:48px;height:48px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
 #botScreen .bot-opt .label-col .label{font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45);white-space:nowrap}
 #botScreen .bot-opt .label-col .sub{font-size:12px;color:rgba(255,255,255,.95);text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}

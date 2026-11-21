@@ -525,7 +525,7 @@ squares are the premium colours, spread out across the whole screen. */
 
 /* ---------- v131: home redesign (faint blue texture + daily hook) ---------- */
 #homeScreen{position:relative;display:flex;flex-direction:column;min-height:100dvh;min-height:100svh;padding-bottom:128px}
-#homeScreen .logo-img.home-logo{margin-bottom:0;position:relative;z-index:1}
+#homeScreen .logo-img.home-logo{width:72%;margin-bottom:0;position:relative;z-index:1}
 #homeScreen .home-head,#homeScreen .modes{position:relative;z-index:1}
 /* v154: the pfp sits centred between the logo and the Play Online
    button by construction, not by margin arithmetic. v153 tuned the
@@ -623,7 +623,7 @@ squares are the premium colours, spread out across the whole screen. */
    filling the screen as full-height cards (same gap, same top
    placement under the logo), Back below them. */
 #botScreen{position:relative;display:flex;flex-direction:column;height:100dvh;height:100svh;min-height:100svh;padding-bottom:128px}
-#botScreen .logo-img.home-logo{position:relative;z-index:1}
+#botScreen .logo-img.home-logo{width:72%;position:relative;z-index:1}
 #botScreen .bot-options{flex:1;display:flex;flex-direction:column;gap:28px;margin-top:0;position:relative;z-index:1;justify-content:center}
 /* v146: bot buttons are the same fixed 100px as the home buttons — the
    v137 calc (matching the old flex:1 home height) is gone, both now
@@ -772,6 +772,9 @@ squares are the premium colours, spread out across the whole screen. */
    left-justified (not centered like the other back pills) with
    more room below it before the policy text starts. */
 #profilePrivacyScreen #privacyBackBtn{margin:22px 0 20px}
+/* v155: the bottom back button is left-justified too (was centered
+   by the .back-pill auto margins, like the top one was before v153). */
+#profilePrivacyScreen #privacyBottomBackBtn{margin:22px 0 0}
 /* v154: the strip is tighter than the full board width (was 100% in
    v153) and sits closer to the board, with bigger flames (24px in
    renderPuzzleWeekStrip). The flame is the home page's streak SVG,

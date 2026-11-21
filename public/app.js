@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 154;
+const APP_VERSION = 155;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -155,26 +155,38 @@ async function puzzleSyncFromServer() {
   if (!token || isOffline()) return false;
   // First, push any Play again resets the server has not seen yet.
   const unsolved = puzzleUnsolvedDates();
+  const unsolvedAtStart = new Set(unsolved);
   for (const d of [...unsolved]) {
     try { await api('/api/daily-puzzle/unsolve', { method: 'POST', body: JSON.stringify({ date: d }) }); unsolved.delete(d); } catch {}
   }
+  // v155: a Replay can land mid-sync — open an already-solved puzzle
+  // and tap Replay inside this single round trip — so the tombstone
+  // set is re-read at every write, never snapshotted at the start.
+  // The fresh set is the working set (uploaded entries removed) plus
+  // any tombstone the store gained since the sync started; a
+  // start-of-sync snapshot would clobber a Replay's tombstone and
+  // resurrect the solve from the GET.
+  const freshUnsolved = () => new Set([...unsolved, ...[...puzzleUnsolvedDates()].filter(d => !unsolvedAtStart.has(d))]);
   let serverSolved, serverMoves = {};
   try { const j = await api('/api/daily-puzzle'); serverSolved = new Set(Array.isArray(j.solved) ? j.solved : []); if (j.moves && typeof j.moves === 'object') serverMoves = j.moves; }
-  catch { puzzleWriteStore(puzzleSolvedDates(), unsolved); return false; }
+  catch { puzzleWriteStore(puzzleSolvedDates(), freshUnsolved()); return false; }
   // Then upload local solves the server lacks (offline solves, and
   // solves from before the account state existed) — with the move,
-  // so the other device shows the word too.
+  // so the other device shows the word too. A date tombstoned since
+  // the sync started is skipped, so a mid-sync Replay is never
+  // re-uploaded as a solve.
   const local = puzzleSolvedDates();
   const localMoves = puzzleSolvedMoves();
-  for (const d of [...local]) { if (!serverSolved.has(d)) { try { await api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: d, placements: localMoves[d] || undefined }) }); } catch {} } }
+  for (const d of [...local]) { if (!serverSolved.has(d) && !puzzleUnsolvedDates().has(d)) { try { await api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: d, placements: localMoves[d] || undefined }) }); } catch {} } }
   // Merge is the union minus tombstones (a reset that has not reached
   // the server yet must not come back). A move the server has wins
   // over a local one for the same date (it is the first solve).
+  const finalUnsolved = freshUnsolved();
   const merged = new Set([...local, ...serverSolved]);
-  for (const d of unsolved) merged.delete(d);
+  for (const d of finalUnsolved) merged.delete(d);
   const mergedMoves = {};
   for (const d of merged) { if (serverMoves[d]) mergedMoves[d] = serverMoves[d]; else if (localMoves[d]) mergedMoves[d] = localMoves[d]; }
-  puzzleWriteStore(merged, unsolved, mergedMoves);
+  puzzleWriteStore(merged, finalUnsolved, mergedMoves);
   return true;
 }
 function localDateKey(d) {
@@ -326,8 +338,9 @@ function renderPuzzleBoard() {
   // the same pattern as the game's last-play bubble.
   if (st.bubble && st.placed.length) puzzleShowBubble(st.bubble.score, st.bubble.mainCells);
   // v149: the buttons are Exit, Recall, Shuffle while playing; once
-  // solved they give way to Exit + Share (v152 — Play again is gone;
-  // there is no Back button any more — Exit is the way out).
+  // solved they give way to Exit + Share + Replay (v155 — Replay
+  // re-opens the puzzle fresh, to the right of Share; there is no
+  // Back button any more — Exit is the way out).
   // v154: the controls row itself must be visible — a finished real
   // game used to hide it (renderGame toggled the first .controls in
   // the document, which was this row), so reopening a solved puzzle
@@ -335,11 +348,12 @@ function renderPuzzleBoard() {
   // this removes the class here too so a stale hide can never stick.
   const ctrls = document.querySelector('#puzzleBoardScreen .controls');
   if (ctrls) ctrls.classList.remove('hidden');
-  const exit = $('puzzleBoardExitBtn'), recall = $('puzzleBoardRecallBtn'), shuffle = $('puzzleBoardShuffleBtn'), share = $('puzzleBoardShareBtn');
+  const exit = $('puzzleBoardExitBtn'), recall = $('puzzleBoardRecallBtn'), shuffle = $('puzzleBoardShuffleBtn'), share = $('puzzleBoardShareBtn'), replay = $('puzzleBoardReplayBtn');
   if (exit) exit.classList.remove('hidden');
   if (recall) { recall.disabled = st.solved; recall.classList.toggle('hidden', st.solved); }
   if (shuffle) { shuffle.disabled = st.solved; shuffle.classList.toggle('hidden', st.solved); }
   if (share) share.classList.toggle('hidden', !st.solved);
+  if (replay) replay.classList.toggle('hidden', !st.solved);
 }
 function puzzleBoardSelectRack(i) {
   const st = puzzleBoardState; if (!st || st.solved) return;
@@ -939,9 +953,7 @@ function closeDailyPuzzle() { show('homeScreen'); }
 // v152: after solving, Share replaces Play again. It opens the
 // Messages app with the solve time and a link that opens the puzzle
 // in the app (the ?puzzle link is picked up on load by
-// maybeOpenPuzzleDeepLink). Play again is gone, so the v143
-// unsolve/reset path is gone with it — the server unsolve endpoint
-// stays, just uncalled by the client.
+// maybeOpenPuzzleDeepLink).
 function puzzleBoardShare() {
   const st = puzzleBoardState; if (!st || !st.solved) return;
   const when = st.solvedAt || new Date();
@@ -949,6 +961,34 @@ function puzzleBoardShare() {
   const ap = h >= 12 ? 'pm' : 'am'; h = h % 12 || 12;
   const msg = 'I solved the Duello Daily Puzzle at ' + h + ':' + m + ap + '! https://duellogame.com/?puzzle=today';
   window.location.href = 'sms:?&body=' + encodeURIComponent(msg);
+}
+// v155: Replay sits to the right of Share and shows only on a solved
+// puzzle. It re-opens today's puzzle fresh: the solve is undone (the
+// date leaves the solved set, a tombstone goes in the unsolved set so
+// the next sync can never resurrect it, and the stored move is
+// dropped), the unsolve is fired at the server the same fire-and-
+// forget way puzzleSaveSolved fires the solve, and the board state is
+// rebuilt exactly as openDailyPuzzle builds it for an unsolved
+// puzzle — empty rack, no placed tiles, 0% strength, "Find the best
+// move." The week strip flips today back to a grey flame and the home
+// header goes back to the countdown, both via the re-renders below.
+function puzzleBoardReplay() {
+  const st = puzzleBoardState; if (!st || !st.solved) return;
+  const solved = puzzleSolvedDates(); solved.delete(st.dateKey);
+  const unsolved = puzzleUnsolvedDates(); unsolved.add(st.dateKey);
+  const moves = puzzleSolvedMoves(); delete moves[st.dateKey];
+  puzzleWriteStore(solved, unsolved, moves);
+  // Fire and forget: if this POST fails (offline), the tombstone
+  // stands and the next sync uploads it.
+  if (token && !isOffline()) api('/api/daily-puzzle/unsolve', { method: 'POST', body: JSON.stringify({ date: st.dateKey }) }).catch(() => {});
+  puzzleBoardState = {
+    entry: st.entry, dateKey: st.dateKey, puzzle: st.puzzle, board: puzzleBoardBase(st.entry),
+    rack: st.puzzle.rack.map(ch => ({ ch, used: false })),
+    placed: [], selected: null, solved: false, msg: '',
+    lastPct: null, lastScore: null, bubble: null,
+  };
+  puzzleHideBubble();
+  renderPuzzleBoard(); renderHomeHeader(); renderPuzzleWeekStrip();
 }
 function show(id) {
   // Leaving the board closes the live game stream (a new game opens
@@ -2087,6 +2127,7 @@ $('puzzleBoardExitBtn').onclick = closeDailyPuzzle;
 $('puzzleBoardRecallBtn').onclick = puzzleBoardRecall;
 $('puzzleBoardShuffleBtn').onclick = puzzleBoardShuffle;
 $('puzzleBoardShareBtn').onclick = puzzleBoardShare;
+$('puzzleBoardReplayBtn').onclick = puzzleBoardReplay;
 // v148: the rack has no delegated click any more — rack-tile taps
 // select via the pointerup handler in enablePuzzleRackDrag, and a
 // delegated click would double-toggle after it.
@@ -2582,29 +2623,29 @@ function replayStateAt(n) {
 function replayCanStep() {
   return !!(game && game.status === 'finished' && Array.isArray(game.moveLog) && game.moveLog.length > 0);
 }
-// Per-player clock rewind (v128, item 1): each side's remaining
-// time at replay step n, taken independently from that side's own
-// most recent move. The mover's clock comes from the move just
-// applied; the other player's from their last move before it —
-// their clock never ticks on the mover's turn, so it is unchanged
-// since then. Step 0 is the start, the final step is the game's
-// actual final clocks, and a log with no clocks at all (pre-v126)
-// falls back to the final clocks.
+// Per-player clock rewind (v128, item 1; fixed v155): each side's
+// remaining time at replay step n comes from the nearest moveLog
+// entry at or before n — every entry carries BOTH clocks as of
+// right after that move. The old per-side walk (each side's clock
+// from that side's own most recent move) was wrong when a clock
+// changed without its owner moving: a clock that runs to 0 on its
+// owner's turn logs no move for that turn, and a -30s pass is never
+// logged either, so the change is only recorded in the next mover's
+// snapshot — and the replay froze the dead clock at its last move's
+// value (0:02) for the whole trailing stretch instead of 0:00.
+// Step 0 is the start, the final step is the game's actual final
+// clocks, and a log with no clocks at all (pre-v126) falls back to
+// the final clocks.
 function replayClocksAt(n) {
   const log = (game && game.moveLog) || [];
   const total = log.length;
   if (n === 0) return { human: 240000, bot: 240000 };
   if (n >= total) return { human: game.clocks.human, bot: game.clocks.bot };
-  let ch = 240000, cb = 240000, found = false;
-  for (let i = 0; i < n; i++) {
+  for (let i = n - 1; i >= 0; i--) {
     const e = log[i];
-    if (!e || !e.clocks) continue;
-    found = true;
-    if (e.side === 'human') ch = e.clocks.human;
-    else cb = e.clocks.bot;
+    if (e && e.clocks) return { human: e.clocks.human, bot: e.clocks.bot };
   }
-  if (!found) return { human: game.clocks.human, bot: game.clocks.bot };
-  return { human: ch, bot: cb };
+  return { human: game.clocks.human, bot: game.clocks.bot };
 }
 // v148: whether the move at replay step n was optimal. The moveLog
 // entry carries no isOptimal flag — it lives on game.moves[side] —
@@ -2640,16 +2681,14 @@ function renderReplay() {
   }
   $('scoreHuman').textContent = String(st.human);
   $('scoreBot').textContent = String(st.bot);
-  // Clocks rewind to the move (v126, per-player in v128): each
-  // player's clock shows their own remaining time at the viewed
-  // move, independently. A side's clock only ever changes on that
-  // side's own moves, so walk the log to step n and take each
-  // side's clock from their most recent move — the mover's clock
-  // from the move just applied, the other player's from their last
-  // move before it. Step 0 is the start (4:00 each); the final
-  // board shows the game's actual final clocks. Entries logged
-  // before v126 carry no clocks — if no entry up to step n has
-  // clocks, fall back to the final clocks rather than a wrong time.
+  // Clocks rewind to the move (v126; v155: the snapshot, not the
+  // per-side walk — each entry carries both clocks as of right after
+  // that move, so the nearest entry's snapshot is the true time at
+  // the viewed step, including a clock that ran to 0 without its
+  // owner moving). Step 0 is the start (4:00 each); the final board
+  // shows the game's actual final clocks. Entries logged before
+  // v126 carry no clocks — if no entry up to step n has clocks,
+  // fall back to the final clocks rather than a wrong time.
   const rc = replayClocksAt(n);
   $('clockHuman').textContent = fmtClock(rc.human);
   $('clockBot').textContent = fmtClock(rc.bot);

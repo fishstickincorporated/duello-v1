@@ -929,3 +929,21 @@ squares are the premium colours, spread out across the whole screen. */
    leaves ~8px each side. The panel stays 79.2px (the clock's line
    is still the tallest thing in the row). */
 .byoyomi{width:32px;height:35px;font-size:28px}
+/* v164: the badge is the same height as the clock's digits (26px —
+   the clock's line box is 35.2px but the visible digits are 26px
+   tall, so the 35px gold box looked taller than the clock). The
+   28px numbers (22.75px glyphs) still fit, with ~1.6px above and
+   below. The badge is centred between the clock and the pfp: the
+   gap is 70px at 390/393 (62.5px at 375), the badge is 32px, so
+   19px each side; the clock-row gap is 6px, so a 13px margin on the
+   badge's clock side makes it 19px. At 375 it is off by ~4px. */
+.byoyomi{height:26px}
+.player-panel .byoyomi{margin-right:13px}
+.bot-panel .byoyomi{margin-left:13px}
+/* The 13px margin centres the badge at 390/393 (the gap is 70px
+   there); at 375 the gap is 62.5px so the badge needs 9px instead.
+   The screen is capped at 390px wide, so 390 and 393 are the same. */
+@media (max-width:375px){
+.player-panel .byoyomi{margin-right:9px}
+.bot-panel .byoyomi{margin-left:9px}
+}

@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 157;
+const APP_VERSION = 158;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -3013,28 +3013,30 @@ function clearByoyomi() {
 }
 function updateByoyomiDisplay() {
   // Show the countdown on the side that has it, hide the other.
-  // The remaining seconds, floored, from the live deadline — the
+  // The remaining seconds, ceiled, from the live deadline — the
   // 100ms tick re-renders it, so it visibly counts down.
   for (const side of ['human', 'bot']) {
     const el = $(side === 'human' ? 'byoyomiHuman' : 'byoyomiBot');
     if (!el) continue;
     if (byoyomiSide === side && game && game.status === 'active') {
-      el.textContent = fmtClock(Math.max(0, byoyomiEndsAt - Date.now()));
+      // v158: just the seconds ("12" … "1") — no leading zero or
+      // colon. Ceil, so the window reads "12" for its first second;
+      // floor would drop it to "11" within a millisecond of arming.
+      // Clamped to a minimum of 1 while the countdown is live, so
+      // it never shows "0" — "1" is the last value, then the game
+      // ends and the element hides.
+      el.textContent = String(Math.max(1, Math.ceil((byoyomiEndsAt - Date.now()) / 1000)));
       el.classList.remove('hidden');
     } else {
       el.classList.add('hidden');
     }
   }
-  // v157 layout: the panel carrying the countdown gets the
-  // byoyomi-on class (narrows its identity-col, shrinks its
-  // clock/countdown) so the clock-row fits its clock-col —
-  // without it the panel clips the clock and the countdown
-  // overlaps the PFP. clearByoyomi flows through here too,
-  // so the class is removed when the countdown goes away.
-  const pp = $('playerPanel'), bp = $('botPanel');
-  const active = game && game.status === 'active';
-  if (pp) pp.classList.toggle('byoyomi-on', active && byoyomiSide === 'human');
-  if (bp) bp.classList.toggle('byoyomi-on', active && byoyomiSide === 'bot');
+  // v158: no layout class is needed while the countdown shows — the
+  // name moved under the clocks (see .panel-name), the identity-col
+  // holds just the PFP, and the clock-col has room for the clock +
+  // countdown at full size, so nothing is narrowed or shrunk.
+  // clearByoyomi flows through here too, so the countdown hides
+  // when it goes away.
 }
 // End the game because the byoyomi countdown expired: the countdown
 // player took more than 12s to move. Winner by score (the clocks
@@ -3151,7 +3153,7 @@ function tickClocks() {
     // game the opponent moves on the server / the other phone, so
     // this phone only learns of it when the game state arrives —
     // a new moveLog entry from the countdown side is the signal.
-    // Without this, the display would run to 0:00 and end a game
+    // Without this, the display would run to 0 and end a game
     // the opponent had already moved in. (Local games reset
     // directly in doLocalPlay / runLocalBotTurn instead.)
     if (game.moveLog && game.moveLog.length > byoyomiLastLogLen) {

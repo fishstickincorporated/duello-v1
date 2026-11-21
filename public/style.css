@@ -161,7 +161,7 @@ name or a big score never reflows the board. Names never wrap. */
 present again; a flex-shared cell previously squeezed them to half width. */
 .cell .tile{position:absolute;inset:0;width:auto;height:auto}
 .cell.last-word .tile{outline:1px solid #fff}
-.status{display:flex;align-items:center;justify-content:center;min-height:22px;margin:3px 0;padding:8px 0;font-size:15px;line-height:1.3;white-space:nowrap}
+.status{display:flex;align-items:center;justify-content:center;min-height:22px;margin:3px 0;padding:8px 0;font-size:14px;line-height:1.3;white-space:nowrap}
 /* v148: in a game review, the "___ played ___" line is Duello blue. */
 .status.review-played{color:#03eaff}
 .rack{display:flex;gap:6px;justify-content:space-between;margin:8px 0;min-height:57px}
@@ -903,3 +903,21 @@ squares are the premium colours, spread out across the whole screen. */
    15px to 22px (half the oval) so it still never hangs off the
    track ends. */
 .puzzle-strength-knob{width:44px;height:30px;border-radius:15px;left:22px}
+/* v162 (1): the home/bot logo is EXACTLY the game logo's width. The
+   game logo is 72% of the game screen's content width (screen minus
+   its 10px side padding); the home/bot screens have 16px side
+   padding, so 72% there rendered 8.6px narrower (257.8 vs 266.4)
+   and Jeff saw it shrink when entering a game. This calc is the game
+   logo's exact width at any viewport, so the logo never moves. */
+#homeScreen .logo-img.home-logo, #botScreen .logo-img.home-logo{width:calc((min(100vw, 390px) - 20px) * 0.72)}
+/* v162 (2): the byoyomi status line is 14px now (was 15px) so the
+   full line fits at 375px — the new text is 335.8px at 14px against
+   a 355px content width; at 15px it was 359.8px and still clipped. */
+/* v162 (3): the shot-clock badge is shorter and narrower — 44x30
+   (was 50x35). The digits are 26px tall, so 30px leaves ~2px above
+   and below them; "12" is ~35px wide, so 44px leaves ~4px each
+   side. The clock does not move: it is anchored to the panel edge
+   (right for the human, left for the bot), so the badge just shrinks
+   toward it. The panel stays 79.2px (the clock's 35.2px line is
+   still the tallest thing in the row). */
+.byoyomi{width:44px;height:30px}

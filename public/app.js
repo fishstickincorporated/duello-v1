@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 161;
+const APP_VERSION = 162;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -3054,7 +3054,7 @@ async function endByoyomiGame() {
   if (!game || game.status !== 'active' || !byoyomiSide) return;
   clearByoyomi();
   const winner = winnerByScore();
-  if (game.offline) { endLocalGame('Time expired', winner); return; }
+  if (game.offline) { endLocalGame('Shot clock expired', winner); return; }
   try {
     const out = await api(`/api/games/${game.id}/time-expired`, { method: 'POST' });
     game = out; gameAppliedSeq = gameFetchSeq; gameFetchAt = Date.now(); renderGame();
@@ -3181,7 +3181,7 @@ function tickClocks() {
   // the flip stays unconfirmed and the retry below re-fires it, so
   // the game can never stall on a failed fetch.
   if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) {
-    $('status').textContent = 'Out of time. Opponent plays on, 12 seconds per move.'; updateForfeitLabel();
+    $('status').textContent = 'Times up. Opponent has 12 seconds per move.'; updateForfeitLabel();
     // The human clock is out: zero the stored value at once (v148).
     // After the flip below, the tick displays game.clocks.human, and
     // the stale pre-timeout value (e.g. 1500ms) would otherwise sit
@@ -3446,7 +3446,7 @@ function botWatchdog() {
 // real player's first name, Fishstick, Doppelgänger) keep their name.
 function waitingStatus() {
   if (!game) return 'Waiting for your opponent.';
-  if (game.clocks.human <= 0) return 'Out of time. Opponent plays on, 12 seconds per move.';
+  if (game.clocks.human <= 0) return 'Times up. Opponent has 12 seconds per move.';
   if (game.botType === 'fishstick') return 'Waiting for Fishstick.';
   if (game.botType === 'competitive') return 'Waiting for Doppelgänger.';
   if (game.botType === 'persona' && game.persona) return `Waiting for ${game.persona.firstName}.`;

@@ -2945,7 +2945,7 @@ const server = http.createServer(async (req, res) => {
         const oneAtZero = (game.clocks.human <= 0 && game.clocks.bot > 0) || (game.clocks.bot <= 0 && game.clocks.human > 0);
         if (!oneAtZero) return sendJson(res, 400, { error: 'Not in byoyomi.' });
         const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';
-        await endGame(game, user, 'Time expired', winner);
+        await endGame(game, user, 'Shot clock expired', winner);
         const out = serializeGame(game, user);
         out.stats = gameStatsPayload(game, isOpp);
         return sendJson(res, 200, out);

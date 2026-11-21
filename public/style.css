@@ -110,7 +110,7 @@ name or a big score never reflows the board. Names never wrap. */
    clock-row keeps the two on one line; the clock must not take the
    full row width (the .panel .clock width:100% rule below would),
    or the countdown is pushed out. Red #ff1303: urgent at a glance. */
-.clock-row{display:flex;flex-direction:row;align-items:baseline;gap:6px}
+.clock-row{display:flex;flex-direction:row;align-items:center;gap:6px}
 .panel .clock-row .clock{width:auto;flex:0 0 auto}
 /* v158: the countdown is the same size and font as the regular
    clock (32px Arial bold), just red — no more 22px countdown.
@@ -131,9 +131,17 @@ name or a big score never reflows the board. Names never wrap. */
    for the opponent — so the number anchors to the PFP side, not
    the clock: as it ticks from "12" to "9" it stays put against
    the PFP instead of sliding toward the clock. */
-.byoyomi{font-size:32px;line-height:1.1;font-weight:700;color:#ffd166;font-variant-numeric:tabular-nums;flex:0 0 auto;white-space:nowrap;min-width:2ch}
-.player-panel .byoyomi{text-align:left}
-.bot-panel .byoyomi{text-align:right}
+/* v161: the countdown is a gold rounded rectangle in a fixed
+   position with fixed dimensions, sitting between the clock and
+   the PFP (left of the human clock, right of the bot clock — the
+   panels are mirrored). The number is centred in it, black text.
+   Fixed 50x35 so it never moves or resizes as it ticks 12→1
+   (the old plain number changed width at 10→9 and slid toward
+   the clock). The panel height is unchanged (35px against the
+   clock's 35.2px line — a 36px badge grew the panel 1px, caught
+   by the render check). The old left/right text-align is gone —
+   the number centres via flex. */
+.byoyomi{display:flex;align-items:center;justify-content:center;width:50px;height:35px;background:#ffd166;color:#1a1d24;border-radius:9px;font-size:32px;line-height:1;font-weight:700;font-variant-numeric:tabular-nums;flex:0 0 auto;white-space:nowrap}
 .lastplay{display:block;color:#b3b2b1;font-size:11px;font-weight:400;line-height:14px;white-space:nowrap;overflow:hidden;padding:2px 6px;height:18px;box-sizing:border-box;margin:0;text-align:left}
 .lastplay.from-human{text-align:left}
 .lastplay.from-bot{text-align:right}
@@ -866,3 +874,32 @@ squares are the premium colours, spread out across the whole screen. */
 #puzzleBoardScreen > .puzzle-board-date,
 #puzzleBoardScreen > .puzzle-week,
 #puzzleBoardScreen > .puzzle-strength{flex-shrink:0}
+/* v161 (Nov 21, 2026) */
+/* (1) Logo up to the game position: the home and bot logos sat at
+   32px (28px screen padding + 4px margin) while the game logo
+   sits at 4px. A -24px top margin puts them at 4px too. The home
+   pfp recenters via the v154 spacers (gap1 == gap2) — it shifts
+   up to split the difference between the logo and Play Online. */
+#homeScreen .logo-img.home-logo,#botScreen .logo-img.home-logo{margin-top:-24px}
+/* (2) The tab + settings + auth screens sit higher: their top
+   padding matches the game screen's tight top, so the top pixel
+   of each is at the same height as the Duello logo (4px +
+   safe-area). The puzzle screen is excluded (its board is aligned
+   to the game board by the title margin) and the searching /
+   rematch screens are excluded (centred content). The first
+   element's own top spacing is zeroed so it does not push the top
+   pixel back down. */
+#friendsScreen,#profileScreen,#pastGamesScreen,#profileEditScreen,#profileFieldScreen,#profilePhotoScreen,#profilePasswordScreen,#profileProScreen,#profilePrivacyScreen,#authScreen{padding-top:calc(4px + env(safe-area-inset-top))}
+#friendsScreen .search-wrap{margin-top:0}
+#profileScreen .profile-top{padding-top:0}
+#profileEditScreen .auth-heading,#profileFieldScreen .auth-heading,#profilePhotoScreen .auth-heading,#profilePasswordScreen .auth-heading,#profileProScreen .auth-heading,#authScreen .auth-heading{margin-top:0}
+#profilePrivacyScreen #privacyBackBtn{margin-top:0}
+/* The profile gear sat at the old 28px top + the header's 8px,
+   so it moves up with the screen. */
+.gear-btn{top:calc(4px + env(safe-area-inset-top))}
+/* (3) Strength knob is an oval now, so 100% has room on its
+   sides: 44px wide (was a 30px circle), 15px radius, centred on
+   the track. The clamp in puzzleUpdateStrengthBar moves from
+   15px to 22px (half the oval) so it still never hangs off the
+   track ends. */
+.puzzle-strength-knob{width:44px;height:30px;border-radius:15px;left:22px}

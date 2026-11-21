@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 160;
+const APP_VERSION = 161;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -498,14 +498,16 @@ function puzzleUpdateStrengthBar() {
   const fill = $('puzzleStrengthFill'), knob = $('puzzleStrengthPct');
   // v154: the dial shows at all times — no "Move strength x%" text,
   // and nothing is hidden when the placement is invalid or empty.
-  // The percentage rides in a white circle at the end of the coloured
+  // The percentage rides in a white oval at the end of the coloured
   // fill; the knob is clamped to the track ends so it never hangs off
-  // the left edge at 0% or the right edge at 100%.
+  // the left edge at 0% or the right edge at 100%. v161: the oval is
+  // 44px wide, so the clamp is its half-width (22px, was 15px for
+  // the 30px circle).
   const p = st.lastPct == null ? 0 : st.lastPct;
   if (fill) fill.style.width = Math.min(100, p) + '%';
   if (knob) {
     knob.textContent = Math.round(p) + '%';
-    knob.style.left = 'clamp(15px, ' + Math.min(100, p) + '%, calc(100% - 15px))';
+    knob.style.left = 'clamp(22px, ' + Math.min(100, p) + '%, calc(100% - 22px))';
   }
 }
 function puzzleHideBubble() { document.querySelectorAll('#puzzleBoard .play-bubble').forEach(e => { if (e.parentElement) e.parentElement.style.zIndex = ''; e.remove(); }); }
@@ -3828,8 +3830,11 @@ function settleLocalClock() {
 function startLocalBotTurn() {
   game.clocks.turn = 'bot'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now();
   // Think is 5s normally, 2s once the human clock is at 0 (same rule as
-  // botThinkMsFor for non-persona bots).
-  game.botThinkMs = game.clocks.human <= 0 ? 2000 : 5000;
+  // botThinkMsFor for non-persona bots) — except Fishstick in
+  // shot-clock mode (v161): the human clock is at 0 and the bot still
+  // has time, so the bot is playing on under the countdown, and it
+  // thinks a full 5s there.
+  game.botThinkMs = (game.clocks.human <= 0 && !(game.botType === 'fishstick' && game.clocks.bot > 0)) ? 2000 : 5000;
   game.botThinkUntil = Date.now() + game.botThinkMs;
 }
 function stepLocalBotClock() {
@@ -4017,6 +4022,11 @@ async function runLocalBotTurn() {
 async function runLocalBotTurnInner() {
   botTimer = null;
   if (!game || !game.offline || game.status !== 'active' || game.clocks.turn !== 'bot') return;
+  // v161: the stored bot clock now is the pre-think value — no settle
+  // has run since the turn started. (settleLocalClock resets
+  // turnStartedAt, so the turn's elapsed drain cannot be measured
+  // off that timestamp; it is measured off the clock itself below.)
+  const preThinkBot = game.clocks.bot;
   settleLocalClock();
   if (game.clocks.bot <= 0) {
     game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); game.botThinkUntil = null; game.botThinkMs = null;
@@ -4028,18 +4038,6 @@ async function runLocalBotTurnInner() {
   let moves = [];
   try { moves = await solveMoves(game.board, offlineBotRack, isFirst, true); } catch { moves = []; }
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
-  // v160: Fishstick in shot-clock mode still thinks 5s, then runs
-  // down the rest of the 12s window before playing, so each play
-  // takes exactly 12s. The wait ends 200ms inside the window so the
-  // tick cannot end the game first (it fires at the deadline).
-  // Placed before the post-solve settle, so the wait folds into the
-  // stored clock exactly like the solve time does (v154) — the
-  // moveLog re-stamp after the move then shows the true time.
-  if (game.botType === 'fishstick' && byoyomiSide === 'bot' && byoyomiEndsAt) {
-    const waitMs = byoyomiEndsAt - Date.now() - 200;
-    if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
-    if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
-  }
   // v154: the solve itself takes wall-clock time (Fishstick's
   // exhaustive search runs seconds on a full board), and the tick
   // kept draining the displayed clock through it — fold that time
@@ -4077,11 +4075,28 @@ async function runLocalBotTurnInner() {
   offlinePlays.push({ side: 'bot', rack: offlineBotRack.slice(), placements: move.placements.map((p) => ({ row: p.row, col: p.col, letter: p.letter })) });
   applyLocalMove('bot', move, bestScore);
   resetByoyomi('bot'); // v157: a move by the countdown player refreshes the 12s.
-  stepLocalBotClock();
+  // v161: in shot-clock mode Fishstick drains exactly 12s off the
+  // clock per move instead of the normal 20s step. The think + solve
+  // already drained E = preThinkBot - fromMs in real time (folded by
+  // the settles above), so the animated runoff is the remainder
+  // (12000 - E) — the move lands ~5s after the turn starts (5s think
+  // + a fast solve) and the clock still drops 12s total. Measured
+  // off the clock itself: settleLocalClock resets turnStartedAt, so
+  // a timestamp would read ~0 elapsed and double-count the think.
+  // Outside shot-clock mode, and for the Competitive bot, the normal
+  // 20s step stands.
+  if (game.botType === 'fishstick' && byoyomiSide === 'bot') {
+    const elapsedMs = preThinkBot - fromMs;
+    const runoffMs = Math.max(0, 12000 - elapsedMs);
+    game.clocks.bot = Math.max(0, game.clocks.bot - runoffMs);
+  } else {
+    stepLocalBotClock();
+  }
   // Re-stamp the clocks on the move just logged (v126): the inline
-  // capture in applyLocalMove ran before the 20s step-down, so the
-  // bot clock there is up to 20s high. After the step-down these are
-  // the exact post-move values the replay must show.
+  // capture in applyLocalMove ran before the step-down, so the
+  // bot clock there is up to 20s high (12s in shot-clock mode).
+  // After the step-down these are the exact post-move values the
+  // replay must show.
   if (game.moveLog && game.moveLog.length) game.moveLog[game.moveLog.length - 1].clocks = { human: game.clocks.human, bot: game.clocks.bot };
   game.botThinkUntil = null; game.botThinkMs = null;
   game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now();

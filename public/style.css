@@ -166,7 +166,7 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .status.review-played{color:#03eaff}
 .rack{display:flex;gap:6px;justify-content:space-between;margin:8px 0;min-height:57px}
 .rack .tile{width:52px;flex:1;aspect-ratio:1;font-size:30px;transition:transform 100ms ease,opacity 100ms ease}
-.rack.greyed{opacity:.55}
+.rack.greyed{opacity:.35}
 .controls{display:flex;gap:6px;margin-top:10px}
 .controls button{flex:1;height:46px;padding:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#3a3f4b;color:#e8ecf1;border:2px solid transparent;font-size:14px;font-weight:700;touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent}
 .controls button:not(:disabled){border-color:#03eaff}
@@ -921,3 +921,11 @@ squares are the premium colours, spread out across the whole screen. */
    toward it. The panel stays 79.2px (the clock's 35.2px line is
    still the tallest thing in the row). */
 .byoyomi{width:44px;height:30px}
+/* v163: the shot clock is 9 seconds now, so the badge only ever
+   holds one digit — it is 32px wide (was 44px), the same height as
+   the regular clock (35px, the clock's 35.2px line), and the numbers
+   are a bit smaller (28px, was 32px) so they sit inside the box
+   with room around them. The "9" is 16.3px wide at 28px, so 32px
+   leaves ~8px each side. The panel stays 79.2px (the clock's line
+   is still the tallest thing in the row). */
+.byoyomi{width:32px;height:35px;font-size:28px}

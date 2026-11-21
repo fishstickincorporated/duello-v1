@@ -1153,7 +1153,7 @@ function scheduleBotMove(game) {
             : first;
         } else if (g2.clocks.human <= 0 && Number.isFinite(g2.personaShotClockThinkMs)) {
           // v160 shot clock: the think rolled once in startBotTurn —
-          // easy moves, ~6s average; 1 in 8 it runs past the 12s
+          // easy moves, ~6s average; 1 in 8 it runs past the 9s
           // window so the countdown expires first. Capped by the
           // persona's own clock, like every other think.
           g2.botThinkMs = Math.max(3000, Math.min(g2.personaShotClockThinkMs, g2.clocks.bot - 1000));
@@ -1162,8 +1162,8 @@ function scheduleBotMove(game) {
           // v157 byoyomi: the revised think is the one that actually
           // lands the move, so cap it here too — when the human clock
           // is at 0 the persona is the countdown player and must move
-          // inside 12s (10s cap, 2s margin).
-          if (g2.clocks.human <= 0) g2.botThinkMs = Math.min(g2.botThinkMs, 10000);
+          // inside 9s (7s cap, 2s margin).
+          if (g2.clocks.human <= 0) g2.botThinkMs = Math.min(g2.botThinkMs, 7000);
         }
         g2.botThinkUntil = g2.turnStartedAt + g2.botThinkMs;
       }
@@ -1180,20 +1180,20 @@ function botThinkMsFor(game) {
   if (game.botType === 'persona') {
     // v160 byoyomi: when the human clock is at 0, the persona is the
     // countdown player — easy moves, averaging 6s, and 1 in 8 times
-    // it lets the 12s countdown expire. The think was rolled once
+    // it lets the 9s countdown expire. The think was rolled once
     // in startBotTurn (personaShotClockThinkMs), so this placeholder
     // and the scheduleBotMove revision agree on one value; two
     // independent rolls would play the earlier of the two. The
     // final-move think (1-8s left on the persona clock) keeps its
     // clock-based timing and is never replaced here. Fallback to
-    // the v157 10s cap when no stored think exists (a game loaded
+    // the v157 7s cap when no stored think exists (a game loaded
     // mid-turn from before v160).
     const think = personaThinkMs(game);
     if (game.clocks.human <= 0) {
       if (!game.personaFinalMovePending && Number.isFinite(game.personaShotClockThinkMs)) {
         return Math.max(3000, Math.min(game.personaShotClockThinkMs, game.clocks.bot - 1000));
       }
-      return Math.min(think, 10000);
+      return Math.min(think, 7000);
     }
     return think;
   }
@@ -1206,7 +1206,7 @@ function startBotTurn(game) {
   // under 20s and the final move has not been spent yet.
   if (game.botType === 'persona' && game.clocks.bot < 20000 && !game.personaFinalMoveDone) game.personaFinalMovePending = true;
   // v160 shot clock: when the human clock is at 0 the persona plays
-  // on the 12s countdown — roll the turn's think ONCE here, so the
+  // on the 9s countdown — roll the turn's think ONCE here, so the
   // placeholder (botThinkMsFor) and the revision (scheduleBotMove)
   // agree. Easy moves, 4-8s (averaging 6s); 1 in 8 the think runs
   // past the window (15s), so the countdown expires first and the
@@ -2930,13 +2930,13 @@ const server = http.createServer(async (req, res) => {
         out.stats = gameStatsPayload(game, isOpp);
         return sendJson(res, 200, out);
       }
-      // v157 byoyomi: the countdown player's 12s ran out. The client
-      // enforces the 12s (it displays the countdown and calls this
+      // v157 byoyomi: the countdown player's 9s ran out. The client
+      // enforces the 9s (it displays the countdown and calls this
       // when it expires); the server validates the clock state so a
       // stray or early call cannot end a game where both clocks are
       // still running. Winner by score — the clocks are end
       // conditions, not a win/loss decider (same as the both-0
-      // 'Final score' end). The exact 12s is enforced by the honest
+      // 'Final score' end). The exact 9s is enforced by the honest
       // client; the server only checks that one clock is at 0 and
       // the other is still running, which is the byoyomi state.
       if (req.method === 'POST' && action === 'time-expired') {

@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 162;
+const APP_VERSION = 163;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -2695,7 +2695,18 @@ function renderReplay() {
     cell.className = 'cell' + (prem ? ' ' + prem : '') + (lastCells.has(r + ',' + c) ? ' last-word' : '');
     const letter = st.board[r][c];
     cell.textContent = letter ? '' : (prem || '');
-    if (letter) { const t = document.createElement('div'); t.className = 'tile'; t.innerHTML = tileSVG(letter); cell.appendChild(t); }
+    if (letter) {
+      const t = document.createElement('div'); t.className = 'tile'; t.innerHTML = tileSVG(letter);
+      // v163: definitions work during a review too — the same tap
+      // opens the word's definition, read off the board at this
+      // replay step (showDefinition uses the viewed board).
+      t.addEventListener('pointerdown', () => {
+        if (!$('defPopover').classList.contains('hidden')) return;
+        defJustOpened = true;
+        showDefinition(r, c);
+      });
+      cell.appendChild(t);
+    }
     boardEl.appendChild(cell);
   }
   $('scoreHuman').textContent = String(st.human);
@@ -2987,15 +2998,15 @@ function renderGame() {
 }
 let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0, timeoutFlipUnconfirmed = false;
 // Byoyomi (v157): when one main clock hits 0, the player who still has
-// time gets a 12s countdown on their scoreboard (red, outside the
+// time gets a 9s countdown on their scoreboard (red, outside the
 // regular clock toward the PFP). byoyomiSide is the side with the
 // countdown ('human' | 'bot' | null); byoyomiEndsAt is when the
-// current 12s window expires. It resets on every move by the
+// current 9s window expires. It resets on every move by the
 // countdown player; the game ends when it hits 0. The at-0 player
 // keeps skipping turns exactly as before — the countdown only
 // time-pressures the player who still has time, so rushing no
 // longer buys free, unhurried solo moves.
-const BYOYOMI_MS = 12000;
+const BYOYOMI_MS = 9000;
 let byoyomiSide = null, byoyomiEndsAt = 0, byoyomiLastLogLen = 0;
 function armByoyomi(side) {
   if (byoyomiSide) return;
@@ -3023,8 +3034,8 @@ function updateByoyomiDisplay() {
     const el = $(side === 'human' ? 'byoyomiHuman' : 'byoyomiBot');
     if (!el) continue;
     if (byoyomiSide === side && game && game.status === 'active') {
-      // v158: just the seconds ("12" … "1") — no leading zero or
-      // colon. Ceil, so the window reads "12" for its first second;
+      // v158: just the seconds ("9" … "1") — no leading zero or
+      // colon. Ceil, so the window reads "9" for its first second;
       // floor would drop it to "11" within a millisecond of arming.
       // Clamped to a minimum of 1 while the countdown is live, so
       // it never shows "0" — "1" is the last value, then the game
@@ -3046,7 +3057,7 @@ function updateByoyomiDisplay() {
   // when it goes away.
 }
 // End the game because the byoyomi countdown expired: the countdown
-// player took more than 12s to move. Winner by score (the clocks
+// player took more than 9s to move. Winner by score (the clocks
 // are end conditions, not a win/loss decider — same as the both-0
 // 'Final score' end). Offline games end locally; online games end
 // through the server so both phones and the ratings agree.
@@ -3143,7 +3154,7 @@ function tickClocks() {
   // stepped value and flicker over the animation.
   if (replayIndex === null && Date.now() >= runoffUntil) $('clockBot').textContent = fmtClock(b);
   // v157 byoyomi: one clock at 0 and the other still running — the
-  // player with time gets a 12s countdown on their scoreboard.
+  // player with time gets a 9s countdown on their scoreboard.
   // Armed once (guarded by byoyomiSide), so the window is not
   // re-armed every tick. Both clocks at 0 is the both-0 end below,
   // not a countdown. The at-0 player's skip behaviour is unchanged.
@@ -3181,7 +3192,7 @@ function tickClocks() {
   // the flip stays unconfirmed and the retry below re-fires it, so
   // the game can never stall on a failed fetch.
   if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) {
-    $('status').textContent = 'Times up. Opponent has 12 seconds per move.'; updateForfeitLabel();
+    $('status').textContent = 'Times up. Opponent has 9 seconds per move.'; updateForfeitLabel();
     // The human clock is out: zero the stored value at once (v148).
     // After the flip below, the tick displays game.clocks.human, and
     // the stale pre-timeout value (e.g. 1500ms) would otherwise sit
@@ -3446,7 +3457,7 @@ function botWatchdog() {
 // real player's first name, Fishstick, Doppelgänger) keep their name.
 function waitingStatus() {
   if (!game) return 'Waiting for your opponent.';
-  if (game.clocks.human <= 0) return 'Times up. Opponent has 12 seconds per move.';
+  if (game.clocks.human <= 0) return 'Times up. Opponent has 9 seconds per move.';
   if (game.botType === 'fishstick') return 'Waiting for Fishstick.';
   if (game.botType === 'competitive') return 'Waiting for Doppelgänger.';
   if (game.botType === 'persona' && game.persona) return `Waiting for ${game.persona.firstName}.`;
@@ -3934,7 +3945,7 @@ async function doLocalPlay() {
     settleLocalClock();
     offlinePlays.push({ side: 'human', rack: rackBefore, placements: placements.map((p) => ({ row: p.row, col: p.col, letter: p.letter })) });
     applyLocalMove('human', v, bestScore);
-    resetByoyomi('human'); // v157: a move by the countdown player refreshes the 12s.
+    resetByoyomi('human'); // v157: a move by the countdown player refreshes the 9s.
     pending = []; selectedRack = null;
     if (game.clocks.bot <= 0) { game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); }
     else startLocalBotTurn();
@@ -4059,7 +4070,7 @@ async function runLocalBotTurnInner() {
     game.clocks.bot = Math.max(0, game.clocks.bot - 30000);
     game.lastBot = { word: null, points: 0, passed: true, auto: true, noMoves: true };
     game.lastBy = 'bot'; game.lastCells = [];
-    resetByoyomi('bot'); // v157: an auto-pass is the bot acting — refresh the 12s.
+    resetByoyomi('bot'); // v157: an auto-pass is the bot acting — refresh the 9s.
     game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); game.botThinkUntil = null; game.botThinkMs = null;
     const humanMoves = await solveMoves(game.board, game.humanRack, isFirst, false).catch(() => []);
     if (!humanMoves.length || game.consecutiveNoMoves >= 2) game._pendingNoMovesEnd = true;
@@ -4074,27 +4085,27 @@ async function runLocalBotTurnInner() {
   const move = game.botType === 'fishstick' ? moves[0] : localEngine.pickCompetitiveMove(moves, game.botElo);
   offlinePlays.push({ side: 'bot', rack: offlineBotRack.slice(), placements: move.placements.map((p) => ({ row: p.row, col: p.col, letter: p.letter })) });
   applyLocalMove('bot', move, bestScore);
-  resetByoyomi('bot'); // v157: a move by the countdown player refreshes the 12s.
-  // v161: in shot-clock mode Fishstick drains exactly 12s off the
+  resetByoyomi('bot'); // v157: a move by the countdown player refreshes the 9s.
+  // v161: in shot-clock mode Fishstick drains exactly 9s off the
   // clock per move instead of the normal 20s step. The think + solve
   // already drained E = preThinkBot - fromMs in real time (folded by
   // the settles above), so the animated runoff is the remainder
-  // (12000 - E) — the move lands ~5s after the turn starts (5s think
-  // + a fast solve) and the clock still drops 12s total. Measured
+  // (BYOYOMI_MS - E) — the move lands ~5s after the turn starts (5s think
+  // + a fast solve) and the clock still drops 9s total. Measured
   // off the clock itself: settleLocalClock resets turnStartedAt, so
   // a timestamp would read ~0 elapsed and double-count the think.
   // Outside shot-clock mode, and for the Competitive bot, the normal
   // 20s step stands.
   if (game.botType === 'fishstick' && byoyomiSide === 'bot') {
     const elapsedMs = preThinkBot - fromMs;
-    const runoffMs = Math.max(0, 12000 - elapsedMs);
+    const runoffMs = Math.max(0, BYOYOMI_MS - elapsedMs);
     game.clocks.bot = Math.max(0, game.clocks.bot - runoffMs);
   } else {
     stepLocalBotClock();
   }
   // Re-stamp the clocks on the move just logged (v126): the inline
   // capture in applyLocalMove ran before the step-down, so the
-  // bot clock there is up to 20s high (12s in shot-clock mode).
+  // bot clock there is up to 20s high (9s in shot-clock mode).
   // After the step-down these are the exact post-move values the
   // replay must show.
   if (game.moveLog && game.moveLog.length) game.moveLog[game.moveLog.length - 1].clocks = { human: game.clocks.human, bot: game.clocks.bot };
@@ -4831,7 +4842,7 @@ async function doPlay() {
   const clientElapsedMs = Math.max(0, tapAt - gameFetchAt);
   const prevHuman = game.clocks.human, prevFetchAt = gameFetchAt;
   const prevScore = game.scores.human, prevLastHuman = game.lastHuman, prevRack = game.humanRack.slice();
-  // v157: the move is committed at the tap — refresh the 12s now, not
+  // v157: the move is committed at the tap — refresh the 9s now, not
   // when the POST returns, or a slow round-trip could expire a
   // countdown the player had already beaten. A failed Play restores
   // the pre-tap state below, and the fresh window stands for the
@@ -5210,17 +5221,21 @@ document.addEventListener('pointerdown', e => {
 });
 async function showDefinition(r, c) {
   // Find row and column words through this cell, fetch definitions for each.
+  // v163: read the words off the board being VIEWED — in a review that
+  // is the board at the replay step, not game.board (the final board),
+  // or a tap at an early step would define a word from a later move.
+  const bd = (replayIndex !== null && game) ? replayStateAt(replayIndex).board : game.board;
   const words = [];
   const collect = (dr, dc) => {
     // Scan from the first letter of the word through to the last, in board
     // order. The old code unshifted the forward side and pushed the backward
     // side, which reversed every word (CAT read as TAC).
     let sr = r, sc = c;
-    while (sr - dr >= 0 && sr - dr < 10 && sc - dc >= 0 && sc - dc < 10 && game.board[sr - dr][sc - dc]) { sr -= dr; sc -= dc; }
+    while (sr - dr >= 0 && sr - dr < 10 && sc - dc >= 0 && sc - dc < 10 && bd[sr - dr][sc - dc]) { sr -= dr; sc -= dc; }
     const cells = [];
     let rr = sr, cc = sc;
-    while (rr >= 0 && rr < 10 && cc >= 0 && cc < 10 && game.board[rr][cc]) { cells.push([rr, cc]); rr += dr; cc += dc; }
-    if (cells.length >= 2) words.push(cells.map(([a, b]) => game.board[a][b]).join(''));
+    while (rr >= 0 && rr < 10 && cc >= 0 && cc < 10 && bd[rr][cc]) { cells.push([rr, cc]); rr += dr; cc += dc; }
+    if (cells.length >= 2) words.push(cells.map(([a, b]) => bd[a][b]).join(''));
   };
   collect(0, 1); collect(1, 0);
   if (!words.length) return;

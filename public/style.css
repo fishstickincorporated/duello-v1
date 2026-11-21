@@ -470,7 +470,7 @@ html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-
 .stat-box{flex:1;min-width:0;background:#262a33;border:2px solid #e8ecf1;border-radius:16px;padding:14px;text-align:left;font-size:14px;line-height:1.7}
 /* v148: the Optimal moves tally is tappable (the dotted underline
    hints it); the list it opens sits under the stat grid. */
-.opt-tally{cursor:pointer}
+.opt-tally.tappable{cursor:pointer}
 .stat-optimal-list{background:#262a33;border:2px solid #e8ecf1;border-radius:16px;padding:12px 14px;margin-top:12px;text-align:left;font-size:14px;line-height:1.7}
 .stat-optimal-head{display:flex;justify-content:space-between;align-items:center;font-weight:800;margin-bottom:4px}
 .stat-optimal-close{background:none;border:0;color:#e8ecf1;font-size:22px;line-height:1;cursor:pointer;padding:0 4px}

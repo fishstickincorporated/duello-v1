@@ -2081,10 +2081,17 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/daily-puzzle' && req.method === 'GET') {
       const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      const r = await q('SELECT date, placements FROM daily_puzzle_solves WHERE user_id=$1 ORDER BY date', [user.id]);
-      const moves = {};
-      for (const x of r.rows) if (Array.isArray(x.placements)) moves[x.date] = x.placements;
-      return sendJson(res, 200, { solved: r.rows.map(x => x.date), moves });
+      const r = await q('SELECT date, placements, solved_at FROM daily_puzzle_solves WHERE user_id=$1 ORDER BY date', [user.id]);
+      const moves = {}; const solvedAt = {};
+      for (const x of r.rows) {
+        if (Array.isArray(x.placements)) moves[x.date] = x.placements;
+        // v156: the first-solve time (never updated on re-solve) so
+        // Share shows the true first time on any device. Duck-type
+        // the Date (instanceof breaks across realms — the harness
+        // FakePool builds its Dates outside the server vm).
+        if (x.solved_at) solvedAt[x.date] = (x.solved_at && typeof x.solved_at.toISOString === 'function') ? x.solved_at.toISOString() : String(x.solved_at);
+      }
+      return sendJson(res, 200, { solved: r.rows.map(x => x.date), moves, solvedAt });
     }
     if (pathname === '/api/daily-puzzle/solve' && req.method === 'POST') {
       const user = await authUser(req);
@@ -2095,6 +2102,16 @@ const server = http.createServer(async (req, res) => {
       // v153: an optional solved move — at most 6 placements of one
       // letter on the 10x10 board. A bad move is a 400; a missing
       // one leaves whatever the row already has.
+      // v156: an optional first-solve time (ISO string, recorded
+      // locally at first solve). Validated; an invalid/missing
+      // value falls back to the server clock (now()). The ON
+      // CONFLICT never touches solved_at, so the first solve wins
+      // — a re-solve after a Replay keeps the original time.
+      let solvedAtParam = null;
+      if (typeof b.solvedAt === 'string' && b.solvedAt) {
+        const ms = Date.parse(b.solvedAt);
+        if (!Number.isNaN(ms)) solvedAtParam = new Date(ms).toISOString();
+      }
       let placements = null;
       if (b.placements !== undefined && b.placements !== null) {
         if (!Array.isArray(b.placements) || b.placements.length === 0 || b.placements.length > 6) return sendJson(res, 400, { error: 'Bad move.' });
@@ -2103,7 +2120,7 @@ const server = http.createServer(async (req, res) => {
         }
         placements = b.placements.map(p => ({ row: p.row, col: p.col, letter: p.letter }));
       }
-      await q('INSERT INTO daily_puzzle_solves (user_id, date, placements) VALUES ($1,$2,$3) ON CONFLICT (user_id, date) DO UPDATE SET placements = COALESCE(EXCLUDED.placements, daily_puzzle_solves.placements)', [user.id, date, placements ? JSON.stringify(placements) : null]);
+      await q('INSERT INTO daily_puzzle_solves (user_id, date, placements, solved_at) VALUES ($1,$2,$3, COALESCE($4::timestamptz, now())) ON CONFLICT (user_id, date) DO UPDATE SET placements = COALESCE(EXCLUDED.placements, daily_puzzle_solves.placements)', [user.id, date, placements ? JSON.stringify(placements) : null, solvedAtParam]);
       return sendJson(res, 200, { ok: true });
     }
     if (pathname === '/api/daily-puzzle/unsolve' && req.method === 'POST') {

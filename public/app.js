@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 155;
+const APP_VERSION = 156;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -119,15 +119,16 @@ function puzzleSolvedDates() {
   try { const raw = JSON.parse(localStorage.getItem(PUZZLE_STORE_KEY) || 'null'); if (raw && Array.isArray(raw.solved)) return new Set(raw.solved); } catch {}
   return new Set();
 }
-// v144: solved dates live on the account. The local set is the
-// offline fallback; when online the client syncs both ways — it
-// uploads local solves the server lacks, and merges the server's
-// dates into the local set. A Play again (unsolve) leaves a tombstone
-// in the same store so an offline reset is never resurrected by the
-// next sync; the tombstone clears once the unsolve reaches the server.
-function puzzleUnsolvedDates() {
-  try { const raw = JSON.parse(localStorage.getItem(PUZZLE_STORE_KEY) || 'null'); if (raw && Array.isArray(raw.unsolved)) return new Set(raw.unsolved); } catch {}
-  return new Set();
+// v156: solved is FOREVER — there is no unsolve any more (a Replay
+// no longer unsolves), so the tombstone set is retired. A legacy
+// tombstone left by a v155 Replay is simply never read again, and
+// the store is now {solved, moves, times}.
+// v156: the first-solve time per date (ISO string) — the Share
+// timestamp. Recorded once, never overwritten: a re-solve after a
+// Replay keeps the original time.
+function puzzleSolvedTimes() {
+  try { const raw = JSON.parse(localStorage.getItem(PUZZLE_STORE_KEY) || 'null'); if (raw && raw.times && typeof raw.times === 'object') return raw.times; } catch {}
+  return {};
 }
 // v153: the solved move for a date ([{row, col, letter}]) — what the
 // winning play put on the board, so a solved puzzle reopens with the
@@ -137,56 +138,60 @@ function puzzleSolvedMoves() {
   try { const raw = JSON.parse(localStorage.getItem(PUZZLE_STORE_KEY) || 'null'); if (raw && raw.moves && typeof raw.moves === 'object') return raw.moves; } catch {}
   return {};
 }
-function puzzleWriteStore(solved, unsolved, moves) {
-  try { localStorage.setItem(PUZZLE_STORE_KEY, JSON.stringify({ solved: [...solved].sort(), unsolved: [...unsolved].sort(), moves: moves || puzzleSolvedMoves() })); } catch {}
+function puzzleWriteStore(solved, moves, times) {
+  try { localStorage.setItem(PUZZLE_STORE_KEY, JSON.stringify({ solved: [...solved].sort(), moves: moves || puzzleSolvedMoves(), times: times || puzzleSolvedTimes() })); } catch {}
 }
 function puzzleSaveSolved(dateKey, placements) {
   const set = puzzleSolvedDates(); set.add(dateKey);
-  const unsolved = puzzleUnsolvedDates(); unsolved.delete(dateKey);
   const moves = puzzleSolvedMoves();
   if (Array.isArray(placements) && placements.length) moves[dateKey] = placements.map(p => ({ row: p.row, col: p.col, letter: p.letter }));
-  puzzleWriteStore(set, unsolved, moves);
+  const times = puzzleSolvedTimes();
+  // First solve wins — a re-solve after a Replay keeps the original time.
+  if (!times[dateKey]) times[dateKey] = new Date().toISOString();
+  puzzleWriteStore(set, moves, times);
   // Fire and forget: if this POST fails (offline), the local save
-  // stands and the next sync uploads it.
-  if (token && !isOffline()) api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: dateKey, placements: moves[dateKey] || undefined }) }).catch(() => {});
+  // stands and the next sync uploads it (with the first-solve time).
+  if (token && !isOffline()) api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: dateKey, placements: moves[dateKey] || undefined, solvedAt: times[dateKey] }) }).catch(() => {});
 }
 let puzzleServerSynced = false;
 async function puzzleSyncFromServer() {
   if (!token || isOffline()) return false;
-  // First, push any Play again resets the server has not seen yet.
-  const unsolved = puzzleUnsolvedDates();
-  const unsolvedAtStart = new Set(unsolved);
-  for (const d of [...unsolved]) {
-    try { await api('/api/daily-puzzle/unsolve', { method: 'POST', body: JSON.stringify({ date: d }) }); unsolved.delete(d); } catch {}
-  }
-  // v155: a Replay can land mid-sync — open an already-solved puzzle
-  // and tap Replay inside this single round trip — so the tombstone
-  // set is re-read at every write, never snapshotted at the start.
-  // The fresh set is the working set (uploaded entries removed) plus
-  // any tombstone the store gained since the sync started; a
-  // start-of-sync snapshot would clobber a Replay's tombstone and
-  // resurrect the solve from the GET.
-  const freshUnsolved = () => new Set([...unsolved, ...[...puzzleUnsolvedDates()].filter(d => !unsolvedAtStart.has(d))]);
-  let serverSolved, serverMoves = {};
-  try { const j = await api('/api/daily-puzzle'); serverSolved = new Set(Array.isArray(j.solved) ? j.solved : []); if (j.moves && typeof j.moves === 'object') serverMoves = j.moves; }
-  catch { puzzleWriteStore(puzzleSolvedDates(), freshUnsolved()); return false; }
-  // Then upload local solves the server lacks (offline solves, and
-  // solves from before the account state existed) — with the move,
-  // so the other device shows the word too. A date tombstoned since
-  // the sync started is skipped, so a mid-sync Replay is never
-  // re-uploaded as a solve.
+  // v156: solved is forever — there is no unsolve any more (Replay
+  // no longer unsolves), so tombstones are retired. A legacy
+  // tombstone from a v155 Replay is ignored, never uploaded, and
+  // never deletes a merged date.
+  let serverSolved, serverMoves = {}, serverTimes = {};
+  try {
+    const j = await api('/api/daily-puzzle');
+    serverSolved = new Set(Array.isArray(j.solved) ? j.solved : []);
+    if (j.moves && typeof j.moves === 'object') serverMoves = j.moves;
+    if (j.solvedAt && typeof j.solvedAt === 'object') serverTimes = j.solvedAt;
+  } catch { return false; }
+  // Upload local solves the server lacks (offline solves, and solves
+  // from before the account state existed) — with the move, so the
+  // other device shows the word too, and with the first-solve time,
+  // so the other device shows the true time. The server stamps
+  // solved_at on insert and never updates it, so the first solve
+  // wins there too.
   const local = puzzleSolvedDates();
   const localMoves = puzzleSolvedMoves();
-  for (const d of [...local]) { if (!serverSolved.has(d) && !puzzleUnsolvedDates().has(d)) { try { await api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: d, placements: localMoves[d] || undefined }) }); } catch {} } }
-  // Merge is the union minus tombstones (a reset that has not reached
-  // the server yet must not come back). A move the server has wins
-  // over a local one for the same date (it is the first solve).
-  const finalUnsolved = freshUnsolved();
+  const localTimes = puzzleSolvedTimes();
+  for (const d of [...local]) {
+    if (!serverSolved.has(d)) {
+      try { await api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: d, placements: localMoves[d] || undefined, solvedAt: localTimes[d] || undefined }) }); } catch {}
+    }
+  }
+  // Merge is the union. A move the server has wins over a local one
+  // for the same date (it is the first solve). The server's
+  // first-solve time wins for a date it has; a local time fills in
+  // only when the server has none (e.g. a legacy solve recorded
+  // before the server returned times).
   const merged = new Set([...local, ...serverSolved]);
-  for (const d of finalUnsolved) merged.delete(d);
   const mergedMoves = {};
   for (const d of merged) { if (serverMoves[d]) mergedMoves[d] = serverMoves[d]; else if (localMoves[d]) mergedMoves[d] = localMoves[d]; }
-  puzzleWriteStore(merged, finalUnsolved, mergedMoves);
+  const mergedTimes = {};
+  for (const d of merged) { if (serverTimes[d]) mergedTimes[d] = serverTimes[d]; else if (localTimes[d]) mergedTimes[d] = localTimes[d]; }
+  puzzleWriteStore(merged, mergedMoves, mergedTimes);
   return true;
 }
 function localDateKey(d) {
@@ -565,10 +570,13 @@ function puzzleLiveValidate() {
 function puzzleSolveNow(res) {
   const st = puzzleBoardState; if (!st || st.solved) return;
   st.solved = true;
-  // v152: the solve time feeds the Share message, and confetti rains
-  // the moment the optimal move lands.
-  st.solvedAt = new Date();
+  st.replaying = false;
   puzzleSaveSolved(st.dateKey, st.placed);
+  // v156: the Share timestamp is the FIRST solve time — the store
+  // keeps it (puzzleSaveSolved only records it when absent), so read
+  // it back; a re-solve after a Replay never updates it.
+  const firstT = puzzleSolvedTimes()[st.dateKey];
+  st.solvedAt = firstT ? new Date(firstT) : new Date();
   st.lastPct = 100; st.lastScore = res.score;
   // v150: the status reads "That's it!" (the solved branch of
   // puzzleUpdateStatusEl, reached via renderPuzzleBoard), and the
@@ -910,6 +918,7 @@ async function openDailyPuzzle() {
     rack: entry.puzzle.rack.map(ch => ({ ch, used: false })),
     placed: [], selected: null, solved, msg: '',
     lastPct: null, lastScore: null, bubble: null,
+    replaying: false, solvedAt: null,
   };
   // v150: a solved puzzle reopens with the status reading "That's
   // it!" (the solved branch of puzzleUpdateStatusEl) and the bar at
@@ -920,6 +929,10 @@ async function openDailyPuzzle() {
   if (solved) {
     puzzleBoardState.lastPct = 100;
     solvedCells = puzzleRestoreSolvedMove(puzzleBoardState);
+    // v156: the Share timestamp is the FIRST solve time, restored
+    // from the store so a reopen shows the original time, not now.
+    const firstT = puzzleSolvedTimes()[entry.dateKey];
+    if (firstT) puzzleBoardState.solvedAt = new Date(firstT);
   }
   renderPuzzleBoard();
   if (solvedCells) puzzleShowBubble(puzzleBoardState.puzzle.optimalScore, solvedCells);
@@ -928,25 +941,37 @@ async function openDailyPuzzle() {
   // already warmed by the preload, and blocking the board on a fresh
   // fetch is what made the first tap wait. If the sync finds the
   // server disagrees with the local solved state (solved on another
-  // device, or unsolved there), show the server's state in place.
+  // device), show the server's state in place.
   puzzleSyncFromServer().then(ok => {
     if (!ok || !puzzleBoardState || puzzleBoardState.dateKey !== entry.dateKey) return;
+    // v156: a Replay in progress must not be flipped back to solved
+    // by the sync — the board stays playable until the user solves
+    // again or exits; reopening shows the completed board.
+    if (puzzleBoardState.replaying) return;
     const nowSolved = puzzleSolvedDates().has(entry.dateKey);
-    if (nowSolved === puzzleBoardState.solved) return;
-    puzzleBoardState.solved = nowSolved;
-    if (nowSolved) {
-      puzzleBoardState.lastPct = 100;
-      // v153: the move came down with the sync — put the word on
-      // the board (and its bubble) instead of an empty solved board.
-      const cells = puzzleRestoreSolvedMove(puzzleBoardState);
-      renderPuzzleBoard();
-      if (cells) puzzleShowBubble(puzzleBoardState.puzzle.optimalScore, cells);
-    } else {
-      puzzleBoardState.msg = '';
-      puzzleBoardState.lastPct = null;
-      renderPuzzleBoard();
+    if (nowSolved !== puzzleBoardState.solved) {
+      puzzleBoardState.solved = nowSolved;
+      if (nowSolved) {
+        puzzleBoardState.lastPct = 100;
+        // v153: the move came down with the sync — put the word on
+        // the board (and its bubble) instead of an empty solved board.
+        const cells = puzzleRestoreSolvedMove(puzzleBoardState);
+        renderPuzzleBoard();
+        if (cells) puzzleShowBubble(puzzleBoardState.puzzle.optimalScore, cells);
+      } else {
+        puzzleBoardState.msg = '';
+        puzzleBoardState.lastPct = null;
+        renderPuzzleBoard();
+      }
+      renderHomeHeader(); renderPuzzleWeekStrip();
     }
-    renderHomeHeader(); renderPuzzleWeekStrip();
+    // v156: the sync may have filled in the first-solve time from
+    // the server (solved on another device) — pick it up so Share
+    // shows the true first time.
+    if (puzzleBoardState.solved && !puzzleBoardState.solvedAt) {
+      const t = puzzleSolvedTimes()[entry.dateKey];
+      if (t) puzzleBoardState.solvedAt = new Date(t);
+    }
   }).catch(() => {});
 }
 function closeDailyPuzzle() { show('homeScreen'); }
@@ -962,30 +987,21 @@ function puzzleBoardShare() {
   const msg = 'I solved the Duello Daily Puzzle at ' + h + ':' + m + ap + '! https://duellogame.com/?puzzle=today';
   window.location.href = 'sms:?&body=' + encodeURIComponent(msg);
 }
-// v155: Replay sits to the right of Share and shows only on a solved
-// puzzle. It re-opens today's puzzle fresh: the solve is undone (the
-// date leaves the solved set, a tombstone goes in the unsolved set so
-// the next sync can never resurrect it, and the stored move is
-// dropped), the unsolve is fired at the server the same fire-and-
-// forget way puzzleSaveSolved fires the solve, and the board state is
-// rebuilt exactly as openDailyPuzzle builds it for an unsolved
-// puzzle — empty rack, no placed tiles, 0% strength, "Find the best
-// move." The week strip flips today back to a grey flame and the home
-// header goes back to the countdown, both via the re-renders below.
+// v156: Replay sits to the right of Share and shows only on a solved
+// puzzle. It re-opens today's puzzle fresh — empty rack, no placed
+// tiles, 0% strength, "Find the best move." — but it does NOT
+// unsolve: the solve is forever, so the date stays in the solved
+// set, the flame stays coloured, and the stored move and first-solve
+// time stay. `replaying` marks this board so the background sync
+// never flips it back to solved mid-play; exiting and reopening
+// always shows the completed board with "That's it!" instead.
 function puzzleBoardReplay() {
   const st = puzzleBoardState; if (!st || !st.solved) return;
-  const solved = puzzleSolvedDates(); solved.delete(st.dateKey);
-  const unsolved = puzzleUnsolvedDates(); unsolved.add(st.dateKey);
-  const moves = puzzleSolvedMoves(); delete moves[st.dateKey];
-  puzzleWriteStore(solved, unsolved, moves);
-  // Fire and forget: if this POST fails (offline), the tombstone
-  // stands and the next sync uploads it.
-  if (token && !isOffline()) api('/api/daily-puzzle/unsolve', { method: 'POST', body: JSON.stringify({ date: st.dateKey }) }).catch(() => {});
   puzzleBoardState = {
     entry: st.entry, dateKey: st.dateKey, puzzle: st.puzzle, board: puzzleBoardBase(st.entry),
     rack: st.puzzle.rack.map(ch => ({ ch, used: false })),
-    placed: [], selected: null, solved: false, msg: '',
-    lastPct: null, lastScore: null, bubble: null,
+    placed: [], selected: null, solved: false, replaying: true, msg: '',
+    lastPct: null, lastScore: null, bubble: null, solvedAt: null,
   };
   puzzleHideBubble();
   renderPuzzleBoard(); renderHomeHeader(); renderPuzzleWeekStrip();
@@ -4733,8 +4749,17 @@ function clearStatDelay() { if (statDelayTimer) { clearTimeout(statDelayTimer); 
 let statOptimalSide = null;
 let statOptimalLabels = { human: 'You', bot: 'Opponent' };
 let statWindowStats = null; // v154: the stats payload the tally counts from, so the list reads the same data.
+// v156: the optimal count for one side in the stat window (from the
+// stats payload when present, else from the game log).
+function statOptimalCount(side) {
+  const st = (statWindowStats && statWindowStats[side]) || (game && game.moves ? game.moves.find(m => m.player === side) : null);
+  return st && typeof st.optimal === 'number' ? st.optimal : 0;
+}
 function toggleStatOptimalList(side) {
   const list = $('statOptimalList'); if (!list) return;
+  // v156: no list at 0 — a 0 tally is not tappable, and a stray call
+  // (e.g. a stale handler) must not open an empty list.
+  if (statOptimalCount(side) <= 0) { list.classList.add('hidden'); statOptimalSide = null; return; }
   if (statOptimalSide === side && !list.classList.contains('hidden')) {
     list.classList.add('hidden'); statOptimalSide = null; return;
   }
@@ -4825,7 +4850,7 @@ function showStatWindow(stats) {
   const best = (x) => x.best ? `${x.best.word} (<span class="num">${x.best.score}</span>)` : '—';
   const longest = (x) => x.longest ? `${x.longest.word} (<span class="num">${x.longest.word.length}</span>)` : '—';
   const opt = (x) => `${x.optimal}/${x.total}`;
-  const box = (name, pfp, st, noPhoto, clearBg, side) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}${clearBg ? ' clear-bg' : ''}">${pfp}</span><span class="stat-box-name">${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span><br><span class="stat-val num opt-tally" data-side="${side}">${opt(st)}</span></div></div>`;
+  const box = (name, pfp, st, noPhoto, clearBg, side) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}${clearBg ? ' clear-bg' : ''}">${pfp}</span><span class="stat-box-name">${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span><br><span class="stat-val num opt-tally${st && st.optimal > 0 ? ' tappable' : ''}" data-side="${side}" data-optimal="${st && typeof st.optimal === 'number' ? st.optimal : 0}">${opt(st)}</span></div></div>`;
   const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
   // A persona with no photo gets the silhouette in the stat box and
   // the top pfp too (same reasoning as the scoreboard: a person
@@ -4878,7 +4903,10 @@ function showStatWindow(stats) {
   // v148: the Optimal moves tally is tappable — it lists the optimal
   // moves that side played (same data the tally counts). Tapping the
   // same tally again (or the ×) closes the list.
+  // v156: only when the count is above 0 — a 0 tally is plain text
+  // (no pointer cursor, no click, no list).
   $('statGrid').querySelectorAll('.opt-tally').forEach(el => {
+    if (Number(el.dataset.optimal || 0) <= 0) return;
     el.style.cursor = 'pointer';
     el.onclick = () => toggleStatOptimalList(el.dataset.side);
   });
@@ -5916,7 +5944,18 @@ function openFieldEditor(kind) {
   // like the photo screen's "Change Photo".
   $('fieldTitle').textContent = 'Change ' + (titles[kind] || kind);
   input.value = kind === 'firstName' ? (u.firstName || '') : kind === 'lastName' ? (u.lastName || '') : kind === 'username' ? (u.username || '') : (u.email || '');
-  input.type = kind === 'email' ? 'email' : 'text';
+  // v156: the email field is type="text" with inputmode="email",
+  // not type="email". type="email" does not support the selection
+  // API — setSelectionRange throws and selectionStart is null — so
+  // the app could not put the cursor at the start. On iOS, focusing
+  // the pre-filled email put the cursor at the end, and the keyboard
+  // (appearing ~300ms later) scrolled the input to reveal it,
+  // cutting off the start of the address. type="text" supports
+  // selection, and inputmode="email" still shows the email keyboard.
+  // The email is validated by the JS regex on save, not by the
+  // browser's email type.
+  input.type = 'text';
+  input.inputMode = kind === 'email' ? 'email' : '';
   input.placeholder = titles[kind] || kind;
   input.autocapitalize = kind === 'username' ? 'off' : 'sentences';
   input.autocorrect = kind === 'username' ? 'off' : 'on';
@@ -5924,15 +5963,28 @@ function openFieldEditor(kind) {
   $('fieldError').textContent = '';
   show('profileFieldScreen');
   input.focus();
-  // v154: iOS can leave the input scrolled sideways after focus
-  // (Jeff's jeffsmarquis@gmail.com showed with the "j" cut off at
-  // the left edge) — put the scroll back to the start, once now and
-  // once shortly after, so the start of the address is visible.
+  // v156: the v154 fix only reset the scroll at open and +60ms —
+  // both fire before the keyboard appears (~300ms), so iOS
+  // re-scrolled after the fix. Now the cursor goes to the start
+  // (so iOS reveals the start, not the end) and the scroll is
+  // pinned at open, after the screen settles (+60ms), and after
+  // the keyboard appears (+400ms).
+  try { input.setSelectionRange(0, 0); } catch {}
   try { input.scrollLeft = 0; } catch {}
   setTimeout(() => { try { input.scrollLeft = 0; } catch {} }, 60);
+  setTimeout(() => { try { input.setSelectionRange(0, 0); } catch {} try { input.scrollLeft = 0; } catch {} }, 400);
 }
 $('fieldInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('fieldSaveBtn').click(); } });
 $('fieldInput').addEventListener('input', () => { if (editFieldKind === 'username') { const el = $('fieldInput'); if (el.value !== el.value.toLowerCase()) el.value = el.value.toLowerCase(); } });
+// v156: if the field's content fits its width, never let it scroll —
+// iOS can scroll a pre-filled input on focus/keyboard even when the
+// text fits, cutting off the start of the address. When the content
+// genuinely overflows (a very long address) this does nothing, so
+// the user can still scroll to the end.
+$('fieldInput').addEventListener('scroll', () => {
+  const el = $('fieldInput');
+  try { if (el.scrollWidth <= el.clientWidth && el.scrollLeft !== 0) el.scrollLeft = 0; } catch {}
+});
 $('fieldSaveBtn').onclick = async () => {
   const u = (profileData && profileData.user) || me; if (!u || !editFieldKind) return;
   const v = $('fieldInput').value.trim();

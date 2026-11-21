@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 158;
+const APP_VERSION = 159;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -3031,10 +3031,13 @@ function updateByoyomiDisplay() {
       el.classList.add('hidden');
     }
   }
-  // v158: no layout class is needed while the countdown shows — the
-  // name moved under the clocks (see .panel-name), the identity-col
-  // holds just the PFP, and the clock-col has room for the clock +
-  // countdown at full size, so nothing is narrowed or shrunk.
+  // v159: no layout class is needed while the countdown shows — the
+  // v158 name-under-clocks row is reverted (the name is back in the
+  // 92px identity column, where a long name extends visibly under
+  // the countdown instead of truncating), and the clock-row's
+  // countdown end extends into the identity column's empty top
+  // corner, so nothing is narrowed or shrunk. The v157
+  // narrowing/shrinking rules stay deleted.
   // clearByoyomi flows through here too, so the countdown hides
   // when it goes away.
 }

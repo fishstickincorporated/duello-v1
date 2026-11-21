@@ -62,20 +62,18 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .bot-opt .chev{font-size:30px;line-height:1;color:#03eaff}
 .back-pill{display:block;background:#6b7280;color:#fff;padding:8px 18px;border-radius:20px;margin:22px auto 0;font-size:14px}
 .scoreboard{display:flex;flex-direction:row;gap:6px;margin-top:4px;margin-bottom:0;width:auto;margin-left:0;margin-right:0}
-/* Each player's panel is two columns with NO visible separation
-between them (gap 0, no dividers), plus a name row underneath.
-Opponent panel is the mirror image: player = identity | clock,
-opponent = clock | identity, and the name row aligns to the clock
-side (right for the player, left for the opponent). Dimensions are
-fixed and rigid: same width/height always, so a long name or a big
-score never reflows the board. Names never wrap. */
+/* Each player's panel is three columns with NO visible separation
+between them (gap 0, no dividers). Opponent panel is the mirror image:
+player = identity | score | clock, opponent = clock | score | identity.
+Dimensions are fixed and rigid: same width/height always, so a long
+name or a big score never reflows the board. Names never wrap. */
 .panel{display:flex;flex-direction:column;flex:1 1 0;min-width:0;height:auto;overflow:hidden;border:2px solid transparent;background:#262a33}
 .panel-top{display:flex;align-items:stretch;flex:1}
 .player-panel{border-radius:12px}
 .bot-panel{border-radius:12px}
 .panel.active{border-color:#03eaff}
 .panel .col{display:flex;flex-direction:column;justify-content:center;min-width:0}
-.panel .identity-col{flex:0 0 40px;padding:4px 4px}
+.panel .identity-col{flex:0 0 92px;padding:4px 4px}
 .panel .clock-col{flex:1 1 100px;min-width:50px;padding:4px 4px 4px;font-variant-numeric:tabular-nums;font-weight:700;justify-content:flex-start}
 .player-panel .identity-col{text-align:left;align-items:flex-start;padding-left:6px;padding-right:2px}
 .player-panel .clock-col{text-align:right;align-items:flex-end;padding-right:6px}
@@ -86,26 +84,23 @@ score never reflows the board. Names never wrap. */
 .panel .pfp.gone{opacity:.35;filter:grayscale(1)}
 .panel .pfp.clear-bg,.stat-pfp .pfp.clear-bg,.stat-box-head .pfp.clear-bg{background:transparent}
 .bot-panel .pfp img{margin-left:auto}
-.panel .name{font-weight:700;font-size:10px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* v158: the name + Elo live in a full-width row UNDER the clocks
-   (below .panel-top), not in the narrow identity column — the v157
-   byoyomi fix had to narrow that column to 64px, which truncated
-   "Doppelgänger" to "Doppelgän…". The identity-col now holds just
-   the PFP (32px + 8px padding = 40px), freeing the clock-col for
-   the clock + countdown at full size. The name row spans the panel
-   and aligns to the clock side: right for the player (clocks on
-   the right), left for the opponent (clocks on the left) — the
-   mirror is preserved. "Doppelgänger" is 76px at 10px bold against
-   ~170px of room, so the full word fits; the ellipsis stays as a
-   safety net for even longer names. */
-.panel-name{display:flex;align-items:baseline;gap:6px;padding:0 6px 3px;min-width:0}
-.player-panel .panel-name{justify-content:flex-end;text-align:right}
-.bot-panel .panel-name{justify-content:flex-start;text-align:left}
-/* The name + Elo size to their text here — the .panel .name/.elo
-   width:100% rule (line ~522) is for the old identity-column stack;
-   in a row it would make the two spans split the row equally.
-   (3 classes, so it beats the 2-class width:100% rule.) */
-.panel .panel-name .name,.panel .panel-name .elo{width:auto}
+.panel .name{font-weight:700;font-size:10px;line-height:1.25;margin-top:3px;white-space:nowrap;overflow:visible}
+/* v135: "Doppelgänger" at 11px bold is 83.6px wide — too wide for the
+   old 76px identity column (68px of text room), so it ellipsized.
+   The column is now 92px (84px of text room) and the name 10px
+   (76.0px), so the full word fits with room to spare. The clock
+   ("4:00" = 64px at 32px Arial bold) still fits in what is left of
+   the panel down to a 375px-wide phone. */
+/* v159: a name longer than the 92px identity column is NOT cut off
+   with an ellipsis at the column edge — it extends visibly under
+   the red countdown numbers. The name sits lower than the countdown
+   (below the PFP, while the countdown is at the top of the clock
+   column), so they do not collide; the name just uses the empty
+   space under the countdown. The identity-col's overflow is visible
+   (see below) and the name is excepted from the width:100% /
+   ellipsis rules at the end of the scoreboard section, so the text
+   renders at its full width. The panel's own overflow:hidden still
+   clips anything that would pass the panel edge. */
 .panel .elo{color:#03eaff;font-size:12px;line-height:1.25;white-space:nowrap}
 .panel .elo.inf{font-size:20px;line-height:15px}
 .panel .clock{font-size:32px;line-height:1.1}
@@ -124,8 +119,13 @@ score never reflows the board. Names never wrap. */
    below (right for the human, left for the opponent) anchors the
    number to the clock, so the gap to the clock stays constant
    and the number does not jump. "12" at 32px Arial bold is ~36px,
-   so the clock-row needs ~106px (clock 64 + gap 6 + 36) — the
-   name-under-clocks restructure freed that room. */
+   so the clock-row needs ~106px (clock 64 + gap 6 + 36). v159:
+   the name is back in the 92px identity column (the v158
+   name-under-clocks row is reverted), so the clock-row is wider
+   than the clock column and its countdown end extends into the
+   identity column's empty top corner — the PFP sits on the far
+   side and the name sits lower, so nothing collides and nothing
+   is clipped by the panel. No dimension was changed to fit it. */
 .byoyomi{font-size:32px;line-height:1.1;font-weight:700;color:#ff1303;font-variant-numeric:tabular-nums;flex:0 0 auto;white-space:nowrap;min-width:2ch}
 .player-panel .byoyomi{text-align:right}
 .bot-panel .byoyomi{text-align:left}
@@ -533,10 +533,28 @@ last-play text ("passed -30s", ~66px) was wider than its 58px column,
 and with align-items:flex-end the text box grew leftwards past the
 column boundary into the score column. Now every text element is
 exactly its column's width, clipped/wrapped inside it, and the column
-itself clips anything left over. */
+itself clips anything left over. EXCEPTION (v159): the NAME is allowed
+to extend past the identity column, under the red countdown numbers —
+Jeff: long names fit under the red numbers easily. The name sits lower
+than the countdown, so they do not collide. So the name is excepted
+from the width:100% / ellipsis rules below, and the identity column's
+overflow is visible (3 classes, beats the 2-class .panel .col rule).
+SECOND EXCEPTION (v159): the CLOCK-COLUMN's overflow is visible too.
+The clock-row (clock 64 + gap 6 + countdown 36 = ~106px) is wider
+than the clock column (86px at 390px, 78.5px at 375px), so with
+overflow:hidden the column clipped the countdown to a ~2.5px red
+sliver — the red number was essentially invisible. With
+overflow:visible the countdown renders fully next to the clock,
+extending into the identity column's empty top corner (the PFP sits
+on the far side, 21–28px clear, and the name sits lower). This is a
+clipping behaviour, NOT a dimension change: no width, height, font
+size, padding or gap was changed. The clock, score and Elo keep
+their own width:100% + ellipsis, so they still cannot spill. */
 .panel .col{overflow:hidden}
-.panel .name,.panel .elo,.panel .clock{width:100%;max-width:100%;box-sizing:border-box}
-.panel .name,.panel .elo,.panel .clock{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.panel .col.identity-col{overflow:visible}
+.panel .col.clock-col{overflow:visible}
+.panel .elo,.panel .clock{width:100%;max-width:100%;box-sizing:border-box}
+.panel .elo,.panel .clock{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stat-box .stat-val{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:400;color:#03eaff}
 .stat-box .stat-label{font-weight:800}
 

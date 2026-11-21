@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 156;
+const APP_VERSION = 157;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -2495,6 +2495,7 @@ async function startGame(bot, personaId) {
   enterGameScreen();
 }
 async function endCountdown() {
+  clearByoyomi(); // v157: a new game starts with no countdown.
   // Keep the clocks pinned until the new state actually arrives. The old
   // code cleared countdownActive BEFORE awaiting /start, so the 100ms
   // tick ran during that network round-trip with the stale creation-time
@@ -2981,6 +2982,81 @@ function renderGame() {
   }
 }
 let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0, timeoutFlipUnconfirmed = false;
+// Byoyomi (v157): when one main clock hits 0, the player who still has
+// time gets a 12s countdown on their scoreboard (red, outside the
+// regular clock toward the PFP). byoyomiSide is the side with the
+// countdown ('human' | 'bot' | null); byoyomiEndsAt is when the
+// current 12s window expires. It resets on every move by the
+// countdown player; the game ends when it hits 0. The at-0 player
+// keeps skipping turns exactly as before — the countdown only
+// time-pressures the player who still has time, so rushing no
+// longer buys free, unhurried solo moves.
+const BYOYOMI_MS = 12000;
+let byoyomiSide = null, byoyomiEndsAt = 0, byoyomiLastLogLen = 0;
+function armByoyomi(side) {
+  if (byoyomiSide) return;
+  byoyomiSide = side; byoyomiEndsAt = Date.now() + BYOYOMI_MS;
+  byoyomiLastLogLen = (game && Array.isArray(game.moveLog)) ? game.moveLog.length : 0;
+  updateByoyomiDisplay();
+}
+function resetByoyomi(side) {
+  // Only the countdown player's own move resets it (the at-0 side
+  // never moves, so a reset from them cannot happen — the side
+  // check is a guard, not a behaviour).
+  if (!byoyomiSide || byoyomiSide !== side) return;
+  byoyomiEndsAt = Date.now() + BYOYOMI_MS;
+  updateByoyomiDisplay();
+}
+function clearByoyomi() {
+  byoyomiSide = null; byoyomiEndsAt = 0;
+  updateByoyomiDisplay();
+}
+function updateByoyomiDisplay() {
+  // Show the countdown on the side that has it, hide the other.
+  // The remaining seconds, floored, from the live deadline — the
+  // 100ms tick re-renders it, so it visibly counts down.
+  for (const side of ['human', 'bot']) {
+    const el = $(side === 'human' ? 'byoyomiHuman' : 'byoyomiBot');
+    if (!el) continue;
+    if (byoyomiSide === side && game && game.status === 'active') {
+      el.textContent = fmtClock(Math.max(0, byoyomiEndsAt - Date.now()));
+      el.classList.remove('hidden');
+    } else {
+      el.classList.add('hidden');
+    }
+  }
+  // v157 layout: the panel carrying the countdown gets the
+  // byoyomi-on class (narrows its identity-col, shrinks its
+  // clock/countdown) so the clock-row fits its clock-col —
+  // without it the panel clips the clock and the countdown
+  // overlaps the PFP. clearByoyomi flows through here too,
+  // so the class is removed when the countdown goes away.
+  const pp = $('playerPanel'), bp = $('botPanel');
+  const active = game && game.status === 'active';
+  if (pp) pp.classList.toggle('byoyomi-on', active && byoyomiSide === 'human');
+  if (bp) bp.classList.toggle('byoyomi-on', active && byoyomiSide === 'bot');
+}
+// End the game because the byoyomi countdown expired: the countdown
+// player took more than 12s to move. Winner by score (the clocks
+// are end conditions, not a win/loss decider — same as the both-0
+// 'Final score' end). Offline games end locally; online games end
+// through the server so both phones and the ratings agree.
+async function endByoyomiGame() {
+  if (!game || game.status !== 'active' || !byoyomiSide) return;
+  clearByoyomi();
+  const winner = winnerByScore();
+  if (game.offline) { endLocalGame('Time expired', winner); return; }
+  try {
+    const out = await api(`/api/games/${game.id}/time-expired`, { method: 'POST' });
+    game = out; gameAppliedSeq = gameFetchSeq; gameFetchAt = Date.now(); renderGame();
+  } catch (e) {
+    // The server rejected it (e.g. the clocks moved on, or the game
+    // already ended there): re-render from the fresh state. The
+    // tick's arming check re-arms the countdown if a clock is
+    // still at 0, so the game continues instead of hanging.
+    renderGame();
+  }
+}
 let countdownInterval = null, countdownActive = false;
 // Countdown pause (v107): the absolute target, and the remaining time
 // saved when the app hides mid-countdown so it resumes on return.
@@ -3007,6 +3083,9 @@ async function handleTimeoutFetch() {
 }
 function tickClocks() {
   if (!game) return;
+  // v157: a finished game carries no countdown — clear the state so
+  // it cannot leak into the next game.
+  if (game.status !== 'active' && byoyomiSide) clearByoyomi();
   // Offline pause (v107): while the app is hidden, no wall-clock time
   // may accumulate — reset the turn timer on every tick so the elapsed
   // never grows, and run none of the timeout/end logic. v106 only
@@ -3054,6 +3133,35 @@ function tickClocks() {
   // not by this 100ms tick — the tick used to jump it straight to the
   // stepped value and flicker over the animation.
   if (replayIndex === null && Date.now() >= runoffUntil) $('clockBot').textContent = fmtClock(b);
+  // v157 byoyomi: one clock at 0 and the other still running — the
+  // player with time gets a 12s countdown on their scoreboard.
+  // Armed once (guarded by byoyomiSide), so the window is not
+  // re-armed every tick. Both clocks at 0 is the both-0 end below,
+  // not a countdown. The at-0 player's skip behaviour is unchanged.
+  if (game.status === 'active' && byoyomiSide === null) {
+    if (h <= 0 && b > 0) armByoyomi('bot');
+    else if (b <= 0 && h > 0) armByoyomi('human');
+  }
+  // v157 byoyomi: the countdown ticks in real time (display updated
+  // every tick) and ends the game when it hits 0. The countdown
+  // player's regular clock hitting 0 is the both-0 branch below
+  // (both clocks at 0 then), so it needs no separate check here.
+  if (byoyomiSide) {
+    // The opponent's move resets their countdown too. In an online
+    // game the opponent moves on the server / the other phone, so
+    // this phone only learns of it when the game state arrives —
+    // a new moveLog entry from the countdown side is the signal.
+    // Without this, the display would run to 0:00 and end a game
+    // the opponent had already moved in. (Local games reset
+    // directly in doLocalPlay / runLocalBotTurn instead.)
+    if (game.moveLog && game.moveLog.length > byoyomiLastLogLen) {
+      const last = game.moveLog[game.moveLog.length - 1];
+      if (last && last.side === byoyomiSide) resetByoyomi(byoyomiSide);
+      byoyomiLastLogLen = game.moveLog.length;
+    }
+    updateByoyomiDisplay();
+    if (game.status === 'active' && Date.now() >= byoyomiEndsAt) endByoyomiGame();
+  }
   // Human clock hit 0: do not leave the game sitting on a dead turn.
   // Recall any placed-but-unplayed tiles and flip the turn locally
   // at once, instead of leaving the tile on the board and the turn
@@ -3064,7 +3172,7 @@ function tickClocks() {
   // the flip stays unconfirmed and the retry below re-fires it, so
   // the game can never stall on a failed fetch.
   if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) {
-    $('status').textContent = 'Out of time, opponent plays on.'; updateForfeitLabel();
+    $('status').textContent = 'Out of time. Opponent plays on, 12 seconds per move.'; updateForfeitLabel();
     // The human clock is out: zero the stored value at once (v148).
     // After the flip below, the tick displays game.clocks.human, and
     // the stale pre-timeout value (e.g. 1500ms) would otherwise sit
@@ -3329,7 +3437,7 @@ function botWatchdog() {
 // real player's first name, Fishstick, Doppelgänger) keep their name.
 function waitingStatus() {
   if (!game) return 'Waiting for your opponent.';
-  if (game.clocks.human <= 0) return 'Out of time, opponent plays on.';
+  if (game.clocks.human <= 0) return 'Out of time. Opponent plays on, 12 seconds per move.';
   if (game.botType === 'fishstick') return 'Waiting for Fishstick.';
   if (game.botType === 'competitive') return 'Waiting for Doppelgänger.';
   if (game.botType === 'persona' && game.persona) return `Waiting for ${game.persona.firstName}.`;
@@ -3663,6 +3771,7 @@ async function startOfflineGame(botType) {
     }
     if (!me) throw new Error('nouser');
     buildOfflineGame(botType);
+    clearByoyomi(); // v157: a new game starts with no countdown.
     persistOfflineGame();
     enterGameScreen();
     return true;
@@ -3813,6 +3922,7 @@ async function doLocalPlay() {
     settleLocalClock();
     offlinePlays.push({ side: 'human', rack: rackBefore, placements: placements.map((p) => ({ row: p.row, col: p.col, letter: p.letter })) });
     applyLocalMove('human', v, bestScore);
+    resetByoyomi('human'); // v157: a move by the countdown player refreshes the 12s.
     pending = []; selectedRack = null;
     if (game.clocks.bot <= 0) { game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); }
     else startLocalBotTurn();
@@ -3913,6 +4023,7 @@ async function runLocalBotTurn() {
     game.clocks.bot = Math.max(0, game.clocks.bot - 30000);
     game.lastBot = { word: null, points: 0, passed: true, auto: true, noMoves: true };
     game.lastBy = 'bot'; game.lastCells = [];
+    resetByoyomi('bot'); // v157: an auto-pass is the bot acting — refresh the 12s.
     game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); game.botThinkUntil = null; game.botThinkMs = null;
     const humanMoves = await solveMoves(game.board, game.humanRack, isFirst, false).catch(() => []);
     if (!humanMoves.length || game.consecutiveNoMoves >= 2) game._pendingNoMovesEnd = true;
@@ -3927,6 +4038,7 @@ async function runLocalBotTurn() {
   const move = game.botType === 'fishstick' ? moves[0] : localEngine.pickCompetitiveMove(moves, game.botElo);
   offlinePlays.push({ side: 'bot', rack: offlineBotRack.slice(), placements: move.placements.map((p) => ({ row: p.row, col: p.col, letter: p.letter })) });
   applyLocalMove('bot', move, bestScore);
+  resetByoyomi('bot'); // v157: a move by the countdown player refreshes the 12s.
   stepLocalBotClock();
   // Re-stamp the clocks on the move just logged (v126): the inline
   // capture in applyLocalMove ran before the 20s step-down, so the
@@ -4666,6 +4778,12 @@ async function doPlay() {
   const clientElapsedMs = Math.max(0, tapAt - gameFetchAt);
   const prevHuman = game.clocks.human, prevFetchAt = gameFetchAt;
   const prevScore = game.scores.human, prevLastHuman = game.lastHuman, prevRack = game.humanRack.slice();
+  // v157: the move is committed at the tap — refresh the 12s now, not
+  // when the POST returns, or a slow round-trip could expire a
+  // countdown the player had already beaten. A failed Play restores
+  // the pre-tap state below, and the fresh window stands for the
+  // re-attempt.
+  resetByoyomi('human');
   game.clocks.human = Math.max(0, game.clocks.human - clientElapsedMs);
   // The turn only flips to the opponent at the tap when they still
   // have time: with their clock already at 0 there is no bot turn
@@ -4757,6 +4875,9 @@ function statOptimalCount(side) {
 }
 function toggleStatOptimalList(side) {
   const list = $('statOptimalList'); if (!list) return;
+  // v157: Fishstick's tally is never tappable — a stray call (e.g.
+  // a stale handler) must not open its list, whatever the count.
+  if (side === 'bot' && game && game.botType === 'fishstick') { list.classList.add('hidden'); statOptimalSide = null; return; }
   // v156: no list at 0 — a 0 tally is not tappable, and a stray call
   // (e.g. a stale handler) must not open an empty list.
   if (statOptimalCount(side) <= 0) { list.classList.add('hidden'); statOptimalSide = null; return; }
@@ -4782,7 +4903,8 @@ function renderStatOptimalList(side) {
   const label = statOptimalLabels[side] || (side === 'human' ? 'You' : 'Opponent');
   let html = `<div class="stat-optimal-head"><span>${label} — optimal moves (${optimal.length})</span><button class="stat-optimal-close" aria-label="Close">×</button></div>`;
   if (!optimal.length) html += `<div class="stat-optimal-empty">No optimal moves yet.</div>`;
-  else for (const o of optimal) html += `<div class="stat-optimal-row"><span class="num">${o.n}.</span><span>${o.word}</span><span class="num">${o.score} pts</span></div>`;
+  // v157: no move number — just the word and its points.
+  else for (const o of optimal) html += `<div class="stat-optimal-row"><span>${o.word}</span><span class="num">${o.score} pts</span></div>`;
   list.innerHTML = html;
   const closeBtn = list.querySelector('.stat-optimal-close');
   if (closeBtn) closeBtn.onclick = () => { list.classList.add('hidden'); statOptimalSide = null; };
@@ -4808,6 +4930,9 @@ function showStatWindow(stats) {
   $('gameDim').classList.add('dimmed');
   const isPersonaGame = game && game.botType === 'persona';
   const isHumanGame = game && game.botType === 'human';
+  // v157: Fishstick's optimal-moves tally is never tappable — the
+  // exhaustive engine's optimal list is not something to browse.
+  const isFishstickGame = game && game.botType === 'fishstick';
   const botLabel = (game && game.botType === 'fishstick') ? 'Fishstick' : isPersonaGame ? (game.persona?.firstName || 'Player') : isHumanGame ? (game.opponent?.firstName || 'Player') : 'Doppelgänger';
   const humanLabel = (me && me.firstName) ? me.firstName : 'You';
   statOptimalLabels = { human: humanLabel, bot: botLabel };
@@ -4850,7 +4975,7 @@ function showStatWindow(stats) {
   const best = (x) => x.best ? `${x.best.word} (<span class="num">${x.best.score}</span>)` : '—';
   const longest = (x) => x.longest ? `${x.longest.word} (<span class="num">${x.longest.word.length}</span>)` : '—';
   const opt = (x) => `${x.optimal}/${x.total}`;
-  const box = (name, pfp, st, noPhoto, clearBg, side) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}${clearBg ? ' clear-bg' : ''}">${pfp}</span><span class="stat-box-name">${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span><br><span class="stat-val num opt-tally${st && st.optimal > 0 ? ' tappable' : ''}" data-side="${side}" data-optimal="${st && typeof st.optimal === 'number' ? st.optimal : 0}">${opt(st)}</span></div></div>`;
+  const box = (name, pfp, st, noPhoto, clearBg, side) => `<div class="stat-box"><div class="stat-box-head"><span class="pfp${noPhoto ? ' no-photo' : ''}${clearBg ? ' clear-bg' : ''}">${pfp}</span><span class="stat-box-name">${name}</span></div><div><span class="stat-label">Best word:</span><br><span class="stat-val">${best(st)}</span></div><div><span class="stat-label">Longest word:</span><br><span class="stat-val">${longest(st)}</span></div><div><span class="stat-label">Optimal moves:</span><br><span class="stat-val num opt-tally${st && st.optimal > 0 && !(side === 'bot' && isFishstickGame) ? ' tappable' : ''}" data-side="${side}" data-optimal="${st && typeof st.optimal === 'number' ? st.optimal : 0}">${opt(st)}</span></div></div>`;
   const humanPfp = (() => { try { return pfpHTML(me); } catch { return ''; } })();
   // A persona with no photo gets the silhouette in the stat box and
   // the top pfp too (same reasoning as the scoreboard: a person
@@ -4905,8 +5030,11 @@ function showStatWindow(stats) {
   // same tally again (or the ×) closes the list.
   // v156: only when the count is above 0 — a 0 tally is plain text
   // (no pointer cursor, no click, no list).
+  // v157: Fishstick's tally is never tappable, whatever the count —
+  // no pointer cursor, no click handler, no list.
   $('statGrid').querySelectorAll('.opt-tally').forEach(el => {
     if (Number(el.dataset.optimal || 0) <= 0) return;
+    if (el.dataset.side === 'bot' && game && game.botType === 'fishstick') return;
     el.style.cursor = 'pointer';
     el.onclick = () => toggleStatOptimalList(el.dataset.side);
   });

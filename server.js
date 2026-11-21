@@ -1147,6 +1147,11 @@ function scheduleBotMove(game) {
             : first;
         } else {
           g2.botThinkMs = personaThinkMsForMove(move.score, bestScore, g2.clocks.bot);
+          // v157 byoyomi: the revised think is the one that actually
+          // lands the move, so cap it here too — when the human clock
+          // is at 0 the persona is the countdown player and must move
+          // inside 12s (10s cap, 2s margin).
+          if (g2.clocks.human <= 0) g2.botThinkMs = Math.min(g2.botThinkMs, 10000);
         }
         g2.botThinkUntil = g2.turnStartedAt + g2.botThinkMs;
       }
@@ -1160,7 +1165,17 @@ function scheduleBotMove(game) {
 // about to play (see personaThinkMsForMove), so a filler is quick and
 // a big play is slow, even in a bot-only stretch.
 function botThinkMsFor(game) {
-  if (game.botType === 'persona') return personaThinkMs(game);
+  if (game.botType === 'persona') {
+    // v157 byoyomi: when the human clock is at 0, the persona is the
+    // countdown player and must move inside 12s. A persona's normal
+    // think runs 7-33s, which would blow past the countdown and end
+    // the game before the persona moved. Cap it at 10s (2s margin
+    // for the poll/render), so the persona still picks its move,
+    // just faster. The final-move think (1-8s left on the persona
+    // clock) is capped the same way.
+    const think = personaThinkMs(game);
+    return game.clocks.human <= 0 ? Math.min(think, 10000) : think;
+  }
   return game.clocks.human <= 0 ? 2000 : 5000;
 }
 function startBotTurn(game) {
@@ -2556,7 +2571,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
     }
-    const gameMatch = pathname.match(/^\/api\/games\/(\d+)(?:\/(validate|play|pass|forfeit|shuffle|start|heartbeat|leave))?$/);
+    const gameMatch = pathname.match(/^\/api\/games\/(\d+)(?:\/(validate|play|pass|forfeit|shuffle|start|heartbeat|leave|time-expired))?$/);
     if (gameMatch) {
       const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
@@ -2877,6 +2892,26 @@ const server = http.createServer(async (req, res) => {
         }
         // The forfeiter loses, whoever they are; the other side wins.
         await endGame(game, user, 'By forfeit', oppSide);
+        const out = serializeGame(game, user);
+        out.stats = gameStatsPayload(game, isOpp);
+        return sendJson(res, 200, out);
+      }
+      // v157 byoyomi: the countdown player's 12s ran out. The client
+      // enforces the 12s (it displays the countdown and calls this
+      // when it expires); the server validates the clock state so a
+      // stray or early call cannot end a game where both clocks are
+      // still running. Winner by score — the clocks are end
+      // conditions, not a win/loss decider (same as the both-0
+      // 'Final score' end). The exact 12s is enforced by the honest
+      // client; the server only checks that one clock is at 0 and
+      // the other is still running, which is the byoyomi state.
+      if (req.method === 'POST' && action === 'time-expired') {
+        if (game.status !== 'active') return sendJson(res, 400, { error: 'Game is finished.' });
+        settleClock(game);
+        const oneAtZero = (game.clocks.human <= 0 && game.clocks.bot > 0) || (game.clocks.bot <= 0 && game.clocks.human > 0);
+        if (!oneAtZero) return sendJson(res, 400, { error: 'Not in byoyomi.' });
+        const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';
+        await endGame(game, user, 'Time expired', winner);
         const out = serializeGame(game, user);
         out.stats = gameStatsPayload(game, isOpp);
         return sendJson(res, 200, out);

@@ -18,7 +18,7 @@ body.game-open::before{display:none}
 .logo.small-logo{font-size:36px}
 .logo-img{display:block;width:88%;height:auto;margin:8px auto 12px}
 .logo-img.home-logo{width:100%;margin-top:4px}
-.logo-img.small-logo-img{width:64%;margin:4px auto 10px}
+.logo-img.small-logo-img{width:72%;margin:4px auto 10px}
 .auth-heading{font-size:24px;font-weight:800;margin:6px 0 16px}
 .tagline{color:#b3b2b1;margin:0 0 20px}
 input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #333;background:#262a33;color:#fff;font-size:16px}
@@ -125,10 +125,15 @@ name or a big score never reflows the board. Names never wrap. */
    than the clock column and its countdown end extends into the
    identity column's empty top corner — the PFP sits on the far
    side and the name sits lower, so nothing collides and nothing
-   is clipped by the panel. No dimension was changed to fit it. */
-.byoyomi{font-size:32px;line-height:1.1;font-weight:700;color:#ff1303;font-variant-numeric:tabular-nums;flex:0 0 auto;white-space:nowrap;min-width:2ch}
-.player-panel .byoyomi{text-align:right}
-.bot-panel .byoyomi{text-align:left}
+   is clipped by the panel. No dimension was changed to fit it.
+   v160: the countdown is accent gold #ffd166 now (not red), and
+   the justification below is flipped — left for the human, right
+   for the opponent — so the number anchors to the PFP side, not
+   the clock: as it ticks from "12" to "9" it stays put against
+   the PFP instead of sliding toward the clock. */
+.byoyomi{font-size:32px;line-height:1.1;font-weight:700;color:#ffd166;font-variant-numeric:tabular-nums;flex:0 0 auto;white-space:nowrap;min-width:2ch}
+.player-panel .byoyomi{text-align:left}
+.bot-panel .byoyomi{text-align:right}
 .lastplay{display:block;color:#b3b2b1;font-size:11px;font-weight:400;line-height:14px;white-space:nowrap;overflow:hidden;padding:2px 6px;height:18px;box-sizing:border-box;margin:0;text-align:left}
 .lastplay.from-human{text-align:left}
 .lastplay.from-bot{text-align:right}
@@ -774,7 +779,7 @@ squares are the premium colours, spread out across the whole screen. */
 .puzzle-confetti{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:60}
 .puzzle-confetti .confetti-piece{position:absolute;top:-14px;border-radius:2px;animation:confetti-fall linear forwards}
 @keyframes confetti-fall{to{transform:translateY(110vh) rotate(720deg);opacity:.85}}
-.puzzle-board-title{font-size:22px;font-weight:800;margin-top:20px}
+.puzzle-board-title{font-size:22px;font-weight:800;margin-top:27.7px}
 .puzzle-board-date{color:#b3b2b1;font-size:13px;margin-top:2px}
 #puzzleBoard .cell.fixed-tile{cursor:default}
 /* v154: the strength dial sits above the board (below the week

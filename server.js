@@ -100,7 +100,7 @@ const engine = require(path.join(__dirname, 'public', 'engine.js')).createEngine
 const {
   makePremiums, emptyBoard, boardIsEmpty,
   validatePlay, findMoves,
-  pickPersonaMove, personaThinkMs, personaThinkMsForMove, pickCompetitiveMove,
+  pickPersonaMove, pickPersonaEasyMove, personaThinkMs, personaThinkMsForMove, pickCompetitiveMove,
   drawRack, refillRack, eloDelta, gameStatsPayload,
 } = engine;
 
@@ -981,7 +981,10 @@ function runBotTurn(game) {
     return false;
   }
   const bestScore = moves[0].score;
-  const move = game.botType === 'fishstick' ? moves[0] : game.botType === 'persona' ? pickPersonaMove(moves, game.botElo) : pickCompetitiveMove(moves, game.botElo);
+  // v160 shot clock: when the human clock is at 0 the persona is the
+  // countdown player — it plays an easy move, not its Elo pick (the
+  // precomputed path in scheduleBotMove branches the same way).
+  const move = game.botType === 'fishstick' ? moves[0] : game.botType === 'persona' ? (game.clocks.human <= 0 ? pickPersonaEasyMove(moves) : pickPersonaMove(moves, game.botElo)) : pickCompetitiveMove(moves, game.botElo);
   applyMove(game, 'bot', move, bestScore);
   markPersonaMovePlayed(game);
   game.turn = 'human'; game.turnStartedAt = Date.now();
@@ -1118,7 +1121,10 @@ function scheduleBotMove(game) {
       const moves = findMoves(g.board, g.botRack, isFirst, true);
       if (!moves.length) return;
       const bestScore = moves[0].score;
-      const move = g.botType === 'fishstick' ? moves[0] : g.botType === 'persona' ? pickPersonaMove(moves, g.botElo) : pickCompetitiveMove(moves, g.botElo);
+      // v160 shot clock: when the human clock is at 0 the persona is
+      // the countdown player — it plays an easy move, not its Elo
+      // pick (runBotTurn's on-demand fallback branches the same way).
+      const move = g.botType === 'fishstick' ? moves[0] : g.botType === 'persona' ? (g.clocks.human <= 0 ? pickPersonaEasyMove(moves) : pickPersonaMove(moves, g.botElo)) : pickCompetitiveMove(moves, g.botElo);
       const g2 = await loadGameForUser({ id: userId }, gameId);
       if (!g2 || g2.status !== 'active' || g2.turn !== 'bot' || g2.pendingBotMove) return;
       if ((g2.lastBot ? JSON.stringify(g2.lastBot) : '') !== beforeLastBot) return;
@@ -1145,6 +1151,12 @@ function scheduleBotMove(game) {
           g2.botThinkMs = Number.isFinite(g2.clocks.bot) && g2.clocks.bot > 0
             ? Math.max(3000, Math.min(first, g2.clocks.bot - 1000))
             : first;
+        } else if (g2.clocks.human <= 0 && Number.isFinite(g2.personaShotClockThinkMs)) {
+          // v160 shot clock: the think rolled once in startBotTurn —
+          // easy moves, ~6s average; 1 in 8 it runs past the 12s
+          // window so the countdown expires first. Capped by the
+          // persona's own clock, like every other think.
+          g2.botThinkMs = Math.max(3000, Math.min(g2.personaShotClockThinkMs, g2.clocks.bot - 1000));
         } else {
           g2.botThinkMs = personaThinkMsForMove(move.score, bestScore, g2.clocks.bot);
           // v157 byoyomi: the revised think is the one that actually
@@ -1166,15 +1178,24 @@ function scheduleBotMove(game) {
 // a big play is slow, even in a bot-only stretch.
 function botThinkMsFor(game) {
   if (game.botType === 'persona') {
-    // v157 byoyomi: when the human clock is at 0, the persona is the
-    // countdown player and must move inside 12s. A persona's normal
-    // think runs 7-33s, which would blow past the countdown and end
-    // the game before the persona moved. Cap it at 10s (2s margin
-    // for the poll/render), so the persona still picks its move,
-    // just faster. The final-move think (1-8s left on the persona
-    // clock) is capped the same way.
+    // v160 byoyomi: when the human clock is at 0, the persona is the
+    // countdown player — easy moves, averaging 6s, and 1 in 8 times
+    // it lets the 12s countdown expire. The think was rolled once
+    // in startBotTurn (personaShotClockThinkMs), so this placeholder
+    // and the scheduleBotMove revision agree on one value; two
+    // independent rolls would play the earlier of the two. The
+    // final-move think (1-8s left on the persona clock) keeps its
+    // clock-based timing and is never replaced here. Fallback to
+    // the v157 10s cap when no stored think exists (a game loaded
+    // mid-turn from before v160).
     const think = personaThinkMs(game);
-    return game.clocks.human <= 0 ? Math.min(think, 10000) : think;
+    if (game.clocks.human <= 0) {
+      if (!game.personaFinalMovePending && Number.isFinite(game.personaShotClockThinkMs)) {
+        return Math.max(3000, Math.min(game.personaShotClockThinkMs, game.clocks.bot - 1000));
+      }
+      return Math.min(think, 10000);
+    }
+    return think;
   }
   return game.clocks.human <= 0 ? 2000 : 5000;
 }
@@ -1184,6 +1205,19 @@ function startBotTurn(game) {
   // is the one that plays with 1-8 seconds left, if the clock is
   // under 20s and the final move has not been spent yet.
   if (game.botType === 'persona' && game.clocks.bot < 20000 && !game.personaFinalMoveDone) game.personaFinalMovePending = true;
+  // v160 shot clock: when the human clock is at 0 the persona plays
+  // on the 12s countdown — roll the turn's think ONCE here, so the
+  // placeholder (botThinkMsFor) and the revision (scheduleBotMove)
+  // agree. Easy moves, 4-8s (averaging 6s); 1 in 8 the think runs
+  // past the window (15s), so the countdown expires first and the
+  // game ends by score. The final move is exempt: it keeps its
+  // clock-based timing (1-8s left). Cleared on every other turn so
+  // a stale value never leaks into a normal think.
+  if (game.botType === 'persona' && game.clocks.human <= 0 && !game.personaFinalMovePending) {
+    game.personaShotClockThinkMs = Math.random() < 1 / 8 ? 15000 : 4000 + Math.floor(Math.random() * 4000);
+  } else {
+    game.personaShotClockThinkMs = null;
+  }
   game.botThinkMs = botThinkMsFor(game);
   game.botThinkUntil = Date.now() + game.botThinkMs;
   scheduleBotMove(game);

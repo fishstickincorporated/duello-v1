@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 159;
+const APP_VERSION = 160;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -2724,15 +2724,17 @@ function renderReplay() {
   // v133: the final board names the last play too ("You played CAT"),
   // no +score — the same who logic as the intermediate steps. A log
   // with no moves falls back to 'Final board'.
-  // v148: every "___ played ___" line is Duello blue, with
+  // v148: every "___ played ___" line was Duello blue, with
   // "• Optimal move!" when that move was optimal (same optimality
-  // data as the stat window's tally). Start / Final board stay the
-  // default color.
+  // data as the stat window's tally). v160: blue ONLY when the move
+  // was optimal — a plain played line stays the default color.
+  // Start / Final board stay the default color.
   const statusEl = $('status');
   const playedLine = (who, m, withScore) => {
-    const optMark = replayMoveIsOptimal(n) ? ' • Optimal move!' : '';
+    const opt = replayMoveIsOptimal(n);
+    const optMark = opt ? ' • Optimal move!' : '';
     statusEl.textContent = `${who} played ${m.mainWord || ''}${withScore ? ' +' + (m.score || 0) : ''}${optMark}`;
-    statusEl.classList.add('review-played');
+    statusEl.classList.toggle('review-played', opt);
   };
   if (n === 0) { statusEl.textContent = 'Start of game'; statusEl.classList.remove('review-played'); }
   else if (n === total) {
@@ -3990,10 +3992,29 @@ function doLocalForfeit() {
 }
 function scheduleLocalBotTurn() {
   if (botTimer) clearTimeout(botTimer);
+  // v160: the 100ms botWatchdog restarts the bot turn when no poll
+  // has run in 7s — a local turn is the offline equivalent of a
+  // poll, so stamp it here, or the watchdog re-fires every tick
+  // while a turn is running (botTimer is null for the whole run).
+  lastBotPollAt = Date.now();
   const delay = game.botThinkUntil ? Math.max(0, game.botThinkUntil - Date.now()) : (game.botThinkMs || 5000);
   botTimer = setTimeout(runLocalBotTurn, delay);
 }
+// v160: exactly one local bot turn may run at a time. The 100ms
+// botWatchdog re-arms a turn whenever botTimer is null, and a turn
+// clears botTimer at its start — so while one turn runs (solving,
+// or waiting out the shot clock) the watchdog spawns a fresh
+// invocation every tick. Without this guard they all wake at the
+// same deadline and play the same move in a burst (11 identical
+// ROOM plays ended a Fishstick shot-clock game in one burst).
+let localBotTurnRunning = false;
 async function runLocalBotTurn() {
+  botTimer = null;
+  if (localBotTurnRunning) return;
+  localBotTurnRunning = true;
+  try { await runLocalBotTurnInner(); } finally { localBotTurnRunning = false; }
+}
+async function runLocalBotTurnInner() {
   botTimer = null;
   if (!game || !game.offline || game.status !== 'active' || game.clocks.turn !== 'bot') return;
   settleLocalClock();
@@ -4007,6 +4028,18 @@ async function runLocalBotTurn() {
   let moves = [];
   try { moves = await solveMoves(game.board, offlineBotRack, isFirst, true); } catch { moves = []; }
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
+  // v160: Fishstick in shot-clock mode still thinks 5s, then runs
+  // down the rest of the 12s window before playing, so each play
+  // takes exactly 12s. The wait ends 200ms inside the window so the
+  // tick cannot end the game first (it fires at the deadline).
+  // Placed before the post-solve settle, so the wait folds into the
+  // stored clock exactly like the solve time does (v154) — the
+  // moveLog re-stamp after the move then shows the true time.
+  if (game.botType === 'fishstick' && byoyomiSide === 'bot' && byoyomiEndsAt) {
+    const waitMs = byoyomiEndsAt - Date.now() - 200;
+    if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+    if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
+  }
   // v154: the solve itself takes wall-clock time (Fishstick's
   // exhaustive search runs seconds on a full board), and the tick
   // kept draining the displayed clock through it — fold that time

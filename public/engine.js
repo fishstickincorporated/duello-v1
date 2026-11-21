@@ -393,6 +393,22 @@
     return pool[Math.floor(Math.random() * Math.min(k, pool.length))];
   }
 
+  function pickPersonaEasyMove(moves) {
+    // v160 shot clock: an easy move — a low-scoring everyday word.
+    // Take the lowest-scoring third of the moves (at least one),
+    // prefer everyday words inside that slice, pick randomly. A
+    // persona on the 12s countdown plays quick and weak, like a
+    // human rushing a short clock, instead of thinking 20s over a
+    // clever play it has no time for.
+    if (!moves.length) return null;
+    const sorted = [...moves].sort((a, b) => a.score - b.score);
+    const k = Math.max(1, Math.ceil(sorted.length / 3));
+    const slice = sorted.slice(0, k);
+    const common = slice.filter(m => m.mainWord && COMMON_WORDS.has(m.mainWord));
+    const pool = common.length ? common : slice;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
   function personaThinkMs(game) {
     // The one exception is the final move: once the persona clock is
     // under 20 seconds, they always get exactly one more move, played
@@ -791,7 +807,7 @@
       SIZE, INNER, LETTER_VALUES, VOWELS, FREQ, COMMON_WORDS,
       isInner, isOuter, makePremiums, emptyBoard, boardIsEmpty,
       wordAt, scoreWord, validatePlay, findMoves,
-      botSkillRates, pickPersonaMove, personaThinkMs, personaThinkMsForMove, pickCompetitiveMove,
+      botSkillRates, pickPersonaMove, pickPersonaEasyMove, personaThinkMs, personaThinkMsForMove, pickCompetitiveMove,
       drawLetter, drawRack, drawVowel, drawConsonant, drawCapped, refillRack,
       eloDelta, computeStats, gameStatsPayload,
       WORDS, DICT_BY_LEN, FIXED_INDEX, rackSubset, permutationsFromRack,

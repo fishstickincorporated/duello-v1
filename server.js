@@ -2943,6 +2943,23 @@ const server = http.createServer(async (req, res) => {
         if (game.status !== 'active') return sendJson(res, 400, { error: 'Game is finished.' });
         settleClock(game);
         const oneAtZero = (game.clocks.human <= 0 && game.clocks.bot > 0) || (game.clocks.bot <= 0 && game.clocks.human > 0);
+        const bothAtZero = game.clocks.human <= 0 && game.clocks.bot <= 0;
+        // v165: both clocks at 0 is the stuck state Jeff hit — the
+        // countdown expired (so the client POSTed here) but the
+        // second clock had already run out, so the old code rejected
+        // the POST with 400 and the client sat on 0:00 / 0:00 with
+        // no countdown and no stat window, waiting on a fetch that
+        // never landed. Both clocks at 0 means the game is over
+        // regardless of which path noticed it first, so end it here
+        // (Final score, same as the GET's both-0 path) and return
+        // the finished game — the POST itself becomes the recovery.
+        if (bothAtZero) {
+          const winnerBoth = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';
+          await endGame(game, user, 'Final score', winnerBoth);
+          const outBoth = serializeGame(game, user);
+          outBoth.stats = gameStatsPayload(game, isOpp);
+          return sendJson(res, 200, outBoth);
+        }
         if (!oneAtZero) return sendJson(res, 400, { error: 'Not in byoyomi.' });
         const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';
         await endGame(game, user, 'Shot clock expired', winner);

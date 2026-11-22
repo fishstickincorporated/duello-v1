@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 165;
+const APP_VERSION = 166;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -5620,10 +5620,6 @@ function enablePlacedDrag(el, pend) {
 // their guest profile plus a sign-in button; signing up upgrades the guest
 // row in place, so Elo and game history carry over.
 let profileData = null, statsScope = 'aggregate', chartRange = '1m';
-function formatJoined(createdAt) {
-  const d = new Date(createdAt);
-  return isNaN(d) ? createdAt : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short' });
-}
 // Numbers render Arial/Helvetica while words stay Comfortaa: wrap digit
 // runs in .num spans (the .num rule already covers profile numbers).
 function numify(s) { return String(s).replace(/\d+/g, d => `<span class="num">${d}</span>`); }
@@ -5634,7 +5630,7 @@ function numify(s) { return String(s).replace(/\d+/g, d => `<span class="num">${
 // show() ran before the blanking did.
 function blankProfileUI() {
   $('profilePfp').innerHTML = silhouetteSVG(44); $('profilePfp').classList.add('no-photo');
-  $('profileName').textContent = ''; $('profileUsername').textContent = ''; $('profileJoined').textContent = '';
+  $('profileName').textContent = ''; $('profileUsername').textContent = '';
   $('profileElo').textContent = ''; $('profileEloHigh').textContent = ''; $('profileGlobalRank').textContent = '';
   $('statsList').innerHTML = '';
   const chartCv = $('eloChart'); if (chartCv) chartCv.getContext('2d').clearRect(0, 0, chartCv.width, chartCv.height);
@@ -5680,7 +5676,6 @@ async function renderProfileUI(prefetched) {
   $('profilePfp').innerHTML = usablePhoto(u) ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(44); $('profilePfp').classList.toggle('no-photo', !usablePhoto(u));
   $('profileName').textContent = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
   $('profileUsername').textContent = '@' + u.username;
-  $('profileJoined').innerHTML = 'Joined ' + numify(formatJoined(u.createdAt));
   $('profileElo').textContent = localElo(); // instant offline: includes unsynced deltas (v111), not just the last synced Elo
   $('profileEloHigh').textContent = u.eloHigh;
   // Global Rank sits above the chart with Elo and All-time high.

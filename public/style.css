@@ -318,7 +318,6 @@ same 52px column, right-aligned, on every row including your own
 .pfp.huge svg{width:84px;height:84px;display:block}
 .profile-name{font-size:22px;font-weight:900;margin-top:4px}
 .profile-username{color:#b3b2b1}
-.profile-joined{color:#b3b2b1;font-size:14px;margin-top:4px}
 /* v135: the gear is pinned to the top right of the profile screen
    instead of sitting at the bottom of the centered column. top
    matches the screen's top padding (28px + safe-area inset) and
@@ -947,3 +946,12 @@ squares are the premium colours, spread out across the whole screen. */
 .player-panel .byoyomi{margin-right:9px}
 .bot-panel .byoyomi{margin-left:9px}
 }
+
+/* v166: the searching-screen Cancel / Back to Friends button is
+   narrower than full width (was .btn.primary width:100%). One
+   button (#searchCancelBtn) serves all three cases — the online
+   match search, the friends match search, and Back to Friends
+   after a declined invite — so one rule covers them. The
+   .searching-box is a centred flex column, so the narrower button
+   sits centred. 60% is clearly narrower without becoming a pill. */
+#searchCancelBtn{width:60%}

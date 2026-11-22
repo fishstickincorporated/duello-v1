@@ -251,11 +251,20 @@ const APNS_BUNDLE_ID = 'com.duellogame.app';
 const APNS_HOST = 'api.push.apple.com';
 let apnsJwtCache = null; // { token, exp }
 function apnsKeyPem() {
-  if (process.env.APNS_KEY) return process.env.APNS_KEY;
-  if (process.env.APNS_KEY_FILE) {
-    try { return fs.readFileSync(process.env.APNS_KEY_FILE, 'utf8'); } catch { return null; }
+  // The .p8 key reaches the server as APNS_KEY (or APNS_KEY_FILE).
+  // A PEM pasted into an env var often arrives with literal "\n"
+  // escape sequences instead of real newlines — and
+  // crypto.createPrivateKey throws on that, which made every
+  // challenge push fail silently (the notify try/catch only logs
+  // it). Normalise both forms so the key works either way.
+  let k = null;
+  if (process.env.APNS_KEY) k = process.env.APNS_KEY;
+  else if (process.env.APNS_KEY_FILE) {
+    try { k = fs.readFileSync(process.env.APNS_KEY_FILE, 'utf8'); } catch { return null; }
   }
-  return null;
+  if (!k) return null;
+  if (k.indexOf('\\n') !== -1 && k.indexOf('\n') === -1) k = k.replace(/\\n/g, '\n');
+  return k;
 }
 function apnsConfigured() {
   return !!(process.env.APNS_KEY_ID && apnsKeyPem());

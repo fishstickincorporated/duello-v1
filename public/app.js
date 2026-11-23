@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 170;
+const APP_VERSION = 171;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -2200,11 +2200,11 @@ function startSearching() {
   cancelSearch();
   searchingActive = true;
   show('searchingScreen');
-  // Play Online (v123, item 4): 7 seconds of real-person search.
+  // Play Online (v123, item 4; v171: 5s): 5 seconds of real-person search.
   // The queue is polled once a second; a match joins the human game
-  // at once. No match in 7s -> a persona is assigned (one of the 100
+  // at once. No match in 5s -> a persona is assigned (one of the 500
   // fake "human" players), and the game counts as human stats.
-  const SEARCH_MS = 7000, POLL_MS = 1000;
+  const SEARCH_MS = 5000, POLL_MS = 1000;
   let searchStartedAt = 0;
   // Offline (v107): a persona opponent cannot be found without a
   // connection, so the screen says so plainly instead of pretending

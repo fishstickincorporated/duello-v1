@@ -168,18 +168,25 @@ async function seedPersonas() {
   // uniform Elo 800-1200 with first_last usernames, v2 (Nov 4)
   // replaced it with bell-curve Elo around 1000 and mixed usernames,
   // v3 (Nov 5) re-rolled the usernames again (7 methods, 3 animals,
-  // no iron), and v4 (Nov 5) keeps the same people, Elos, and
-  // usernames but varies the photos: 5% have no photo at all and
-  // 10% have a non-headshot photo. A refresh is a full delete +
-  // re-insert, which is safe because personas are fake players:
-  // finished games keep their stats in state, and an in-progress
-  // persona game's end-of-game persona update simply no-ops if its
-  // id is gone. After v4 is applied, later boots never touch the
-  // table, so Elo movement survives.
+  // no iron), and v5 (Nov 23) replaces every photo with an
+  // AI-generated face and expands the roster to 500 (250 men / 250
+  // women, Elo 200-1500 on a bell curve around 1000): the old
+  // headshots were real people's photos from a portrait site with a
+  // weak license chain (and a right-of-publicity problem as
+  // fake-player faces), and the picsum URLs never loaded. All faces
+  // are synthetic portraits generated for this project (no real
+  // person depicted), embedded as data URLs in personas.json so the
+  // app needs no external photo host. All 500 personas have a photo
+  // (v4's 5% no-photo / 10% non-headshot variety is gone). A refresh
+  // is a full delete + re-insert, which is safe because personas are
+  // fake players: finished games keep their stats in state, and an
+  // in-progress persona game's end-of-game persona update simply
+  // no-ops if its id is gone. After v5 is applied, later boots never
+  // touch the table, so Elo movement survives.
   await q('CREATE TABLE IF NOT EXISTS persona_seed (version INT PRIMARY KEY)');
   const v = await q('SELECT MAX(version) AS v FROM persona_seed');
-  if ((v.rows[0].v || 0) >= 4) return;
-  // v4 needs NULL photos: the original schema declared photo_url
+  if ((v.rows[0].v || 0) >= 5) return;
+  // v5 needs NULL photos: the original schema declared photo_url
   // NOT NULL, so drop that first (idempotent on later boots).
   await q('ALTER TABLE personas ALTER COLUMN photo_url DROP NOT NULL');
   const list = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'personas.json'), 'utf8'));
@@ -200,8 +207,8 @@ async function seedPersonas() {
     params.push(p.username, p.firstName, p.lastName, p.gender, p.elo, p.photoUrl);
   });
   await q(`INSERT INTO personas (username, first_name, last_name, gender, elo, photo_url) VALUES ${values.join(',')}`, params);
-  await q('INSERT INTO persona_seed (version) VALUES (4)');
-  console.log(`Personas refreshed to seed v4 (${rows.length})`);
+  await q('INSERT INTO persona_seed (version) VALUES (5)');
+  console.log(`Personas refreshed to seed v5 (${rows.length})`);
 }
 async function q(text, params) { return pool.query(text, params); }
 function hashPassword(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }
@@ -1731,6 +1738,76 @@ async function loadGameForUser(user, id) {
   return r.rows[0] ? loadGameRow(r.rows[0]) : null;
 }
 
+// ---------- Background persona simulation (v171) ----------
+// Personas are fake players, so their Elos would sit still unless a
+// real user plays them. A small unref'd timer simulates
+// persona-vs-persona games in the background: 2 games every 2
+// minutes, K=32 zero-sum with the standard Elo expected score, so
+// Elos drift the way real play would move them. No game rows are
+// written — only the personas table's elo column moves — and Elos
+// stay clamped to [200, 1500], the range the roster was seeded
+// with. PERSONA_SIM=off disables it (the harness sets this, and
+// the timer only starts after initDb succeeds and the server is
+// listening, so a failed Postgres connection never starts it).
+const PERSONA_SIM_MIN_ELO = 200;
+const PERSONA_SIM_MAX_ELO = 1500;
+const PERSONA_SIM_EVERY_MS = 2 * 60 * 1000;
+const PERSONA_SIM_GAMES_PER_TICK = 2;
+function clampPersonaElo(elo) { return Math.max(PERSONA_SIM_MIN_ELO, Math.min(PERSONA_SIM_MAX_ELO, Math.round(elo))); }
+// Pure: one simulated game between two Elos. The winner is drawn
+// from the standard Elo expected score (the higher Elo is favoured,
+// never certain); the delta is K=32 zero-sum, exactly like a human
+// game (engine eloDelta), then clamped to the roster range.
+function simulatePersonaGame(aElo, bElo, rand) {
+  const expectedA = 1 / (1 + Math.pow(10, (bElo - aElo) / 400));
+  const aWins = rand() < expectedA;
+  const dA = eloDelta(aElo, bElo, aWins ? 1 : 0);
+  return { winner: aWins ? 'a' : 'b', aElo: clampPersonaElo(aElo + dA), bElo: clampPersonaElo(bElo - dA) };
+}
+// Pure: pick a pair — a random persona, then a partner within the
+// ±40 matchmaking window when one exists, else any other persona.
+function pickSimPair(personas, rand) {
+  if (!personas || personas.length < 2) return null;
+  const a = personas[Math.floor(rand() * personas.length)];
+  const near = personas.filter(p => p.id !== a.id && Math.abs(p.elo - a.elo) <= 40);
+  const pool = near.length ? near : personas.filter(p => p.id !== a.id);
+  return [a, pool[Math.floor(rand() * pool.length)]];
+}
+let personaSimRunning = false;
+async function runPersonaSimTick() {
+  if (personaSimRunning) return 0;
+  personaSimRunning = true;
+  try {
+    const r = await q('SELECT id, elo FROM personas');
+    const personas = r.rows || [];
+    let played = 0;
+    for (let i = 0; i < PERSONA_SIM_GAMES_PER_TICK; i++) {
+      const pair = pickSimPair(personas, Math.random);
+      if (!pair) break;
+      const [a, b] = pair;
+      const res = simulatePersonaGame(a.elo, b.elo, Math.random);
+      await q('UPDATE personas SET elo=$1 WHERE id=$2', [res.aElo, a.id]);
+      await q('UPDATE personas SET elo=$1 WHERE id=$2', [res.bElo, b.id]);
+      // Keep the in-memory copy in step so a second game in the
+      // same tick sees the updated Elos.
+      a.elo = res.aElo; b.elo = res.bElo;
+      played++;
+    }
+    return played;
+  } catch (e) {
+    console.error('Persona sim tick failed:', e.message);
+    return 0;
+  } finally {
+    personaSimRunning = false;
+  }
+}
+function startPersonaSim() {
+  if (process.env.PERSONA_SIM === 'off') return false;
+  const t = setInterval(() => { runPersonaSimTick(); }, PERSONA_SIM_EVERY_MS);
+  if (t.unref) t.unref();
+  return t;
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
@@ -2229,6 +2306,35 @@ const server = http.createServer(async (req, res) => {
       )
       SELECT * FROM ranked WHERE rank <= 25 OR (is_persona = 0 AND username = $1) ORDER BY elo DESC, created_at ASC`, [user.username]);
       return sendJson(res, 200, { users: r.rows.map(u => ({ id: u.id, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, photoData: u.photo_data || null, isPersona: u.is_persona === 1, rank: Number(u.rank) })) });
+    }
+    // v171: admin export of the full user list for the
+    // auto-updating Google Sheet (Username | Name | Type | Elo |
+    // Email). Bearer token from ADMIN_EXPORT_TOKEN, compared in
+    // constant time; no token configured, or a missing/wrong one,
+    // is always 403 with no data. Real users carry their email;
+    // personas carry a blank email. Never returns password hashes,
+    // salts, codes, or sessions. Guest rows are not accounts and
+    // are excluded, like the leaderboard. Ordered by Elo
+    // descending (newest first on ties, so the sheet reads as a
+    // ranking).
+    if (pathname === '/api/admin/users-export' && req.method === 'GET') {
+      const configured = process.env.ADMIN_EXPORT_TOKEN;
+      const header = req.headers.authorization || '';
+      const presented = header.startsWith('Bearer ') ? header.slice(7) : '';
+      let ok = false;
+      if (configured && presented) {
+        const a = Buffer.from(presented);
+        const b = Buffer.from(configured);
+        ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+      }
+      if (!ok) return sendJson(res, 403, { error: 'Forbidden.' });
+      const users = await q(`SELECT username, first_name, last_name, email, elo, created_at FROM users WHERE email NOT LIKE '%@guest.local' ORDER BY elo DESC, created_at ASC`);
+      const personas = await q(`SELECT username, first_name, last_name, elo, created_at FROM personas ORDER BY elo DESC, created_at ASC`);
+      const iso = (v) => (v instanceof Date ? v.toISOString() : v);
+      return sendJson(res, 200, {
+        users: users.rows.map(u => ({ username: u.username, firstName: u.first_name, lastName: u.last_name, email: u.email, elo: u.elo, type: 'real', createdAt: iso(u.created_at) })),
+        personas: personas.rows.map(p => ({ username: p.username, firstName: p.first_name, lastName: p.last_name, email: '', elo: p.elo, type: 'persona', createdAt: iso(p.created_at) })),
+      });
     }
     if (pathname === '/api/users/search' && req.method === 'GET') {
       const user = await authUser(req);
@@ -3017,5 +3123,6 @@ initDb().then(() => {
   server.listen(PORT, () => {
     console.log(`Duello bot-play listening on http://localhost:${PORT}`);
     console.log(`Dictionary: ${WORDS.size} words; definitions bundled: ${Object.keys(DEFS).length}`);
+    startPersonaSim();
   });
 }).catch(e => { console.error('Postgres init failed:', e.message); process.exit(1); });

@@ -183,10 +183,19 @@ async function seedPersonas() {
   // in-progress persona game's end-of-game persona update simply
   // no-ops if its id is gone. After v5 is applied, later boots never
   // touch the table, so Elo movement survives.
+  // v6 (Nov 23) is the variety overhaul: same 500 names and Elos,
+  // but usernames re-rolled (40% name-derived, 60% free-form with
+  // animals capped at ~30) and photos re-mixed — 57% headshots with
+  // real variety (ages 18-65, real backgrounds, some full-body),
+  // 30% random non-person images (landscape / flower / pet / object),
+  // 8% couple photos, 5% no photo at all. All images are still
+  // original AI-generated works for this project; the no-photo
+  // personas seed photo_url NULL and the client already renders the
+  // silhouette for those. Same delete + re-insert shape as v5.
   await q('CREATE TABLE IF NOT EXISTS persona_seed (version INT PRIMARY KEY)');
   const v = await q('SELECT MAX(version) AS v FROM persona_seed');
-  if ((v.rows[0].v || 0) >= 5) return;
-  // v5 needs NULL photos: the original schema declared photo_url
+  if ((v.rows[0].v || 0) >= 6) return;
+  // v6 needs NULL photos: the original schema declared photo_url
   // NOT NULL, so drop that first (idempotent on later boots).
   await q('ALTER TABLE personas ALTER COLUMN photo_url DROP NOT NULL');
   const list = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'personas.json'), 'utf8'));
@@ -207,8 +216,8 @@ async function seedPersonas() {
     params.push(p.username, p.firstName, p.lastName, p.gender, p.elo, p.photoUrl);
   });
   await q(`INSERT INTO personas (username, first_name, last_name, gender, elo, photo_url) VALUES ${values.join(',')}`, params);
-  await q('INSERT INTO persona_seed (version) VALUES (5)');
-  console.log(`Personas refreshed to seed v5 (${rows.length})`);
+  await q('INSERT INTO persona_seed (version) VALUES (6)');
+  console.log(`Personas refreshed to seed v6 (${rows.length})`);
 }
 async function q(text, params) { return pool.query(text, params); }
 function hashPassword(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }

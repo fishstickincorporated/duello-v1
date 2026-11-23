@@ -215,9 +215,22 @@ async function seedPersonas() {
   // pics for centred ones from two new pet grids. Same 500
   // identities, same mix counts; only photo data changes. Same
   // delete + re-insert shape as v5/v6/v7.
+  // v9 (Nov 23) fixes a v8 GATE bug: the v8 gate needed a run of
+  // >=2 rows at >=95% of pixels >=242, and a single row dipping to
+  // 94.8% (JPEG noise) broke the run — and it never looked at
+  // interior near-edge bands at all. The step-aware gate
+  // (border_gate_v175.py: >=80% bright + a sharp step to the inner
+  // content, or >=95% bright outright) found 125 more offenders
+  // (random 70, fullbody 30, couple 25, headshot 0), all replaced
+  // with gutter-aware re-crops. That includes the three the v8
+  // eyeball check had cleared (dumpling19, snowboardjester) — the
+  // source grids prove their white tops are the grid's white margin
+  // (full-width rows at 254-255), not window light or a ceiling.
+  // Same 500 identities, same mix counts; only photo data changes.
+  // Same delete + re-insert shape as v5/v6/v7/v8.
   await q('CREATE TABLE IF NOT EXISTS persona_seed (version INT PRIMARY KEY)');
   const v = await q('SELECT MAX(version) AS v FROM persona_seed');
-  if ((v.rows[0].v || 0) >= 8) return;
+  if ((v.rows[0].v || 0) >= 9) return;
   // v6 needs NULL photos: the original schema declared photo_url
   // NOT NULL, so drop that first (idempotent on later boots).
   await q('ALTER TABLE personas ALTER COLUMN photo_url DROP NOT NULL');
@@ -239,8 +252,8 @@ async function seedPersonas() {
     params.push(p.username, p.firstName, p.lastName, p.gender, p.elo, p.photoUrl);
   });
   await q(`INSERT INTO personas (username, first_name, last_name, gender, elo, photo_url) VALUES ${values.join(',')}`, params);
-  await q('INSERT INTO persona_seed (version) VALUES (8)');
-  console.log(`Personas refreshed to seed v8 (${rows.length})`);
+  await q('INSERT INTO persona_seed (version) VALUES (9)');
+  console.log(`Personas refreshed to seed v9 (${rows.length})`);
 }
 async function q(text, params) { return pool.query(text, params); }
 function hashPassword(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }

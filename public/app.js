@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 174;
+const APP_VERSION = 175;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -5816,6 +5816,11 @@ function renderStatsList() {
     loRow.classList.add('stat-line-clickable');
     loRow.onclick = () => openStatWordBoard(st.longestWordGameId, st.longestWordMoveIndex, st.longestWord);
   }
+  // v175: warm the cache for both record games now, while the user
+  // is still reading the stats — the tap then opens the review with
+  // no network wait (see openStatWordBoard).
+  prefetchStatWordGame(st.highestWordGameId);
+  prefetchStatWordGame(st.longestWordGameId);
 }
 // The 10-letter words list: a plain modal reusing the person-modal
 // shell. The row that opens it looks like any other stat line.
@@ -5836,6 +5841,9 @@ function openTenLetterModal(words) {
   $('tenLetterList').querySelectorAll('.ten-letter-word-clickable').forEach((el) => {
     el.onclick = () => { closeTenLetterModal(); openStatWordBoard(Number(el.dataset.game), Number(el.dataset.move), el.textContent); };
   });
+  // v175: warm the cache for these games too (first 10), same as the
+  // record rows — a tap on a word opens its review with no wait.
+  words.slice(0, 10).forEach((w) => { if (w && w.gameId) prefetchStatWordGame(w.gameId); });
   $('tenLetterModal').classList.remove('hidden');
 }
 // Open the board for a record word (v128, item 6): fetch the game
@@ -5847,20 +5855,48 @@ function openTenLetterModal(words) {
 // stored move opens at the start (replayIndex 0) instead of
 // refusing the tap. A missing game falls back to the Game History
 // list instead of crashing.
+// v175: the record-word tap prefetches its game so the review
+// opens instantly. The tap used to await GET /api/games/:id before
+// anything appeared — on a slow connection that read as a dead tap
+// (Jeff: "slight delay after hitting a best word"). The stats render
+// already knows both record game ids, so the fetch happens in the
+// background then; a warm tap opens the review from the cache with
+// no network wait at all, and a cold tap falls back to the old
+// fetch. The cache holds promises (a tap while the prefetch is
+// still in flight just awaits the same request). A failed prefetch
+// resolves to null so the tap retries live instead of opening
+// nothing. Entries are capped (oldest evicted past 30) so the
+// ten-letter list cannot grow the cache without bound. The cached
+// game is deep-copied on open so the review can never mutate the
+// cache entry. Offline taps still work when the game is cached;
+// an uncached tap offline keeps the old "needs a connection" note.
+const statWordGameCache = {};
+function prefetchStatWordGame(gameId) {
+  if (!gameId || statWordGameCache[gameId] || isOffline()) return;
+  const ids = Object.keys(statWordGameCache);
+  if (ids.length >= 30) delete statWordGameCache[ids[0]];
+  statWordGameCache[gameId] = api(`/api/games/${gameId}`).catch(() => null);
+}
 async function openStatWordBoard(gameId, moveIndex, word) {
   if (!gameId) return;
-  if (isOffline()) { $('status').textContent = 'Game History needs a connection.'; return; }
-  try {
-    const g = await api(`/api/games/${gameId}`);
-    if (!g) { openPastGames(); return; }
-    game = g; gameFetchAt = Date.now(); pending = []; selectedRack = null;
-    reviewMode = true;
-    replayIndex = (g.moveLog && g.moveLog.length) ? (moveIndex ? Math.min(moveIndex, g.moveLog.length) : 0) : null;
-    statShownGameId = g.id;
-    enterReviewScreen();
-  } catch (e) {
-    openPastGames();
+  let g = null;
+  const prefetched = statWordGameCache[gameId];
+  if (prefetched) g = await prefetched.catch(() => null);
+  if (!g) {
+    if (isOffline()) { $('status').textContent = 'Game History needs a connection.'; return; }
+    try {
+      g = await api(`/api/games/${gameId}`);
+    } catch (e) {
+      openPastGames();
+      return;
+    }
   }
+  if (!g) { openPastGames(); return; }
+  game = JSON.parse(JSON.stringify(g)); gameFetchAt = Date.now(); pending = []; selectedRack = null;
+  reviewMode = true;
+  replayIndex = (g.moveLog && g.moveLog.length) ? (moveIndex ? Math.min(moveIndex, g.moveLog.length) : 0) : null;
+  statShownGameId = g.id;
+  enterReviewScreen();
 }
 function closeTenLetterModal() { $('tenLetterModal').classList.add('hidden'); }
 $('tenLetterCloseBtn').onclick = closeTenLetterModal;

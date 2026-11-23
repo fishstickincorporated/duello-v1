@@ -2350,7 +2350,24 @@ const server = http.createServer(async (req, res) => {
         SELECT *, RANK() OVER (ORDER BY elo DESC) AS rank FROM allrows
       )
       SELECT * FROM ranked WHERE rank <= 25 OR (is_persona = 0 AND username = $1) ORDER BY elo DESC, created_at ASC`, [user.username]);
-      return sendJson(res, 200, { users: r.rows.map(u => ({ id: u.id, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, photoData: u.photo_data || null, isPersona: u.is_persona === 1, rank: Number(u.rank) })) });
+      // v176: the roster version rides along, so the client can tell
+      // whether the rows (and their photos) predate a server-side
+      // re-seed without refetching the whole board: the seed version
+      // is the single number the persona_seed table already stores.
+      const pv = await q('SELECT MAX(version) AS v FROM persona_seed');
+      const personasVersion = Number(pv.rows[0] && pv.rows[0].v) || 0;
+      return sendJson(res, 200, { users: r.rows.map(u => ({ id: u.id, username: u.username, firstName: u.first_name, lastName: u.last_name, elo: u.elo, photoData: u.photo_data || null, isPersona: u.is_persona === 1, rank: Number(u.rank) })), personasVersion });
+    }
+    // v176: the cheap roster-version check. GET /api/leaderboard
+    // carries the same number, but a client that only wants to know
+    // whether the roster changed must not pay for the full board
+    // (25 photo data URLs) on every foreground return or tab open.
+    // One tiny indexed query; auth required, like the leaderboard.
+    if (pathname === '/api/personas-version' && req.method === 'GET') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const pv = await q('SELECT MAX(version) AS v FROM persona_seed');
+      return sendJson(res, 200, { personasVersion: Number(pv.rows[0] && pv.rows[0].v) || 0 });
     }
     // v171: admin export of the full user list for the
     // auto-updating Google Sheet (Username | Name | Type | Elo |

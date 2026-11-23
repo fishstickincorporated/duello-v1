@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 175;
+const APP_VERSION = 176;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -1075,7 +1075,11 @@ function usablePhoto(userLike) {
 document.addEventListener('error', (e) => {
   const t = e.target;
   if (!t || t.tagName !== 'IMG' || !t.closest) return;
-  const host = t.closest('.pfp, .lb-pfp, .person-pfp');
+  // v176: .settings-pfp too — the Settings Photo row was the one
+  // photo with no failure cover: a transiently failed img sat as an
+  // empty dark circle until the next renderEditList, while every
+  // other photo swapped to the silhouette.
+  const host = t.closest('.pfp, .lb-pfp, .person-pfp, .settings-pfp');
   if (!host) return;
   host.classList.add('no-photo');
   t.outerHTML = silhouetteSVG(32);
@@ -1316,6 +1320,14 @@ let lbScope = 'friends', deleteMode = false;
 // delete mode is left, or after the removal runs).
 let pendingRemove = null;
 let globalRows = null;
+// v176: the persona seed version the rows in globalRows belong to
+// (null = unknown — e.g. rows restored from a pre-v176 persisted
+// cache that recorded no version). The server re-seeds the persona
+// roster on deploy, and the rows carry photo data, so rows cached
+// before a deploy keep showing the old photos until something
+// clears globalRows. The version is what checkPersonasVersion
+// compares against the served one.
+let globalRowsVersion = null;
 // The rendered leaderboard stays loaded for the session: a tab
 // tap only shows the screen again instead of blanking and
 // rebuilding the list. friendsStale goes true whenever the data
@@ -1423,13 +1435,16 @@ function unrequestFriend(username) {
 }
 async function ensureGlobalRows() {
   if (!globalRows) {
-    try { const d = await api('/api/leaderboard'); globalRows = d.users || []; globalRowsFromCache = false; cacheGlobalRows(globalRows); }
+    try { const d = await api('/api/leaderboard'); globalRows = d.users || []; globalRowsVersion = (d && typeof d.personasVersion === 'number') ? d.personasVersion : null; globalRowsFromCache = false; cacheGlobalRows(globalRows, globalRowsVersion); }
     catch (err) {
       deadSession(err);
       // Offline (v107): fall back to the last-known rows instead of
-      // an empty list, so the leaderboard renders offline.
+      // an empty list, so the leaderboard renders offline. The
+      // persisted entry also carries the version its rows belong
+      // to (v176), so a later version check can tell they predate
+      // a deploy even though they came from disk, not the network.
       const cached = loadCachedGlobalRows();
-      globalRows = cached || []; globalRowsFromCache = !!cached;
+      globalRows = (cached && cached.users) || []; globalRowsVersion = (cached && typeof cached.personasVersion === 'number') ? cached.personasVersion : null; globalRowsFromCache = !!cached;
     }
     // Cache every row's Global Rank (v114): the leaderboard is the
     // one place the server hands out true ranks for everyone at
@@ -1438,6 +1453,56 @@ async function ensureGlobalRows() {
   }
   return globalRows;
 }
+// v176: the roster-version check. ensureGlobalRows only fetches
+// when globalRows is null, so rows cached before a deploy keep
+// showing the old persona photos indefinitely — on iOS the JS
+// session stays resident for hours, and only a finished game
+// cleared the rows. The profile window renders from the same rows
+// (openPersonModal takes the row object), so it went stale the
+// same way; fixing the rows fixes the modal too. The check is one
+// tiny query server-side (GET /api/personas-version, no photos),
+// so it runs on every foreground return and every Friends-tab
+// visit, and only a real version change triggers a full refetch —
+// the old rows stay on screen until the new ones arrive, so there
+// is no blanking and no loading flicker. Offline it is a no-op:
+// an unreachable check (or a failed one) keeps the last-known
+// rows exactly as today, never blanks the board.
+let personasVersionCheckInFlight = null;
+async function checkPersonasVersion() {
+  if (!token || !me) return false;
+  if (isOffline()) return false;
+  if (personasVersionCheckInFlight) return personasVersionCheckInFlight;
+  const p = (async () => {
+    let served = null;
+    try { const d = await api('/api/personas-version'); served = (d && typeof d.personasVersion === 'number') ? d.personasVersion : null; }
+    catch (err) { return false; } // unreachable: keep last-known rows
+    if (served == null) return false;
+    if (!globalRows) { globalRowsVersion = served; return false; }
+    if (globalRowsVersion == null) {
+      // Rows of unknown vintage (e.g. restored from a pre-v176
+      // persisted cache that recorded no version): refetch once so
+      // the stored version is real instead of adopting the served
+      // one over rows that may predate it.
+      globalRows = null; globalRowsVersion = null; friendsStale = true;
+      try { await ensureGlobalRows(); } catch {}
+      if (!$('friendsScreen').classList.contains('hidden')) { try { await renderFriendsUI(); } catch {} }
+      return true;
+    }
+    if (served !== globalRowsVersion) {
+      // The roster changed under us: drop the stale rows and
+      // refetch. The check above already succeeded, so we are
+      // online; a failed refetch falls back to the persisted
+      // cache inside ensureGlobalRows, never to a blank board.
+      globalRows = null; globalRowsVersion = null; friendsStale = true;
+      try { await ensureGlobalRows(); } catch {}
+      if (!$('friendsScreen').classList.contains('hidden')) { try { await renderFriendsUI(); } catch {} }
+      return true;
+    }
+    return false;
+  })();
+  personasVersionCheckInFlight = p;
+  try { return await p; } finally { personasVersionCheckInFlight = null; }
+}
 
 // ---------- Offline caches: leaderboards + profile (v107) ----------
 // The last-known leaderboard / friends / profile payloads, persisted
@@ -1445,11 +1510,11 @@ async function ensureGlobalRows() {
 // Each entry is {…, savedAt}. Cached data renders with no marker:
 // the "last known" notes were removed in v114 — the screens just
 // show the last-known data as-is.
-function cacheGlobalRows(users) {
-  try { storeSet('duello_lb_global', JSON.stringify({ users, savedAt: new Date().toISOString() })); } catch {}
+function cacheGlobalRows(users, version) {
+  try { storeSet('duello_lb_global', JSON.stringify({ users, personasVersion: (typeof version === 'number' ? version : null), savedAt: new Date().toISOString() })); } catch {}
 }
 function loadCachedGlobalRows() {
-  try { const o = JSON.parse(storeGet('duello_lb_global') || 'null'); return (o && Array.isArray(o.users)) ? o.users : null; } catch { return null; }
+  try { const o = JSON.parse(storeGet('duello_lb_global') || 'null'); return (o && Array.isArray(o.users)) ? o : null; } catch { return null; }
 }
 function cacheServerFriends(d) {
   try { storeSet('duello_friends', JSON.stringify({ friends: d.friends || [], incoming: d.incoming || [], outgoing: d.outgoing || [], savedAt: new Date().toISOString() })); } catch {}
@@ -1598,6 +1663,11 @@ function shortName(r) {
   return ln ? `${f} ${ln[0]}.` : f;
 }
 async function renderFriendsUI() {
+  // v176: the roster-version check runs on every Friends visit —
+  // before the early return below, so a tab tap checks even when
+  // the list is already rendered. Fire-and-forget: the tab never
+  // waits on it, and a version change re-renders in place.
+  try { checkPersonasVersion(); } catch {}
   // Already loaded for this scope and nothing changed since: just
   // keep the screen as it is. The tab tap already called show(),
   // so there is no blanking, no refetch, and no rebuild.
@@ -4345,12 +4415,15 @@ if (typeof document !== 'undefined' && document.addEventListener) {
   document.addEventListener('visibilitychange', () => {
     try {
       if (document.visibilityState === 'hidden') pauseOfflineClocks();
-      else { resumeOfflineClocks(); drainOutbox(); }
+      // v176: a long-lived session (iOS keeps the JS alive for
+      // hours) must pick up a new persona roster without a game
+      // end or a restart — check the version on every return.
+      else { resumeOfflineClocks(); drainOutbox(); checkPersonasVersion(); }
     } catch {}
   });
 }
 if (typeof window !== 'undefined' && window.addEventListener) {
-  window.addEventListener('online', () => { try { drainOutbox(); refreshOnlineButtons(); } catch {} });
+  window.addEventListener('online', () => { try { drainOutbox(); refreshOnlineButtons(); checkPersonasVersion(); } catch {} });
   window.addEventListener('offline', () => { try { refreshOnlineButtons(); } catch {} });
   window.addEventListener('pagehide', () => { try { pauseOfflineClocks(); } catch {} });
   window.addEventListener('beforeunload', () => { try { pauseOfflineClocks(); } catch {} });
@@ -5191,7 +5264,7 @@ async function refreshLeaderboards() {
   // profile would never re-warm. Caught by the v149 harness (W1b).
   let d = null;
   try { d = await api('/api/me'); me = d.user; persistMe(); } catch (err) { deadSession(err); return; }
-  globalRows = null;
+  globalRows = null; globalRowsVersion = null;
   // v149: re-warm the profile with the fresh payload. The invalidation
   // above used to leave the next Profile tap blanking the screen and
   // waiting on a fresh /api/me fetch — the tab looked like it never
@@ -5731,7 +5804,17 @@ async function renderProfileUI(prefetched) {
     else { d = loadCachedProfileData(); if (!d) return; fromCache = true; }
     if (!d) return;
   }
+  // v176: remember the photo this session already has before the
+  // assignment below overwrites me — the cache fallback needs it.
+  const prevPhoto = me && me.photoData;
   profileData = d; me = d.user; persistMe();
+  // v176: a cached profile adopted offline can predate the current
+  // photo (the cache is only rewritten on a fresh fetch). A fresh
+  // fetch's null is authoritative — the photo really is gone — but
+  // a cached null is just "unknown": keep the photo this session
+  // already has, so the profile tab and the Settings row don't lose
+  // a photo they already showed.
+  if (fromCache && prevPhoto && me && !me.photoData) { me.photoData = prevPhoto; if (profileData && profileData.user) profileData.user.photoData = prevPhoto; }
   if (!fromCache) cacheProfileData(d);
   // (v114: the "Last known profile" marker is gone — a cached
   // profile just shows, with no note. The hidden note element
@@ -5762,6 +5845,12 @@ async function renderProfileUI(prefetched) {
     api('/api/users/rank?username=' + encodeURIComponent(u.username)).then(d => { setRank(u.username, d.rank); if (profileData && profileData.user && profileData.user.username === u.username) $('profileGlobalRank').textContent = d.rank; }).catch(() => {});
   }
   renderStatsList(); drawEloChart();
+  // v176: the Settings screen's Photo row was painted from whatever
+  // profile data was in hand when it opened. If Settings is open
+  // now, repaint it with the data that just landed — a photo that
+  // arrived after the screen rendered still shows, instead of the
+  // row keeping the stale (or empty) thumbnail for the session.
+  try { const es = $('profileEditScreen'); if (es && !es.classList.contains('hidden')) renderEditList(); } catch {}
 }
 // v149: re-warm the (hidden) profile screen in the background after
 // a profile edit. The save handlers null profileData so the next
@@ -6198,7 +6287,13 @@ function renderEditList() {
   $('editRowLastName').textContent = u.lastName || '';
   $('editRowUsername').textContent = '@' + (u.username || '');
   $('editRowPro').textContent = u.pro ? 'Duello Pro' : 'Duello Free';
-  $('editRowPfp').innerHTML = usablePhoto(u) ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(32);
+  // v176: the photo comes from whichever copy has one. profileData
+  // can be a stale payload adopted offline while me (this session's
+  // fresh /api/me, or a just-saved photo) has the current one — the
+  // row must not show the silhouette while the photo is in hand.
+  // Names, username and tier still come from u above.
+  const photoSrc = (u && u.photoData) || (me && me.photoData) || null;
+  $('editRowPfp').innerHTML = (photoSrc && !photoSrc.includes('picsum.photos')) ? `<img src="${photoSrc}" alt="">` : silhouetteSVG(32);
 }
 $('editFirstNameRow').onclick = () => openFieldEditor('firstName');
 $('editLastNameRow').onclick = () => openFieldEditor('lastName');

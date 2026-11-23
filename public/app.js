@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 166;
+const APP_VERSION = 167;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -5914,7 +5914,18 @@ function setHistoryScope(scope) {
   historyScope = scope;
   document.querySelectorAll('.history-tab').forEach(x => x.classList.toggle('active', x.dataset.scope === scope));
   const st = historyState[scope];
-  if (st.games) { renderPastGamesList(st.games); return; }
+  if (st.games) {
+    renderPastGamesList(st.games);
+    // v167: the cached list renders at once, but it is only as fresh
+    // as the last warm/fetch for this scope — a game finished since
+    // then (e.g. a Doppelgänger game finished after the boot warm)
+    // would never show on this tab otherwise. Refresh quietly in
+    // the background; refreshPastGamesCache re-renders only if the
+    // first page changed, so a no-change tap leaves the list — and
+    // its scroll — untouched.
+    refreshPastGamesCache(scope);
+    return;
+  }
   const list = $('pastGamesList');
   list.innerHTML = '<div class="past-games-note">Loading…</div>';
   renderHistoryMore();
@@ -5984,9 +5995,14 @@ async function openPastGames() {
 // leaves the screen — and its scroll — untouched. A changed first
 // page resets the scope to that fresh page; the user can Load more
 // again from there.
-function refreshPastGamesCache() {
+// v167: takes an optional scope (default: the active tab). A tab tap
+// on a cached scope calls this too (see setHistoryScope): the boot
+// warm freezes every scope at boot time, so without a refresh here
+// a game finished after the warm never appeared on its tab —
+// recent Doppelgänger games were missing from Vs Bots all session.
+function refreshPastGamesCache(wantScope) {
   if (isOffline()) return;
-  const scope = historyScope;
+  const scope = wantScope || historyScope;
   fetchHistoryPage(scope, 0).then(({ games, hasMore }) => {
     if (historyScope !== scope) return;
     const st = historyState[scope];

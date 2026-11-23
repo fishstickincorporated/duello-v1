@@ -324,7 +324,7 @@ same 52px column, right-aligned, on every row including your own
    right:16px matches its horizontal padding. The pfp is centered
    and the gear is at the right edge, so they clear each other. */
 .gear-btn{position:absolute;top:calc(28px + env(safe-area-inset-top));right:16px;background:none;border:0;font-size:26px;cursor:pointer;margin-top:0}
-.elo-box{background:#262a33;border-radius:16px;padding:16px;margin:8px 0 16px;text-align:left}
+.elo-box{background:#262a33;border-radius:16px;padding:16px;margin:12px 0 16px;text-align:left}
 .elo-row{display:flex;gap:12px}
 .elo-row>div{flex:1}
 .elo-row>div:nth-child(2){text-align:center}

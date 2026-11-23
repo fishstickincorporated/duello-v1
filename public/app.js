@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 168;
+const APP_VERSION = 169;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -5758,15 +5758,16 @@ function renderStatsList() {
   // Click a record word to open its board (v128, item 6): the stats
   // know which game and move each record word came from, so the row
   // opens the board at that move with the same arrows as a Game
-  // History review. A word with no stored game/move (pre-v128
-  // games) stays plain text — never a dead tap.
+  // History review. A word with a stored game but no move (v169)
+  // still opens its game, at the start. A word with no stored game
+  // at all (pre-v128 games) stays plain text — never a dead tap.
   const hiRow = $('statsList').querySelector('[data-highest-word]');
-  if (hiRow && st.highestWordGameId && st.highestWordMoveIndex) {
+  if (hiRow && st.highestWordGameId) {
     hiRow.classList.add('stat-line-clickable');
     hiRow.onclick = () => openStatWordBoard(st.highestWordGameId, st.highestWordMoveIndex, st.highestWord);
   }
   const loRow = $('statsList').querySelector('[data-longest-word]');
-  if (loRow && st.longestWordGameId && st.longestWordMoveIndex) {
+  if (loRow && st.longestWordGameId) {
     loRow.classList.add('stat-line-clickable');
     loRow.onclick = () => openStatWordBoard(st.longestWordGameId, st.longestWordMoveIndex, st.longestWord);
   }
@@ -5797,17 +5798,19 @@ function openTenLetterModal(words) {
 // History uses, starting AT that move (moveIndex is 1-based, so
 // replayIndex is set to it directly). The review row (Exit, ←, →,
 // Game Stats) and the clock rewind behave exactly as if the game
-// had been opened from the history list. A missing game falls
-// back to the Game History list instead of crashing.
+// had been opened from the history list. v169: a game with no
+// stored move opens at the start (replayIndex 0) instead of
+// refusing the tap. A missing game falls back to the Game History
+// list instead of crashing.
 async function openStatWordBoard(gameId, moveIndex, word) {
-  if (!gameId || !moveIndex) return;
+  if (!gameId) return;
   if (isOffline()) { $('status').textContent = 'Game History needs a connection.'; return; }
   try {
     const g = await api(`/api/games/${gameId}`);
     if (!g) { openPastGames(); return; }
     game = g; gameFetchAt = Date.now(); pending = []; selectedRack = null;
     reviewMode = true;
-    replayIndex = (g.moveLog && g.moveLog.length) ? Math.min(moveIndex, g.moveLog.length) : null;
+    replayIndex = (g.moveLog && g.moveLog.length) ? (moveIndex ? Math.min(moveIndex, g.moveLog.length) : 0) : null;
     statShownGameId = g.id;
     enterReviewScreen();
   } catch (e) {

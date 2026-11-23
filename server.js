@@ -407,7 +407,16 @@ async function profileStatsFor(userId) {
       let g = r.state;
       if (typeof g === 'string') { try { g = JSON.parse(g); } catch { continue; } }
       if (!g.botType && r.bot_type) g.botType = r.bot_type;
-      if (!g.id) g.id = r.id;
+      // v169: the row id is canonical. A synced offline game stores
+      // state.id as the client-side placeholder 'offline-<id>' (the
+      // app's local id, never a loadable game id), so trusting it put
+      // that string into the stats' gameId and every tap on a record
+      // word 404'd on GET /api/games/offline-... and fell back to the
+      // game log. loadGameRow already overwrites with the row id
+      // everywhere else; the stats loop is the one reader that did
+      // not. (The old `if (!g.id)` only fired when state.id was
+      // missing entirely, which never happens for synced games.)
+      g.id = r.id;
       gs.push(g);
     }
     for (const g of gs) {
@@ -2581,6 +2590,12 @@ const server = http.createServer(async (req, res) => {
       }
       const eloRow = await q('UPDATE users SET elo = elo + $1, elo_high = GREATEST(elo_high, elo + $1) WHERE id = $2 RETURNING elo', [delta, user.id]);
       const newElo = Number(eloRow.rows[0].elo);
+      // v169: the stored state arrives with the client-side placeholder
+      // id 'offline-<id>' — replace it with the real row id, so no
+      // later reader of the stored state can mistake the placeholder
+      // for a loadable game id (that is what broke the profile record
+      // words; profileStatsFor now also takes the row id directly).
+      storedState.id = gameId;
       storedState.eloDeltaHuman = delta;
       storedState.eloDeltaBot = -delta;
       storedState.eloAfterHuman = newElo;

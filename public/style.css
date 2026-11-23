@@ -344,10 +344,10 @@ same 52px column, right-aligned, on every row including your own
 .stats-list .stat-line:last-child{border-bottom:0}
 .stats-list .stat-line[data-ten-letter]{cursor:pointer}
 /* A record word with a stored game/move (v128, item 6): the row is
-   tappable, and its value is Duello blue so it reads as a link to
-   that game's board at that move. */
+   tappable, and it opens that game's board at that move. v169: the
+   value stays normal text colour — Jeff asked that the rows not
+   read as blue links. Only the pointer cursor marks them tappable. */
 .stats-list .stat-line-clickable{cursor:pointer}
-.stats-list .stat-line-clickable b{color:#03eaff}
 /* Game History filter tabs (v128, item 4): the same three buttons as
    the stats screen, same size and same active highlight. The tabs +
    log sit on the same grey card as the lifetime stats (v130). */

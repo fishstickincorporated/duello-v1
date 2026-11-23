@@ -408,8 +408,8 @@ same 52px column, right-aligned, on every row including your own
 .ten-letter-word{border-bottom:1px solid #333}
 .ten-letter-word:last-child{border-bottom:0}
 /* A 10-letter word with a stored game/move (v128, item 6): tappable,
-   Duello blue, opens that game's board at that move. */
-.ten-letter-word-clickable{cursor:pointer;color:#03eaff}
+   normal text colour (v170, Jeff: not blue), opens that game's board at that move. */
+.ten-letter-word-clickable{cursor:pointer}
 .email-row{display:flex;align-items:center;gap:8px}
 .email-row input{flex:1}
 .verified{font-size:18px}

@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 169;
+const APP_VERSION = 170;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -1054,18 +1054,20 @@ function pfpHTML(userLike) {
   if (usablePhoto(userLike)) return `<img src="${userLike.photoData}" alt="">`;
   return silhouetteSVG(36);
 }
-// A picsum photo never loads (verified Nov 14, 2026: every picsum
-// URL times out), so a persona carrying one effectively has no
-// photo: show the silhouette at once instead of a blank grey
-// circle with no border while it stalls. One helper for every
-// img-vs-silhouette and no-photo-ring decision, so the two can
-// never disagree.
+// A remote photo that never loads would leave a blank grey circle:
+// before v5, 10 of the 100 personas carried picsum URLs that timed
+// out on some networks (verified Nov 14, 2026). Personas now carry
+// embedded data URLs (v5, Nov 23, 2026), so the guard below only
+// fires for a future remote URL; the silhouette shows at once
+// instead of a blank circle with no border while it stalls. One
+// helper for every img-vs-silhouette and no-photo-ring decision, so
+// the two can never disagree.
 function usablePhoto(userLike) {
   const url = userLike && userLike.photoData;
   return !!url && !url.includes('picsum.photos');
 }
-// A persona photo is a remote URL (randomuser.me / picsum): when it
-// fails to load, Safari paints its broken-image "?" inside the
+// A photo (a data URL for personas and user uploads) that fails
+// to load: Safari paints its broken-image "?" inside the
 // circle instead of the silhouette. Any failed photo is swapped for
 // the inline silhouette, which cannot fail and cannot loop. Capture
 // phase: <img> errors do not bubble. Only photos are touched — the
@@ -1079,12 +1081,11 @@ document.addEventListener('error', (e) => {
   t.outerHTML = silhouetteSVG(32);
 }, true);
 // A remote photo that stalls never fires 'error', so the circle
-// sits empty forever: 10 of the 100 personas use picsum URLs, and
-// picsum is unreachable from some networks (verified Nov 14, 2026:
-// every picsum URL times out, while randomuser.me answers in ~1s).
-// Arm a 3s timer on every leaderboard/search photo: if it still
+// sits empty forever. Personas are embedded data URLs since v5 and
+// load instantly, but a slow network can still stall a photo: arm
+// a 3s timer on every leaderboard/search photo: if it still
 // hasn't loaded, swap it for the silhouette, exactly as the error
-// handler does. Photos that loaded (data URLs, randomuser) are
+// handler does. Photos that loaded (data URLs) are
 // complete long before the timer fires and are left alone.
 function armPfpTimeouts() {
   document.querySelectorAll('.lb-pfp img').forEach(img => {
@@ -2678,6 +2679,47 @@ function replayMoveIsOptimal(n) {
   for (let i = 0; i < n; i++) if (game.moveLog[i].side === m.side) idx++;
   return !!(moves[idx] && moves[idx].isOptimal);
 }
+// v170: the last cell of the main word on a replayed board — where
+// the review's point bubble rides. moveLog placements are in DROP
+// order (the server stores them verbatim), so the last placement is
+// the last tile the player happened to drop, not the last letter of
+// the word: Jeff's AX (X dropped first) put the bubble on A. The
+// replayed board at this step already holds the main word, so walk
+// its run: the placed tiles all lie on the main word's line, and the
+// run along that line — extended over pre-existing tiles the word
+// was built off — IS the main word. Its last cell is the target.
+// A single placement gives no direction from the placements alone,
+// so the run whose letters spell mainWord wins (horizontal first).
+// Falls back to the positionally last placed tile in the play
+// direction — the live board's showBubble fallback — when the run
+// does not match (a log that predates mainWord, or a corrupt one).
+function replayMainWordLastCell(board, m) {
+  const pls = (m && m.placements) || [];
+  if (!pls.length) return null;
+  const word = String((m && m.mainWord) || '').toUpperCase();
+  const runCells = (r, c, dr, dc) => {
+    let sr = r, sc = c;
+    while (board[sr - dr] && board[sr - dr][sc - dc]) { sr -= dr; sc -= dc; }
+    const cells = [];
+    let cr = sr, cc = sc;
+    while (board[cr] && board[cr][cc]) { cells.push([cr, cc]); cr += dr; cc += dc; }
+    return cells;
+  };
+  const lettersOf = (cells) => cells.map(([r, c]) => board[r][c]).join('');
+  const sameRow = pls.every((p) => p.row === pls[0].row);
+  const sameCol = pls.every((p) => p.col === pls[0].col);
+  const dirs = [];
+  if (sameRow) dirs.push([0, 1]);
+  if (sameCol) dirs.push([1, 0]);
+  if (!dirs.length) dirs.push([0, 1], [1, 0]);
+  for (const [dr, dc] of dirs) {
+    const cells = runCells(pls[0].row, pls[0].col, dr, dc);
+    if (!word || lettersOf(cells) === word) return cells[cells.length - 1];
+  }
+  const sorted = pls.slice().sort((a, b) => sameRow ? a.col - b.col : a.row - b.row);
+  const last = sorted[sorted.length - 1];
+  return [last.row, last.col];
+}
 function renderReplay() {
   if (replayIndex === null || !game) return;
   const log = game.moveLog || [];
@@ -2726,11 +2768,14 @@ function renderReplay() {
   // same +score bubble the live board shows on the last play, so
   // scrolling through the replay shows what each play was worth. A
   // pass has no placements and leaves no bubble. The board was just
-  // rebuilt, so no stale bubble survives to clear.
+  // rebuilt, so no stale bubble survives to clear. v170: the bubble
+  // rides on the LAST LETTER of the main word (replayMainWordLastCell
+  // walks the word's run on the replayed board) — NOT the last tile
+  // dropped, which is what moveLog placements record.
   if (n > 0) {
     const m = log[n - 1];
-    const pls = (m && m.placements) || [];
-    if (pls.length) attachBubble(m.score || 0, [pls[pls.length - 1].row, pls[pls.length - 1].col], 'last');
+    const target = replayMainWordLastCell(st.board, m);
+    if (target) attachBubble(m.score || 0, target, 'last');
   }
   // Status names the step, without the move count (v124): no
   // "Move x of y" — just who played what, or the start / final.

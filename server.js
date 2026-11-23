@@ -1312,12 +1312,25 @@ function replayOfflineSync(eng, payload) {
     if (!Array.isArray(play.placements) || play.placements.length === 0 || play.placements.some((p) => !p || !Number.isInteger(p.row) || !Number.isInteger(p.col) || typeof p.letter !== 'string' || p.letter.length !== 1)) return fail('Each play needs placements with row, col, and a single letter.');
     const prev = lastPlay[side];
     if (prev) {
+      // v168: unplayed tiles are never REPLACED — every letter the
+      // previous rack held at an unplayed index must still be in this
+      // rack — but their ORDER may change. Shuffle and rack
+      // drag-reorder permute the rack between moves, and the payload
+      // carries no record of that, so the old positional check
+      // rejected every shuffled game (422 "Rack changed at an
+      // unplayed index"), the drain marked it 'rejected', and the
+      // game silently never reached Game History. The drawn tiles are
+      // the only letters allowed to differ, and they are exactly the
+      // letters not accounted for here — a swapped-in tile still
+      // fails, because the unplayed letter it replaced goes missing.
       const used = new Set(prev.usedIndices);
-      for (let i = 0; i < 6; i++) {
-        if (!used.has(i) && play.rack[i] !== prev.rack[i]) return fail(`Rack changed at an unplayed index before a ${side} move.`);
+      const need = {};
+      prev.rack.forEach((l, i) => { if (!used.has(i)) need[l] = (need[l] || 0) + 1; });
+      const have = {};
+      play.rack.forEach((l) => { have[l] = (have[l] || 0) + 1; });
+      for (const l in need) {
+        if ((have[l] || 0) < need[l]) return fail(`Unplayed tile ${l} missing before a ${side} move.`);
       }
-      const multiset = (rack, skip) => { const c = {}; rack.forEach((l, i) => { if (!skip.has(i)) c[l] = (c[l] || 0) + 1; }); return c; };
-      if (JSON.stringify(multiset(prev.rack, used)) !== JSON.stringify(multiset(play.rack, used))) return fail(`Unplayed tiles changed before a ${side} move.`);
     }
     const isFirst = eng.boardIsEmpty(board);
     const res = eng.validatePlay(board, play.rack, play.placements, premiums, isFirst);

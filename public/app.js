@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 167;
+const APP_VERSION = 168;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -3634,10 +3634,29 @@ async function offlineStoreDel(id) {
 async function refreshOfflineTotals() {
   let recs = [];
   try { recs = await offlineStoreGetAll(); } catch { recs = []; }
+  // v168: one-time retry of games the server rejected before the rack
+  // check went order-insensitive. Shuffle / rack drag-reorder between
+  // moves 422'd those games, and the drain marked them 'rejected' so
+  // they never retried — the missing Doppelgänger games. Flip them
+  // back to 'finished' once; the drain below re-syncs them, and a
+  // game that is genuinely invalid is rejected again and stays
+  // rejected (the flag stops a second flip).
+  let flippedAny = false;
+  try {
+    if (!storeGet('duello_rejected_retry_v168')) {
+      const rejected = recs.filter((r) => r.status === 'rejected');
+      for (const r of rejected) { r.status = 'finished'; try { await offlineStorePut(r); } catch {} }
+      storeSet('duello_rejected_retry_v168', '1');
+      flippedAny = rejected.length > 0;
+    }
+  } catch {}
   const finished = recs.filter((r) => r.status === 'finished');
   pendingGamesCount = finished.length;
   pendingEloSum = finished.reduce((s, r) => s + (r.eloDelta || 0), 0);
   outboxMayBeNonEmpty = finished.length > 0;
+  // The flip above runs before the flag is set here, so schedule the
+  // retry drain now that the outbox is known non-empty.
+  if (flippedAny) { try { scheduleDrain(); } catch {} }
   // The profile count line updates with the totals (renderStatsList
   // no-ops when no profile is loaded).
   try { renderStatsList(); } catch {}

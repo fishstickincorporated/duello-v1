@@ -20,7 +20,7 @@
 // preserves that). Old caches are deleted on activate.
 'use strict';
 
-var CACHE_NAME = 'duello-v172';
+var CACHE_NAME = 'duello-v173';
 
 // Precached on install (small shell only). /api/words is deliberately NOT
 // precached — it is a 1.2 MB lazy fetch, cached on first use (see below).

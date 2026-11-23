@@ -204,9 +204,20 @@ async function seedPersonas() {
   // iPhone snapshot (natural light, unstaged, ordinary backgrounds),
   // not a studio portrait or stock photo. Same delete + re-insert
   // shape as v5/v6.
+  // v8 (Nov 23) fixes a v7 CROP bug and re-centres the pets: v7's
+  // fixed-grid crops (randoms, full-body, couples) span the full
+  // cell height, so the generator's white inter-cell gutters landed
+  // inside 58 of 375 crops as a 2-6px solid-white strip on the top
+  // or bottom edge — that is the "white boarders" Jeff reported
+  // (Eugene Green's gecko photo shows it clearly). v8 replaces
+  // those 58 with gutter-aware re-crops (content-box crop, gated by
+  // border_gate_v174.py) and swaps 13 off-centre / half-hidden pet
+  // pics for centred ones from two new pet grids. Same 500
+  // identities, same mix counts; only photo data changes. Same
+  // delete + re-insert shape as v5/v6/v7.
   await q('CREATE TABLE IF NOT EXISTS persona_seed (version INT PRIMARY KEY)');
   const v = await q('SELECT MAX(version) AS v FROM persona_seed');
-  if ((v.rows[0].v || 0) >= 7) return;
+  if ((v.rows[0].v || 0) >= 8) return;
   // v6 needs NULL photos: the original schema declared photo_url
   // NOT NULL, so drop that first (idempotent on later boots).
   await q('ALTER TABLE personas ALTER COLUMN photo_url DROP NOT NULL');
@@ -228,8 +239,8 @@ async function seedPersonas() {
     params.push(p.username, p.firstName, p.lastName, p.gender, p.elo, p.photoUrl);
   });
   await q(`INSERT INTO personas (username, first_name, last_name, gender, elo, photo_url) VALUES ${values.join(',')}`, params);
-  await q('INSERT INTO persona_seed (version) VALUES (7)');
-  console.log(`Personas refreshed to seed v7 (${rows.length})`);
+  await q('INSERT INTO persona_seed (version) VALUES (8)');
+  console.log(`Personas refreshed to seed v8 (${rows.length})`);
 }
 async function q(text, params) { return pool.query(text, params); }
 function hashPassword(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }

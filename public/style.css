@@ -184,6 +184,11 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .controls button.armed-red{background:#ff1303;color:#fff;border-color:transparent}
 .controls button .penalty{display:block;font-size:11px;line-height:1.2;font-weight:700}
 .controls button:disabled{background:#3a3f4b;color:#b3b2b1;border-color:transparent}
+/* v191: the Daily Puzzle Share button is solid Duello blue once a
+   valid word has been made (same treatment as the game's valid
+   Play button: #03eaff fill, dark text); before that it is the
+   grey disabled button above. */
+.controls button.share-ready{background:#03eaff;color:#1a1d24;border-color:#03eaff}
 #endButtons #mainMenuBtn,#endButtons #gameStatsBtn,.stat-window #statMainMenu{background:#3a3f4b;color:#e8ecf1}
 #endButtons #playAgainBtn,.stat-window #statPlayAgain{background:#03eaff;color:#1a1d24}
 #playBtn.play-valid{background:#03eaff;color:#1a1d24;border-color:#03eaff}
@@ -694,19 +699,31 @@ squares are the premium colours, spread out across the whole screen. */
    exact same slightly muted green as Play Friends. v188 had made
    it fully OPAQUE here (solid #32e31e -> #28a81c) so nothing
    showed through; v189 goes back to the .8 gradient because
-   nothing can show through anyway — the solid #1a1d24 .ct-mask
+   nothing can show through anyway — the #1a1d24 .ct-mask
    sits behind the button (z-index 40 under the button's 41) and
    the body behind Home is the same #1a1d24, so the rendered
    color matches Home exactly. The opacity now comes from the
-   mask behind the button, not from the button itself.) Single
+   mask behind the button, not from the button itself. v191: the
+   mask carries the dot texture too, so the dots read faintly
+   through the .8 gradient behind the button — that is the point.) Single
    text-bubble icon. Gaps: 24px below the button to the tab bar, 12px above
-   it. A solid #1a1d24 mask covers the whole dead zone from the
-   fade's bottom edge to the tab bar top (105px = 24 + 69 + 12),
-   full width, so no leaderboard row is visible anywhere below
-   the 16px fade band — rows fade across the band and are gone
-   by the gap. The screen's bottom padding is 186px + safe-area
-   (65 tab + 24 gap + 69 button + 12 gap + 16 fade) so the last
-   row can scroll clear of the fade. */
+   it. v191: the 16px fade is GONE (Jeff: don't fade the background
+   dots/texture around the button) and the mask is a TEXTURED dead
+   zone, not a flat block — it carries the same faint Duello-blue
+   dot grid as the body, aligned to the viewport grid with a
+   background-position calc (NOT the fixed-attachment trick —
+   unreliable on iOS Safari, see the v135 note at the top of this
+   file: the mask's top sits 100vh - 186px - safe-area down the
+   viewport, so shifting the grid up by exactly that lines the
+   dots up with the body::before texture), so the background reads
+   continuously around and behind the button. The mask covers the
+   whole dead zone from above the button to the tab bar top
+   (121px = 16 fade band + 12 gap + 69 button + 24 gap), full
+   width, so no leaderboard row is visible anywhere below its top
+   edge — rows are hidden by the edge instead of fading out. The
+   screen's bottom padding stays 186px + safe-area (65 tab + 24
+   gap + 69 button + 12 gap + 16) so the last row can scroll clear
+   of the mask's top edge. */
 .challenge-text-btn{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(65px + env(safe-area-inset-bottom) + 24px);width:calc(100% - 32px);max-width:358px;height:69px;font-size:22px;z-index:41;background:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(180deg,rgba(50,227,30,.8) 0%,rgba(40,168,28,.8) 100%);background-size:22px 22px,22px 22px,100% 100%}
 .challenge-text-btn .sym svg{width:48px;height:48px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35));transform:translateY(3px)}
 /* v190: the bubble GLYPH is centred, not just its box. The path
@@ -719,8 +736,7 @@ squares are the premium colours, spread out across the whole screen. */
 .challenge-text-btn .label-col{flex:1;text-align:left;display:flex;flex-direction:column;justify-content:center;min-width:0}
 .challenge-text-btn .label-col .label{flex:none;font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45);white-space:nowrap}
 .challenge-text-btn .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
-.ct-fade{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(65px + env(safe-area-inset-bottom) + 24px + 69px + 12px);width:calc(100% - 32px);max-width:358px;height:16px;background:linear-gradient(to bottom,rgba(26,29,36,0),#1a1d24);pointer-events:none;z-index:40}
-.ct-mask{position:fixed;left:0;right:0;bottom:calc(65px + env(safe-area-inset-bottom));height:105px;background:#1a1d24;pointer-events:none;z-index:40}
+.ct-mask{position:fixed;left:0;right:0;bottom:calc(65px + env(safe-area-inset-bottom));height:121px;background-color:#1a1d24;background-image:radial-gradient(rgba(3,234,255,.07) 1px,transparent 1.4px);background-size:16px 16px;background-position:0 calc(-100vh + 186px + env(safe-area-inset-bottom));pointer-events:none;z-index:40}
 #friendsScreen.ct-visible{padding-bottom:calc(186px + env(safe-area-inset-bottom))}
 .mode-bots{background:radial-gradient(rgba(255,255,255,.07) 1.5px,transparent 1.5px),linear-gradient(180deg,rgba(227,138,30,.8) 0%,rgba(197,118,28,.8) 100%);background-size:16px 16px,100% 100%;border-color:#ac661c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #88541c}
 .mode-puzzle{background:repeating-linear-gradient(45deg,rgba(255,255,255,.06) 0 10px,transparent 10px 20px),linear-gradient(180deg,rgba(227,30,214,.8) 0%,rgba(178,28,167,.8) 100%);border-color:#971c8d;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #761c6f}
@@ -836,6 +852,11 @@ squares are the premium colours, spread out across the whole screen. */
 .puzzle-week .day{display:flex;flex-direction:column;align-items:center;gap:2px;width:32px}
 .puzzle-week .day .letter{font-size:11px;color:#b3b2b1;font-weight:700}
 .puzzle-week .day.today .letter{color:#e8ecf1}
+/* v191: the day's best % sits between the flame and the letter —
+   small, grey on past days, near-white today. An unplayed day
+   shows no % at all (the span is only added when there is one). */
+.puzzle-week .day .pct{font-size:10px;font-weight:700;color:#b3b2b1;line-height:1}
+.puzzle-week .day.today .pct{color:#e8ecf1}
 .puzzle-week .day .flame{font-size:16px;line-height:1}
 .puzzle-week .day.missed .flame{filter:grayscale(1);opacity:.4}
 /* v152: confetti that rains on a puzzle solve — the container covers
@@ -858,7 +879,11 @@ squares are the premium colours, spread out across the whole screen. */
 .puzzle-strength-track{position:relative;flex:1;height:12px;border-radius:6px;background:#262a33}
 .puzzle-strength-fill{height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,#03eaff,#1cff03);transition:width .35s ease}
 .puzzle-strength-knob{position:absolute;top:50%;left:15px;transform:translate(-50%,-50%);width:30px;height:30px;border-radius:50%;background:#fff;color:#1a1d24;display:flex;align-items:center;justify-content:center;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:800;font-variant-numeric:tabular-nums;transition:left .35s ease}
-#puzzleBoardShareBtn{background:#03eaff;color:#1a1d24}
+/* v191: the old #puzzleBoardShareBtn blue rule is gone — Share is
+   grey while disabled (.controls button:disabled) and solid blue
+   only once played (.controls button.share-ready, above). The old
+   id rule outranked :disabled, so it would have kept Share blue
+   from the start. */
 
 /* v147: Apple-style settings — grouped rows in rounded cards, label
    left, grey value + chevron right, hairline separators. The screen's

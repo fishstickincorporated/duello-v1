@@ -117,6 +117,10 @@ async function initDb() {
   // Daily Puzzle solved move (v153): the placements of the winning
   // play, so a solved puzzle reopens with the word on the board.
   await pool.query('ALTER TABLE daily_puzzle_solves ADD COLUMN IF NOT EXISTS placements JSONB');
+  // Daily Puzzle best score (v191): the highest-scoring word played
+  // on a date — the week strip's % is best / that day's optimal,
+  // and the puzzle is a high-score chase now, not a 100% gate.
+  await pool.query('ALTER TABLE daily_puzzle_solves ADD COLUMN IF NOT EXISTS best_score INTEGER');
   // Real friend requests (v53): one row per directed request, pending
   // until accepted; accepted rows are the friendship. Personas are
   // not in users, so they can never be a request target here.
@@ -2398,11 +2402,14 @@ const server = http.createServer(async (req, res) => {
     // (idempotent), POST unsolve clears one (Play again). All three
     // need the signed-in session; the date is a YYYY-MM-DD local
     // date key, so a bad date is a 400, not a row.
+    // v191: 'solved' now means 'played a valid word' — the streak
+    // completes on the first valid word, and the best score per
+    // date rides along (bestScores) for the week strip's %.
     if (pathname === '/api/daily-puzzle' && req.method === 'GET') {
       const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
-      const r = await q('SELECT date, placements, solved_at FROM daily_puzzle_solves WHERE user_id=$1 ORDER BY date', [user.id]);
-      const moves = {}; const solvedAt = {};
+      const r = await q('SELECT date, placements, solved_at, best_score FROM daily_puzzle_solves WHERE user_id=$1 ORDER BY date', [user.id]);
+      const moves = {}; const solvedAt = {}; const bestScores = {};
       for (const x of r.rows) {
         if (Array.isArray(x.placements)) moves[x.date] = x.placements;
         // v156: the first-solve time (never updated on re-solve) so
@@ -2410,8 +2417,9 @@ const server = http.createServer(async (req, res) => {
         // the Date (instanceof breaks across realms — the harness
         // FakePool builds its Dates outside the server vm).
         if (x.solved_at) solvedAt[x.date] = (x.solved_at && typeof x.solved_at.toISOString === 'function') ? x.solved_at.toISOString() : String(x.solved_at);
+        if (typeof x.best_score === 'number') bestScores[x.date] = x.best_score;
       }
-      return sendJson(res, 200, { solved: r.rows.map(x => x.date), moves, solvedAt });
+      return sendJson(res, 200, { solved: r.rows.map(x => x.date), moves, solvedAt, bestScores });
     }
     if (pathname === '/api/daily-puzzle/solve' && req.method === 'POST') {
       const user = await authUser(req);
@@ -2440,7 +2448,17 @@ const server = http.createServer(async (req, res) => {
         }
         placements = b.placements.map(p => ({ row: p.row, col: p.col, letter: p.letter }));
       }
-      await q('INSERT INTO daily_puzzle_solves (user_id, date, placements, solved_at) VALUES ($1,$2,$3, COALESCE($4::timestamptz, now())) ON CONFLICT (user_id, date) DO UPDATE SET placements = COALESCE(EXCLUDED.placements, daily_puzzle_solves.placements)', [user.id, date, placements ? JSON.stringify(placements) : null, solvedAtParam]);
+      // v191: an optional best score for the day (the highest-scoring
+      // word played). A bad value is a 400; a missing one leaves
+      // whatever the row already has. On conflict the best score
+      // only ever goes UP (GREATEST, with the NULL-safe CASE so a
+      // missing value never clobbers a stored best).
+      let bestScore = null;
+      if (b.bestScore !== undefined && b.bestScore !== null) {
+        if (!Number.isInteger(b.bestScore) || b.bestScore < 0) return sendJson(res, 400, { error: 'Bad score.' });
+        bestScore = b.bestScore;
+      }
+      await q('INSERT INTO daily_puzzle_solves (user_id, date, placements, solved_at, best_score) VALUES ($1,$2,$3, COALESCE($4::timestamptz, now()), $5) ON CONFLICT (user_id, date) DO UPDATE SET placements = COALESCE(EXCLUDED.placements, daily_puzzle_solves.placements), best_score = CASE WHEN EXCLUDED.best_score IS NULL THEN daily_puzzle_solves.best_score ELSE GREATEST(COALESCE(daily_puzzle_solves.best_score, 0), EXCLUDED.best_score) END', [user.id, date, placements ? JSON.stringify(placements) : null, solvedAtParam, bestScore]);
       return sendJson(res, 200, { ok: true });
     }
     if (pathname === '/api/daily-puzzle/unsolve' && req.method === 'POST') {

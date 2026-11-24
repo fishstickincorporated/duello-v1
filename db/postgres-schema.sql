@@ -58,10 +58,13 @@ CREATE TABLE IF NOT EXISTS delete_codes (
 -- its offline fallback and syncs both ways when online.
 -- v153: placements holds the solved move ([{row, col, letter}]) so a
 -- solved puzzle reopens with the played word on the board.
+-- v191: best_score holds the highest-scoring word played on the
+-- date — the week strip's % is best / that day's optimal.
 CREATE TABLE IF NOT EXISTS daily_puzzle_solves (
   user_id TEXT NOT NULL, date TEXT NOT NULL,
   solved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   placements JSONB,
+  best_score INTEGER,
   PRIMARY KEY (user_id, date)
 );
 CREATE TABLE IF NOT EXISTS personas (

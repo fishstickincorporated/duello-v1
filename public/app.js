@@ -90,7 +90,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 190;
+const APP_VERSION = 191;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -115,9 +115,18 @@ function refreshOnlineButtons() {
   }
 }
 // ---------- v131: home redesign + Daily Puzzle ----------
-// Daily Puzzle streak: solved dates live in localStorage (per device,
-// offline-safe). A streak is consecutive solved days ending today, or
-// ending yesterday when today is not solved yet.
+// Daily Puzzle streak: played dates live in localStorage (per device,
+// offline-safe). A streak is consecutive played days ending today, or
+// ending yesterday when today is not played yet.
+// v191: 'solved' now means 'played a valid word' — the streak
+// completes on the FIRST valid word of the day, not on the optimal
+// score; the object is the highest score, not 100%. The store key
+// and the function names are unchanged so every pre-v191 solve
+// keeps counting; only the meaning changed. The store is now
+// {solved, moves, times, best}: `moves` holds the BEST word's
+// placements for the day (what reopens on the board), `times` the
+// first-play time, `best` the best score per date (the week's % is
+// best / that day's optimal).
 const PUZZLE_STORE_KEY = 'duello-daily-puzzle-v1';
 function puzzleSolvedDates() {
   try { const raw = JSON.parse(localStorage.getItem(PUZZLE_STORE_KEY) || 'null'); if (raw && Array.isArray(raw.solved)) return new Set(raw.solved); } catch {}
@@ -126,36 +135,73 @@ function puzzleSolvedDates() {
 // v156: solved is FOREVER — there is no unsolve any more (a Replay
 // no longer unsolves), so the tombstone set is retired. A legacy
 // tombstone left by a v155 Replay is simply never read again, and
-// the store is now {solved, moves, times}.
-// v156: the first-solve time per date (ISO string) — the Share
-// timestamp. Recorded once, never overwritten: a re-solve after a
-// Replay keeps the original time.
+// the store is now {solved, moves, times, best}.
+// v156: the first-play time per date (ISO string) — recorded once,
+// never overwritten: a better word later in the day keeps the
+// original time.
 function puzzleSolvedTimes() {
   try { const raw = JSON.parse(localStorage.getItem(PUZZLE_STORE_KEY) || 'null'); if (raw && raw.times && typeof raw.times === 'object') return raw.times; } catch {}
   return {};
 }
-// v153: the solved move for a date ([{row, col, letter}]) — what the
-// winning play put on the board, so a solved puzzle reopens with the
-// word showing. Stored beside the solved dates and synced the same
-// way (the server's daily_puzzle_solves.placements column).
+// v153: the best move for a date ([{row, col, letter}]) — what the
+// highest-scoring play put on the board, so a played puzzle reopens
+// with the best word showing. Stored beside the played dates and
+// synced the same way (the server's daily_puzzle_solves.placements
+// column).
 function puzzleSolvedMoves() {
   try { const raw = JSON.parse(localStorage.getItem(PUZZLE_STORE_KEY) || 'null'); if (raw && raw.moves && typeof raw.moves === 'object') return raw.moves; } catch {}
   return {};
 }
-function puzzleWriteStore(solved, moves, times) {
-  try { localStorage.setItem(PUZZLE_STORE_KEY, JSON.stringify({ solved: [...solved].sort(), moves: moves || puzzleSolvedMoves(), times: times || puzzleSolvedTimes() })); } catch {}
+// v191: the best score per date ({dateKey: score}) — the week's %
+// is best / that day's optimal. A date with no best here either
+// was never played, or was solved before v191 (no best was ever
+// recorded for it — it reads 100%, see puzzleBestPct).
+function puzzleBestScores() {
+  try { const raw = JSON.parse(localStorage.getItem(PUZZLE_STORE_KEY) || 'null'); if (raw && raw.best && typeof raw.best === 'object') return raw.best; } catch {}
+  return {};
 }
-function puzzleSaveSolved(dateKey, placements) {
+function puzzleWriteStore(solved, moves, times, best) {
+  try { localStorage.setItem(PUZZLE_STORE_KEY, JSON.stringify({ solved: [...solved].sort(), moves: moves || puzzleSolvedMoves(), times: times || puzzleSolvedTimes(), best: best || puzzleBestScores() })); } catch {}
+}
+// v191: record a valid word. The date enters the played set on the
+// first valid word (that is the streak now), the best score and the
+// best move update only when this word beats the day's best, and
+// the first-play time is recorded once. `score` may be omitted
+// (marking a date played with no word, as the old puzzleSaveSolved
+// callers did) — then only the played set is touched. Returns
+// whether this word set a new best. Only a new best is uploaded;
+// if the POST fails (offline), the local save stands and the next
+// sync uploads it (with the first-play time).
+function puzzleSavePlay(dateKey, placements, score) {
   const set = puzzleSolvedDates(); set.add(dateKey);
   const moves = puzzleSolvedMoves();
-  if (Array.isArray(placements) && placements.length) moves[dateKey] = placements.map(p => ({ row: p.row, col: p.col, letter: p.letter }));
+  const best = puzzleBestScores();
   const times = puzzleSolvedTimes();
-  // First solve wins — a re-solve after a Replay keeps the original time.
+  let isNewBest = false;
+  if (typeof score === 'number') {
+    const prevBest = best[dateKey];
+    isNewBest = prevBest == null || score > prevBest;
+    if (isNewBest) {
+      best[dateKey] = score;
+      if (Array.isArray(placements) && placements.length) moves[dateKey] = placements.map(p => ({ row: p.row, col: p.col, letter: p.letter }));
+    }
+  }
+  // First play wins — a better word later in the day keeps the original time.
   if (!times[dateKey]) times[dateKey] = new Date().toISOString();
-  puzzleWriteStore(set, moves, times);
-  // Fire and forget: if this POST fails (offline), the local save
-  // stands and the next sync uploads it (with the first-solve time).
-  if (token && !isOffline()) api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: dateKey, placements: moves[dateKey] || undefined, solvedAt: times[dateKey] }) }).catch(() => {});
+  puzzleWriteStore(set, moves, times, best);
+  if (isNewBest && token && !isOffline()) api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: dateKey, placements: moves[dateKey] || undefined, solvedAt: times[dateKey], bestScore: score }) }).catch(() => {});
+  return isNewBest;
+}
+// v191: a day's best percentage — best score / that day's optimal,
+// rounded, clamped to 100. Null when the day was never played (no
+// % to show). A pre-v191 solve has no recorded best — it solved at
+// the optimal or better, so it reads 100%.
+function puzzleBestPct(dateKey, optimalScore) {
+  if (!optimalScore) return null;
+  const best = puzzleBestScores()[dateKey];
+  if (best != null) return Math.min(100, Math.round(best / optimalScore * 100));
+  if (puzzleSolvedDates().has(dateKey)) return 100;
+  return null;
 }
 let puzzleServerSynced = false;
 async function puzzleSyncFromServer() {
@@ -164,38 +210,53 @@ async function puzzleSyncFromServer() {
   // no longer unsolves), so tombstones are retired. A legacy
   // tombstone from a v155 Replay is ignored, never uploaded, and
   // never deletes a merged date.
-  let serverSolved, serverMoves = {}, serverTimes = {};
+  let serverSolved, serverMoves = {}, serverTimes = {}, serverBest = {};
   try {
     const j = await api('/api/daily-puzzle');
     serverSolved = new Set(Array.isArray(j.solved) ? j.solved : []);
     if (j.moves && typeof j.moves === 'object') serverMoves = j.moves;
     if (j.solvedAt && typeof j.solvedAt === 'object') serverTimes = j.solvedAt;
+    if (j.bestScores && typeof j.bestScores === 'object') serverBest = j.bestScores;
   } catch { return false; }
-  // Upload local solves the server lacks (offline solves, and solves
-  // from before the account state existed) — with the move, so the
-  // other device shows the word too, and with the first-solve time,
-  // so the other device shows the true time. The server stamps
-  // solved_at on insert and never updates it, so the first solve
+  // Upload local plays the server lacks (offline plays, and plays
+  // from before the account state existed) — with the best move and
+  // best score, so the other device shows the word too, and with
+  // the first-play time, so the other device shows the true time.
+  // A local best that BEATS the server's is uploaded too (the
+  // server takes the greater of the two). The server stamps
+  // solved_at on insert and never updates it, so the first play
   // wins there too.
   const local = puzzleSolvedDates();
   const localMoves = puzzleSolvedMoves();
   const localTimes = puzzleSolvedTimes();
+  const localBest = puzzleBestScores();
   for (const d of [...local]) {
-    if (!serverSolved.has(d)) {
-      try { await api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: d, placements: localMoves[d] || undefined, solvedAt: localTimes[d] || undefined }) }); } catch {}
+    const lb = localBest[d];
+    if (!serverSolved.has(d) || (lb != null && (serverBest[d] == null || lb > serverBest[d]))) {
+      try { await api('/api/daily-puzzle/solve', { method: 'POST', body: JSON.stringify({ date: d, placements: localMoves[d] || undefined, solvedAt: localTimes[d] || undefined, bestScore: lb }) }); } catch {}
     }
   }
-  // Merge is the union. A move the server has wins over a local one
-  // for the same date (it is the first solve). The server's
-  // first-solve time wins for a date it has; a local time fills in
-  // only when the server has none (e.g. a legacy solve recorded
-  // before the server returned times).
+  // Merge is the union. The best score is the max of the two sides
+  // per date, and the winning side's move rides with it (the
+  // server's wins a tie, as before). The server's first-play time
+  // wins for a date it has; a local time fills in only when the
+  // server has none (e.g. a legacy solve recorded before the
+  // server returned times).
   const merged = new Set([...local, ...serverSolved]);
   const mergedMoves = {};
-  for (const d of merged) { if (serverMoves[d]) mergedMoves[d] = serverMoves[d]; else if (localMoves[d]) mergedMoves[d] = localMoves[d]; }
+  const mergedBest = {};
+  for (const d of merged) {
+    const lb = localBest[d], sb = serverBest[d];
+    if (lb != null && sb != null) mergedBest[d] = Math.max(lb, sb);
+    else if (lb != null) mergedBest[d] = lb;
+    else if (sb != null) mergedBest[d] = sb;
+    if (sb != null && (lb == null || sb >= lb)) { if (serverMoves[d]) mergedMoves[d] = serverMoves[d]; else if (localMoves[d]) mergedMoves[d] = localMoves[d]; }
+    else if (localMoves[d]) mergedMoves[d] = localMoves[d];
+    else if (serverMoves[d]) mergedMoves[d] = serverMoves[d];
+  }
   const mergedTimes = {};
   for (const d of merged) { if (serverTimes[d]) mergedTimes[d] = serverTimes[d]; else if (localTimes[d]) mergedTimes[d] = localTimes[d]; }
-  puzzleWriteStore(merged, mergedMoves, mergedTimes);
+  puzzleWriteStore(merged, mergedMoves, mergedTimes, mergedBest);
   return true;
 }
 function localDateKey(d) {
@@ -346,10 +407,11 @@ function renderPuzzleBoard() {
   // element), so re-attach it from the state after every rebuild —
   // the same pattern as the game's last-play bubble.
   if (st.bubble && st.placed.length) puzzleShowBubble(st.bubble.score, st.bubble.mainCells);
-  // v149: the buttons are Exit, Recall, Shuffle while playing; once
-  // solved they give way to Exit + Share + Replay (v155 — Replay
-  // re-opens the puzzle fresh, to the right of Share; there is no
-  // Back button any more — Exit is the way out).
+  // v191: the row is always Exit, Recall, Shuffle, Share — all
+  // visible, always. There is no Replay and no solved screen any
+  // more: the board stays playable after a word (the chase is the
+  // best score), and Share is greyed until a valid word has been
+  // made on this day's puzzle, then solid blue (.share-ready).
   // v154: the controls row itself must be visible — a finished real
   // game used to hide it (renderGame toggled the first .controls in
   // the document, which was this row), so reopening a solved puzzle
@@ -357,21 +419,20 @@ function renderPuzzleBoard() {
   // this removes the class here too so a stale hide can never stick.
   const ctrls = document.querySelector('#puzzleBoardScreen .controls');
   if (ctrls) ctrls.classList.remove('hidden');
-  const exit = $('puzzleBoardExitBtn'), recall = $('puzzleBoardRecallBtn'), shuffle = $('puzzleBoardShuffleBtn'), share = $('puzzleBoardShareBtn'), replay = $('puzzleBoardReplayBtn');
+  const exit = $('puzzleBoardExitBtn'), recall = $('puzzleBoardRecallBtn'), shuffle = $('puzzleBoardShuffleBtn'), share = $('puzzleBoardShareBtn');
   if (exit) exit.classList.remove('hidden');
-  if (recall) { recall.disabled = st.solved; recall.classList.toggle('hidden', st.solved); }
-  if (shuffle) { shuffle.disabled = st.solved; shuffle.classList.toggle('hidden', st.solved); }
-  if (share) share.classList.toggle('hidden', !st.solved);
-  if (replay) replay.classList.toggle('hidden', !st.solved);
+  if (recall) { recall.disabled = false; recall.classList.remove('hidden'); }
+  if (shuffle) { shuffle.disabled = false; shuffle.classList.remove('hidden'); }
+  if (share) { share.classList.remove('hidden'); share.disabled = !st.played; share.classList.toggle('share-ready', !!st.played); }
 }
 function puzzleBoardSelectRack(i) {
-  const st = puzzleBoardState; if (!st || st.solved) return;
+  const st = puzzleBoardState; if (!st) return;
   const t = st.rack[i]; if (!t || t.used) return;
   st.selected = st.selected === i ? null : i;
   renderPuzzleBoard();
 }
 function puzzleBoardTapCell(r, c) {
-  const st = puzzleBoardState; if (!st || st.solved) return;
+  const st = puzzleBoardState; if (!st) return;
   if (st.board[r][c]) return; // a fixed board tile — not playable
   const placedIdx = st.placed.findIndex(p => p.row === r && p.col === c);
   if (placedIdx !== -1) {
@@ -479,9 +540,13 @@ function puzzleRecallPlaced(p) {
 // ("___ is not a word", the game's exact wording), and a valid word
 // shows the point bubble on the last cell of the main word. There is
 // no Check button any more — the evaluation runs automatically when
-// a placement completes, and the optimal word solves at once.
-// v150: the status line only ever says one of four things. "That's
-// it!" when the optimal move is placed (st.solved); the invalid /
+// a placement completes.
+// v191: ANY valid word counts — the day is played on the first
+// valid word, and the best score is the chase; the optimal is no
+// longer a gate. Hitting the optimal is still the ceiling:
+// "That's it!" reads when the word on the board IS the optimal.
+// v150: the status line only ever says one of three things.
+// "That's it!" when the placed word hits the optimal; the invalid /
 // disconnected message when a bad word is placed (st.msg holds only
 // those); "Find the best move." otherwise — at the start, when
 // nothing is placed, or when a valid word isn't the best move.
@@ -491,7 +556,8 @@ function puzzleUpdateStatusEl() {
   const st = puzzleBoardState; if (!st) return;
   const status = $('puzzleBoardStatus');
   if (!status) return;
-  status.textContent = st.solved ? "That's it!" : (st.msg || 'Find the best move.');
+  const hitOptimal = st.lastScore != null && st.lastScore >= st.puzzle.optimalScore;
+  status.textContent = hitOptimal ? "That's it!" : (st.msg || 'Find the best move.');
   status.className = 'status puzzle-status';
 }
 // v150: the strength bar tracks the currently placed word and moves
@@ -536,13 +602,13 @@ function puzzleShowBubble(score, mainCells) {
 // v150: the placed word is evaluated live as tiles move, and placed
 // tiles STAY on the board — there is no bounce-back and no commit
 // timer any more. A valid word updates the strength bar immediately
-// on placement; only the optimal move solves. The player uses Recall
-// (or drags tiles back) to try a different word. The status line
-// only ever carries an invalid / disconnected message (st.msg) —
-// anything else defaults to "Find the best move." in
-// puzzleUpdateStatusEl, and a solved puzzle reads "That's it!".
+// on placement. The player uses Recall (or drags tiles back) to try
+// a different word. The status line only ever carries an invalid /
+// disconnected message (st.msg) — anything else defaults to "Find
+// the best move." in puzzleUpdateStatusEl, and a word that hits the
+// optimal reads "That's it!".
 function puzzleLiveValidate() {
-  const st = puzzleBoardState; if (!st || st.solved) return;
+  const st = puzzleBoardState; if (!st) return;
   if (!st.placed.length) { st.msg = ''; st.lastPct = null; st.lastScore = null; st.bubble = null; puzzleHideBubble(); puzzleUpdateStatusEl(); puzzleUpdateStrengthBar(); return; }
   if (!localEngine) { st.msg = ''; st.bubble = null; puzzleHideBubble(); puzzleUpdateStatusEl(); return; }
   const res = localEngine.validatePlay(st.board, st.puzzle.rack, st.placed.map(p => ({ row: p.row, col: p.col, letter: p.letter })), st.puzzle.premiums, false);
@@ -571,23 +637,27 @@ function puzzleLiveValidate() {
   puzzleUpdateStrengthBar();
   puzzleShowBubble(res.score, res.mainCells);
   puzzleUpdateStatusEl();
-  if (res.score >= st.puzzle.optimalScore) puzzleSolveNow(res);
+  // v191: any valid word counts — record the play (streak credit
+  // on the first word, best score when it beats the day's best).
+  puzzleRecordPlay(res);
 }
-function puzzleSolveNow(res) {
-  const st = puzzleBoardState; if (!st || st.solved) return;
-  st.solved = true;
-  st.replaying = false;
-  puzzleSaveSolved(st.dateKey, st.placed);
-  // v156: the Share timestamp is the FIRST solve time — the store
-  // keeps it (puzzleSaveSolved only records it when absent), so read
-  // it back; a re-solve after a Replay never updates it.
-  const firstT = puzzleSolvedTimes()[st.dateKey];
-  st.solvedAt = firstT ? new Date(firstT) : new Date();
-  st.lastPct = 100; st.lastScore = res.score;
-  // v150: the status reads "That's it!" (the solved branch of
-  // puzzleUpdateStatusEl, reached via renderPuzzleBoard), and the
-  // bubble stays on the solved word (the game's last-play bubble).
-  renderPuzzleBoard(); renderHomeHeader(); renderPuzzleWeekStrip(); puzzleConfetti();
+// v191: record a valid word. The day is played (streak credit),
+// the best score updates when this word beats it, Share enables,
+// and the home header + week strip refresh. Hitting the optimal
+// is the ceiling — confetti, once, when a NEW best reaches it (a
+// re-play of an already-maxed day does not rain again). The board
+// never locks: renderPuzzleBoard refreshes the buttons, and the
+// player keeps chasing a better word.
+function puzzleRecordPlay(res) {
+  const st = puzzleBoardState; if (!st) return;
+  const score = res.score;
+  const prevBest = puzzleBestScores()[st.dateKey];
+  const isNewBest = prevBest == null || score > prevBest;
+  st.played = true;
+  if (isNewBest) st.bestScore = score;
+  puzzleSavePlay(st.dateKey, st.placed, score);
+  renderPuzzleBoard(); renderHomeHeader(); renderPuzzleWeekStrip();
+  if (isNewBest && score >= st.puzzle.optimalScore) puzzleConfetti();
 }
 // v152: confetti rains from the top of the screen on a puzzle solve
 // — brand-colour pieces, random sizes and fall speeds, cleaned up
@@ -613,7 +683,14 @@ function puzzleConfetti() {
 }
 // v152: the 7-day strip above the puzzle board — today on the right,
 // the 6 most recent days to its left. A solid flame for a day the
-// puzzle was solved, a grey flame for a missed one.
+// puzzle was played, a grey flame for a missed one.
+// v191: between the flame and the weekday letter, each played day
+// shows its best percentage (best score / that day's optimal) —
+// the puzzle is a high-score chase now, not a 100% gate. A day
+// with no play shows no %; a pre-v191 solve reads 100% (see
+// puzzleBestPct). The % needs the day's puzzle entry; the cache is
+// warm whenever the strip renders from the puzzle screen, and a
+// cold cache re-renders once the file lands.
 function renderPuzzleWeekStrip() {
   const strip = $('puzzleWeekStrip'); if (!strip) return;
   const solved = puzzleSolvedDates();
@@ -623,15 +700,21 @@ function renderPuzzleWeekStrip() {
   // letter now, not below it.
   // v154: 24px (was 18px) — Jeff wants the icons bigger.
   const flameSvg = '<svg viewBox="0 0 24 24" width="24" height="24"><path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z" fill="#ff8d03"/></svg>';
+  const all = dailyPuzzlesCache;
   strip.innerHTML = '';
   for (let i = 6; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i);
+    const key = localDateKey(d);
     const day = document.createElement('div');
-    day.className = 'day' + (i === 0 ? ' today' : '') + (solved.has(localDateKey(d)) ? '' : ' missed');
+    day.className = 'day' + (i === 0 ? ' today' : '') + (solved.has(key) ? '' : ' missed');
     const letter = document.createElement('span'); letter.className = 'letter'; letter.textContent = letters[d.getDay()];
     const flame = document.createElement('span'); flame.className = 'flame'; flame.innerHTML = flameSvg;
-    day.appendChild(flame); day.appendChild(letter); strip.appendChild(day);
+    day.appendChild(flame);
+    const pct = all && all[key] ? puzzleBestPct(key, all[key].optimalScore) : null;
+    if (pct != null) { const p = document.createElement('span'); p.className = 'pct'; p.textContent = pct + '%'; day.appendChild(p); }
+    day.appendChild(letter); strip.appendChild(day);
   }
+  if (!all) loadDailyPuzzles().then(() => { if ($('puzzleWeekStrip')) renderPuzzleWeekStrip(); }).catch(() => {});
 }
 // v152: a Share link (?puzzle=...) opens the daily puzzle once the
 // app is up. The param is consumed (cleared from the URL) so a later
@@ -782,7 +865,7 @@ function enablePuzzleRackDrag(el, idx) {
     clearDragCleanup(cleanup);
   };
   el.addEventListener('pointerdown', e => {
-    const st = puzzleBoardState; if (!st || st.solved) return;
+    const st = puzzleBoardState; if (!st) return;
     const t = st.rack[idx]; if (!t || t.used) return;
     cleanupStuckDrag();
     dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null; captureId = e.pointerId;
@@ -835,7 +918,7 @@ function enablePuzzleRackDrag(el, idx) {
     // suppressNextClick, but if it never fires (the drop re-rendered
     // the tile away) the flag must not stick and eat the next tap.
     setTimeout(() => { suppressNextClick = false; }, 150);
-    const st = puzzleBoardState; if (!st || st.solved) return;
+    const st = puzzleBoardState; if (!st) return;
     if (!wasMoved) { puzzleBoardSelectRack(idx); return; }
     if (myDrop && myDrop.kind === 'board') {
       const t = st.rack[idx]; if (!t || t.used) return;
@@ -873,7 +956,7 @@ function enablePuzzlePlacedDrag(el, p) {
     clearDragCleanup(cleanup);
   };
   el.addEventListener('pointerdown', e => {
-    const st = puzzleBoardState; if (!st || st.solved) return;
+    const st = puzzleBoardState; if (!st) return;
     cleanupStuckDrag();
     dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null; captureId = e.pointerId;
     puzzleDragLive = true;
@@ -931,7 +1014,7 @@ function enablePuzzlePlacedDrag(el, p) {
     const myDrop = drop, wasMoved = moved;
     cleanup();
     setTimeout(() => { suppressNextClick = false; }, 150);
-    const st = puzzleBoardState; if (!st || st.solved) return;
+    const st = puzzleBoardState; if (!st) return;
     if (!wasMoved) { puzzleRecallPlaced(p); return; }
     if (myDrop && myDrop.kind === 'rack') {
       const orig = p.rackIndex, target = myDrop.slot;
@@ -976,17 +1059,16 @@ function enablePuzzlePlacedDrag(el, p) {
 }
 // v149: Recall sends every placed tile back to the rack (the game's
 // Recall button). There is no Check button any more — the word is
-// evaluated live as tiles move (puzzleLiveValidate) and the optimal
-// word solves at once.
+// evaluated live as tiles move (puzzleLiveValidate).
 function puzzleBoardRecall() {
-  const st = puzzleBoardState; if (!st || st.solved) return;
+  const st = puzzleBoardState; if (!st) return;
   for (const p of st.placed) st.rack[p.rackIndex].used = false;
   st.placed = []; st.selected = null; st.msg = '';
   renderPuzzleBoard();
   puzzleLiveValidate();
 }
 function puzzleBoardShuffle() {
-  const st = puzzleBoardState; if (!st || st.solved) return;
+  const st = puzzleBoardState; if (!st) return;
   // Shuffle the rack (local only — no server sync). Resolve each
   // placed tile to its rack tile object BEFORE the shuffle, so
   // rackIndex follows the tile even when letters repeat.
@@ -999,15 +1081,15 @@ function puzzleBoardShuffle() {
   st.selected = null;
   renderPuzzleBoard();
 }
-// v153: a solved puzzle reopens with the played word on the board.
+// v153: a played puzzle reopens with the best word on the board.
 // The stored move ([{row, col, letter}]) is matched back onto the
 // rack (each letter takes an unused rack tile); the point bubble
 // goes back on the word too. Returns the word's cells (for the
 // bubble) or null when there is no stored move that fits. A move
 // that does not fit the rack is ignored, never fatal — the rack is
 // only touched once the whole move has been matched.
-function puzzleRestoreSolvedMove(st) {
-  if (!st || !st.solved) return null;
+function puzzleRestoreBestMove(st) {
+  if (!st || !st.played) return null;
   const move = puzzleSolvedMoves()[st.dateKey];
   if (!Array.isArray(move) || !move.length) return null;
   const taken = new Set();
@@ -1044,52 +1126,51 @@ async function openDailyPuzzle() {
     const [y, m, d] = entry.dateKey.split('-').map(Number);
     dateEl.textContent = new Date(y, m - 1, d, 12).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   }
-  const solved = puzzleSolvedDates().has(entry.dateKey);
+  const played = puzzleSolvedDates().has(entry.dateKey);
   puzzleBoardState = {
     entry, dateKey: entry.dateKey, puzzle: entry.puzzle, board: puzzleBoardBase(entry),
     rack: entry.puzzle.rack.map(ch => ({ ch, used: false })),
-    placed: [], selected: null, solved, msg: '',
+    placed: [], selected: null, played, msg: '',
     lastPct: null, lastScore: null, bubble: null,
-    replaying: false, solvedAt: null,
+    bestScore: null,
   };
-  // v150: a solved puzzle reopens with the status reading "That's
-  // it!" (the solved branch of puzzleUpdateStatusEl) and the bar at
-  // 100% — no solved message is stored in st.msg any more.
-  // v153: the played word is on the board too (the stored move is
-  // restored onto the rack), with its point bubble back on it.
-  let solvedCells = null;
-  if (solved) {
-    puzzleBoardState.lastPct = 100;
-    solvedCells = puzzleRestoreSolvedMove(puzzleBoardState);
-    // v156: the Share timestamp is the FIRST solve time, restored
-    // from the store so a reopen shows the original time, not now.
-    const firstT = puzzleSolvedTimes()[entry.dateKey];
-    if (firstT) puzzleBoardState.solvedAt = new Date(firstT);
+  // v191: a played puzzle reopens with the best word on the board
+  // and the bar at the best % (not 100% unless the best IS the
+  // optimal). The status reads "That's it!" only when the best
+  // word hit the optimal (puzzleUpdateStatusEl reads lastScore).
+  let bestCells = null;
+  if (played) {
+    const best = puzzleBestScores()[entry.dateKey];
+    // A pre-v191 solve has no recorded best — it solved at the
+    // optimal or better, so the bar and bubble read the optimal.
+    puzzleBoardState.bestScore = best != null ? best : entry.puzzle.optimalScore;
+    puzzleBoardState.lastScore = puzzleBoardState.bestScore;
+    puzzleBoardState.lastPct = puzzleBestPct(entry.dateKey, entry.puzzle.optimalScore);
+    bestCells = puzzleRestoreBestMove(puzzleBoardState);
   }
   renderPuzzleBoard();
-  if (solvedCells) puzzleShowBubble(puzzleBoardState.puzzle.optimalScore, solvedCells);
+  if (bestCells) puzzleShowBubble(puzzleBoardState.bestScore, bestCells);
   renderPuzzleWeekStrip();
-  // The solved-state sync runs in the background (v148): it was
+  // The played-state sync runs in the background (v148): it was
   // already warmed by the preload, and blocking the board on a fresh
   // fetch is what made the first tap wait. If the sync finds the
-  // server disagrees with the local solved state (solved on another
+  // server disagrees with the local played state (played on another
   // device), show the server's state in place.
   puzzleSyncFromServer().then(ok => {
     if (!ok || !puzzleBoardState || puzzleBoardState.dateKey !== entry.dateKey) return;
-    // v156: a Replay in progress must not be flipped back to solved
-    // by the sync — the board stays playable until the user solves
-    // again or exits; reopening shows the completed board.
-    if (puzzleBoardState.replaying) return;
-    const nowSolved = puzzleSolvedDates().has(entry.dateKey);
-    if (nowSolved !== puzzleBoardState.solved) {
-      puzzleBoardState.solved = nowSolved;
-      if (nowSolved) {
-        puzzleBoardState.lastPct = 100;
+    const nowPlayed = puzzleSolvedDates().has(entry.dateKey);
+    if (nowPlayed !== puzzleBoardState.played) {
+      puzzleBoardState.played = nowPlayed;
+      if (nowPlayed) {
+        const best = puzzleBestScores()[entry.dateKey];
+        puzzleBoardState.bestScore = best != null ? best : entry.puzzle.optimalScore;
+        puzzleBoardState.lastScore = puzzleBoardState.bestScore;
+        puzzleBoardState.lastPct = puzzleBestPct(entry.dateKey, entry.puzzle.optimalScore);
         // v153: the move came down with the sync — put the word on
-        // the board (and its bubble) instead of an empty solved board.
-        const cells = puzzleRestoreSolvedMove(puzzleBoardState);
+        // the board (and its bubble) instead of an empty board.
+        const cells = puzzleRestoreBestMove(puzzleBoardState);
         renderPuzzleBoard();
-        if (cells) puzzleShowBubble(puzzleBoardState.puzzle.optimalScore, cells);
+        if (cells) puzzleShowBubble(puzzleBoardState.bestScore, cells);
       } else {
         puzzleBoardState.msg = '';
         puzzleBoardState.lastPct = null;
@@ -1097,26 +1178,21 @@ async function openDailyPuzzle() {
       }
       renderHomeHeader(); renderPuzzleWeekStrip();
     }
-    // v156: the sync may have filled in the first-solve time from
-    // the server (solved on another device) — pick it up so Share
-    // shows the true first time.
-    if (puzzleBoardState.solved && !puzzleBoardState.solvedAt) {
-      const t = puzzleSolvedTimes()[entry.dateKey];
-      if (t) puzzleBoardState.solvedAt = new Date(t);
-    }
   }).catch(() => {});
 }
 function closeDailyPuzzle() { show('homeScreen'); }
-// v152: after solving, Share replaces Play again. It opens the
-// Messages app with the solve time and a link that opens the puzzle
-// in the app (the ?puzzle link is picked up on load by
-// maybeOpenPuzzleDeepLink).
+// v191: Share opens the Messages app with the day's best
+// percentage — "I scored ___% on the Duello Daily Puzzle!" —
+// plus a link that opens the puzzle in the app (the ?puzzle link
+// is picked up on load by maybeOpenPuzzleDeepLink). The % is the
+// same number the week strip shows for the day. Share is only
+// enabled once a valid word has been made (the button is greyed
+// before that), so the guard here is belt-and-braces.
 function puzzleBoardShare() {
-  const st = puzzleBoardState; if (!st || !st.solved) return;
-  const when = st.solvedAt || new Date();
-  let h = when.getHours(); const m = String(when.getMinutes()).padStart(2, '0');
-  const ap = h >= 12 ? 'pm' : 'am'; h = h % 12 || 12;
-  const msg = 'I solved the Duello Daily Puzzle at ' + h + ':' + m + ap + '! https://duellogame.com/?puzzle=today';
+  const st = puzzleBoardState; if (!st || !st.played) return;
+  const pct = puzzleBestPct(st.dateKey, st.puzzle.optimalScore);
+  if (pct == null) return;
+  const msg = 'I scored ' + pct + '% on the Duello Daily Puzzle! https://duellogame.com/?puzzle=today';
   window.location.href = 'sms:?&body=' + encodeURIComponent(msg);
 }
 // v187: the profile share card — the image behind a ?friend= link.
@@ -1224,25 +1300,6 @@ async function shareProfileCard() {
   window.location.href = 'sms:?&body=' + encodeURIComponent(msg);
 }
 $('profileShareBtn').onclick = shareProfileCard;
-// v156: Replay sits to the right of Share and shows only on a solved
-// puzzle. It re-opens today's puzzle fresh — empty rack, no placed
-// tiles, 0% strength, "Find the best move." — but it does NOT
-// unsolve: the solve is forever, so the date stays in the solved
-// set, the flame stays coloured, and the stored move and first-solve
-// time stay. `replaying` marks this board so the background sync
-// never flips it back to solved mid-play; exiting and reopening
-// always shows the completed board with "That's it!" instead.
-function puzzleBoardReplay() {
-  const st = puzzleBoardState; if (!st || !st.solved) return;
-  puzzleBoardState = {
-    entry: st.entry, dateKey: st.dateKey, puzzle: st.puzzle, board: puzzleBoardBase(st.entry),
-    rack: st.puzzle.rack.map(ch => ({ ch, used: false })),
-    placed: [], selected: null, solved: false, replaying: true, msg: '',
-    lastPct: null, lastScore: null, bubble: null, solvedAt: null,
-  };
-  puzzleHideBubble();
-  renderPuzzleBoard(); renderHomeHeader(); renderPuzzleWeekStrip();
-}
 function show(id) {
   // Leaving the board closes the live game stream (a new game opens
   // its own in enterGameScreen); the stat window is an overlay on
@@ -1273,10 +1330,11 @@ function show(id) {
   try { document.body.classList.toggle('game-open', id === 'gameScreen' || id === 'puzzleBoardScreen'); } catch {}
   const tb = $('tabBar'); if (tb) tb.classList.toggle('hidden', !isMenu);
   // v187: the Challenge via Text button lives only on the Friends
-  // leaderboard — hide it (and its fade + mask) on every other screen.
+  // leaderboard — hide it (and its mask) on every other screen.
+  // v191: the fade is gone (Jeff: don't fade the texture around
+  // the button) — the textured mask covers the fade band too.
   const ctOn = id === 'friendsScreen' && lbScope === 'friends';
   const ctb = $('challengeTextBtn'); if (ctb) ctb.classList.toggle('hidden', !ctOn);
-  const ctf = $('ctFade'); if (ctf) ctf.classList.toggle('hidden', !ctOn);
   const ctm = $('ctMask'); if (ctm) ctm.classList.toggle('hidden', !ctOn);
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   if ((id === 'homeScreen' || id === 'botScreen') && $('tabHome')) $('tabHome').classList.add('active');
@@ -1945,7 +2003,6 @@ async function renderFriendsUI() {
   // on every navigation (leaving Friends hides it at once).
   const ctOn = lbScope === 'friends';
   $('challengeTextBtn').classList.toggle('hidden', !ctOn);
-  $('ctFade').classList.toggle('hidden', !ctOn);
   $('ctMask').classList.toggle('hidden', !ctOn);
   $('friendsScreen').classList.toggle('ct-visible', ctOn);
   // Already loaded for this scope and nothing changed since: just
@@ -2721,7 +2778,6 @@ $('puzzleBoardExitBtn').onclick = closeDailyPuzzle;
 $('puzzleBoardRecallBtn').onclick = puzzleBoardRecall;
 $('puzzleBoardShuffleBtn').onclick = puzzleBoardShuffle;
 $('puzzleBoardShareBtn').onclick = puzzleBoardShare;
-$('puzzleBoardReplayBtn').onclick = puzzleBoardReplay;
 // v148: the rack has no delegated click any more — rack-tile taps
 // select via the pointerup handler in enablePuzzleRackDrag, and a
 // delegated click would double-toggle after it.

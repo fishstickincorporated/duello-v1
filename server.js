@@ -243,9 +243,16 @@ async function seedPersonas() {
   // box reads it at ~100%. Same 500 identities, same mix counts;
   // only photo data changes. Same delete + re-insert shape as
   // v5/v6/v7/v8/v9.
+  // v11 (Nov 23, 2026): all 375 photos re-cut at 192px from the v173
+  // source grids (faces-v182/) because the 96px photos are visibly
+  // soft at 84 CSS px on a 3x iPhone, and the off-white band gate
+  // (border_gate_v182.py) caught Cora's bottom band plus 17 more
+  // off-white margins/gutters the >=240 rules missed. Same 500
+  // identities, same mix counts; only photo data changes. Same
+  // delete + re-insert shape as v5/v6/v7/v8/v9/v10.
   await q('CREATE TABLE IF NOT EXISTS persona_seed (version INT PRIMARY KEY)');
   const v = await q('SELECT MAX(version) AS v FROM persona_seed');
-  if ((v.rows[0].v || 0) >= 10) return;
+  if ((v.rows[0].v || 0) >= 11) return;
   // v6 needs NULL photos: the original schema declared photo_url
   // NOT NULL, so drop that first (idempotent on later boots).
   await q('ALTER TABLE personas ALTER COLUMN photo_url DROP NOT NULL');
@@ -267,8 +274,8 @@ async function seedPersonas() {
     params.push(p.username, p.firstName, p.lastName, p.gender, p.elo, p.photoUrl);
   });
   await q(`INSERT INTO personas (username, first_name, last_name, gender, elo, photo_url) VALUES ${values.join(',')}`, params);
-  await q('INSERT INTO persona_seed (version) VALUES (10)');
-  console.log(`Personas refreshed to seed v10 (${rows.length})`);
+  await q('INSERT INTO persona_seed (version) VALUES (11)');
+  console.log(`Personas refreshed to seed v11 (${rows.length})`);
 }
 async function q(text, params) { return pool.query(text, params); }
 function hashPassword(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }

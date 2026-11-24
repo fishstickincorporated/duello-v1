@@ -21,6 +21,10 @@ let me = null, game = null, gameFetchAt = 0;
 // when the board shows a finished game from the Past Games list
 // (the review buttons replace the end buttons there).
 let replayIndex = null, reviewMode = false;
+// v182: where the review was entered from — 'gamelog' (Game History
+// list) or 'profile' (a longest/best word on the Profile tab).
+// Exit routes back to the same place instead of always the log.
+let reviewOrigin = 'gamelog';
 // Declared up here, not with the auth block below: the boot code calls
 // setAuthMode, which assigns authMode, so this declaration must already
 // have run or the page dies before any screen shows (ReferenceError:
@@ -86,7 +90,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 181;
+const APP_VERSION = 182;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -2353,6 +2357,11 @@ function isOffline() {
 }
 let searchTimer = null, searchingActive = false;
 let searchMode = 'random', challengePersona = null, liveChallengeId = null;
+// v182: the three blue dots pulse while waiting for an answer; once
+// a challenge is declined (or ends any other way) they stop and sit
+// dimmed instead of looping forever next to the "declined" line.
+function stopSearchingDots() { const d = document.querySelector('.searching-dots'); if (d) d.classList.add('stopped'); }
+function startSearchingDots() { const d = document.querySelector('.searching-dots'); if (d) d.classList.remove('stopped'); }
 function cancelSearch() {
   // Leaving the Play Online queue (v123, item 4): only if a search
   // was actually in progress — cancelSearch also runs on every
@@ -2371,6 +2380,7 @@ function cancelSearch() {
   if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
   $('searchingText').textContent = 'Searching for opponent…';
   $('searchCancelBtn').textContent = 'Cancel';
+  startSearchingDots();
 }
 function startSearching() {
   cancelSearch();
@@ -2444,6 +2454,7 @@ async function startChallenge(r) {
       if (!searchingActive) return;
       searchingActive = false; searchTimer = null;
       $('searchingText').textContent = (e && e.message) || `Couldn't reach ${first} right now.`;
+      stopSearchingDots();
       $('searchCancelBtn').textContent = 'Back to Friends';
       return;
     }
@@ -2459,14 +2470,15 @@ async function startChallenge(r) {
         const ch = await api(`/api/challenges/${challengeId}`);
         if (!searchingActive) return;
         if (ch.status === 'accepted' && ch.gameId) { searchingActive = false; searchTimer = null; liveChallengeId = null; joinChallengeGame(ch.gameId); return; }
-        if (ch.status === 'declined') { searchingActive = false; searchTimer = null; liveChallengeId = null; $('searchingText').textContent = `${first} declined the challenge.`; $('searchCancelBtn').textContent = 'Back to Friends'; return; }
-        if (ch.status !== 'pending') { searchingActive = false; searchTimer = null; liveChallengeId = null; $('searchingText').textContent = `That challenge ended.`; $('searchCancelBtn').textContent = 'Back to Friends'; return; }
+        if (ch.status === 'declined') { searchingActive = false; searchTimer = null; liveChallengeId = null; $('searchingText').textContent = `${first} declined the challenge.`; stopSearchingDots(); $('searchCancelBtn').textContent = 'Back to Friends'; return; }
+        if (ch.status !== 'pending') { searchingActive = false; searchTimer = null; liveChallengeId = null; $('searchingText').textContent = `That challenge ended.`; stopSearchingDots(); $('searchCancelBtn').textContent = 'Back to Friends'; return; }
       } catch {}
       waited += 2000;
       if (waited >= 60000) {
         searchingActive = false; searchTimer = null; liveChallengeId = null;
         try { await api(`/api/challenges/${challengeId}/cancel`, { method: 'POST' }); } catch {}
         $('searchingText').textContent = `${first} didn't answer — they may not be in the app right now.`;
+        stopSearchingDots();
         $('searchCancelBtn').textContent = 'Back to Friends';
         return;
       }
@@ -2482,6 +2494,7 @@ async function startChallenge(r) {
       startGame('persona', r.id);
     } else {
       $('searchingText').textContent = `${first} declined the challenge.`;
+      stopSearchingDots();
       $('searchCancelBtn').textContent = 'Back to Friends';
     }
   }, 5000 + Math.floor(Math.random() * 2000));
@@ -4081,12 +4094,19 @@ function settleLocalClock() {
 function startLocalBotTurn() {
   game.clocks.turn = 'bot'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now();
   // Think is 5s normally, 2s once the human clock is at 0 (same rule as
-  // botThinkMsFor for non-persona bots) — except Fishstick in
-  // shot-clock mode (v161): the human clock is at 0 and the bot still
-  // has time, so the bot is playing on under the countdown, and it
-  // thinks a full 5s there.
-  game.botThinkMs = (game.clocks.human <= 0 && !(game.botType === 'fishstick' && game.clocks.bot > 0)) ? 2000 : 5000;
+  // botThinkMsFor for non-persona bots) — except in shot-clock mode
+  // (v161 Fishstick, v182 Doppelgänger): the human clock is at 0 and
+  // the bot still has time, so the bot is playing on under the
+  // countdown, and it thinks a full 5s there.
+  const botHasShotClock = game.clocks.human <= 0 && game.clocks.bot > 0;
+  game.botThinkMs = (game.clocks.human <= 0 && !(botHasShotClock && (game.botType === 'fishstick' || game.botType === 'competitive'))) ? 2000 : 5000;
   game.botThinkUntil = Date.now() + game.botThinkMs;
+  // v182: Doppelgänger shot-clock skip — 1 in 6 moves he lets the 9s
+  // run out without playing (random per move, not a sequence). The
+  // roll happens once per turn, here; the flag stays set for the whole
+  // turn because the watchdog re-invokes the turn while the countdown
+  // runs, and every invocation must still skip (see runLocalBotTurnInner).
+  game.botShotClockSkip = game.botType === 'competitive' && botHasShotClock && Math.random() < 1 / 6;
 }
 function stepLocalBotClock() {
   if (game.clocks.bot > 0) game.clocks.bot = Math.floor((game.clocks.bot - 1) / 20000) * 20000;
@@ -4283,6 +4303,13 @@ async function runLocalBotTurnInner() {
     game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); game.botThinkUntil = null; game.botThinkMs = null;
     renderGame(); finishLocalIfNeeded(); return;
   }
+  // v182: Doppelgänger shot-clock skip — the 1-in-6 roll from
+  // startLocalBotTurn. No move, no countdown reset, no turn flip:
+  // the tick's byoyomi expiry ends the game (winner by score).
+  // The flag is NOT cleared here: the watchdog re-invokes this turn
+  // while the countdown runs, and every invocation must skip, or
+  // the bot would play before the 9s expires.
+  if (game.botShotClockSkip) { renderGame(); return; }
   if (!localWords) { try { await ensureLocalWords(); } catch {} }
   if (!localEngine || !localWords) { $('status').textContent = 'Offline play needs the dictionary — connect once to download it.'; return; }
   const isFirst = game.isFirst;
@@ -4327,16 +4354,17 @@ async function runLocalBotTurnInner() {
   applyLocalMove('bot', move, bestScore);
   resetByoyomi('bot'); // v157: a move by the countdown player refreshes the 9s.
   // v161: in shot-clock mode Fishstick drains exactly 9s off the
-  // clock per move instead of the normal 20s step. The think + solve
-  // already drained E = preThinkBot - fromMs in real time (folded by
-  // the settles above), so the animated runoff is the remainder
-  // (BYOYOMI_MS - E) — the move lands ~5s after the turn starts (5s think
-  // + a fast solve) and the clock still drops 9s total. Measured
-  // off the clock itself: settleLocalClock resets turnStartedAt, so
-  // a timestamp would read ~0 elapsed and double-count the think.
-  // Outside shot-clock mode, and for the Competitive bot, the normal
-  // 20s step stands.
-  if (game.botType === 'fishstick' && byoyomiSide === 'bot') {
+  // clock per move instead of the normal 20s step. v182: Doppelgänger
+  // does the same (5s think + the rest of the 9s as runoff).
+  // The think + solve already drained E = preThinkBot - fromMs in
+  // real time (folded by the settles above), so the animated runoff
+  // is the remainder (BYOYOMI_MS - E) — the move lands ~5s after the
+  // turn starts (5s think + a fast solve) and the clock still drops
+  // 9s total. Measured off the clock itself: settleLocalClock resets
+  // turnStartedAt, so a timestamp would read ~0 elapsed and
+  // double-count the think.
+  // Outside shot-clock mode, the normal 20s step stands.
+  if ((game.botType === 'fishstick' || game.botType === 'competitive') && byoyomiSide === 'bot') {
     const elapsedMs = preThinkBot - fromMs;
     const runoffMs = Math.max(0, BYOYOMI_MS - elapsedMs);
     game.clocks.bot = Math.max(0, game.clocks.bot - runoffMs);
@@ -5232,6 +5260,12 @@ function showStatWindow(stats) {
   rankCache.clear();
   clearStatDelay(); if (game) statShownGameId = game.id;
   const w = $('statWindow'); w.classList.remove('hidden');
+  // v182: in a game review the stats window has no Main Menu / Play
+  // Again — just a grey Back button that does exactly what tapping
+  // outside the window does (back to the board view).
+  $('statMainMenu').classList.toggle('hidden', reviewMode);
+  $('statPlayAgain').classList.toggle('hidden', reviewMode);
+  $('statBackBtn').classList.toggle('hidden', !reviewMode);
   // v148: a fresh stat window starts with the optimal-moves list closed.
   const optListEl = $('statOptimalList'); if (optListEl) optListEl.classList.add('hidden');
   statOptimalSide = null;
@@ -5351,7 +5385,11 @@ function showStatWindow(stats) {
   // 5-second poll.
   checkIncomingChallenges();
 }
-$('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) { clearStatDelay(); $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); } });
+// v182: the Back button in a review does exactly what tapping the
+// backdrop does — close the stats window back to the board view.
+function closeStatWindow() { clearStatDelay(); $('statWindow').classList.add('hidden'); $('gameDim').classList.remove('dimmed'); }
+$('statWindow').addEventListener('click', e => { if (e.target === $('statWindow')) closeStatWindow(); });
+$('statBackBtn').onclick = closeStatWindow;
 // Leaving the board screen refreshes the leaderboard data in the
 // background: Elo earned in the game just played otherwise only
 // shows up after a full reload, because loadMe, the Global rows
@@ -5404,7 +5442,7 @@ $('replayBackBtn').onclick = () => stepReplay(-1);
 $('replayFwdBtn').onclick = () => stepReplay(1);
 // Game History review (v123, item 6; renamed v124): Exit returns to
 // the list; Game Stats opens the stat window for that game.
-$('reviewExitBtn').onclick = () => { reviewMode = false; clearReplay(); showPastGamesCached(); };
+$('reviewExitBtn').onclick = () => { reviewMode = false; clearReplay(); if (reviewOrigin === 'profile') { show('profileScreen'); if (!profileData) renderProfileUI(); } else showPastGamesCached(); };
 $('reviewStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
 const defCache = new Map();
 // Local definitions bundle (v115): the client copy of every bundled
@@ -6092,6 +6130,7 @@ async function openStatWordBoard(gameId, moveIndex, word) {
   reviewMode = true;
   replayIndex = (g.moveLog && g.moveLog.length) ? (moveIndex ? Math.min(moveIndex, g.moveLog.length) : 0) : null;
   statShownGameId = g.id;
+  reviewOrigin = 'profile'; // v182: a record word from the Profile tab — Exit goes back there.
   enterReviewScreen();
 }
 function closeTenLetterModal() { $('tenLetterModal').classList.add('hidden'); }
@@ -6099,7 +6138,19 @@ $('tenLetterCloseBtn').onclick = closeTenLetterModal;
 $('tenLetterModal').addEventListener('click', e => { if (e.target === $('tenLetterModal')) closeTenLetterModal(); });
 function drawEloChart() {
   const cv = $('eloChart'); if (!cv || !profileData) return;
-  const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, cv.width, cv.height);
+  const ctx = cv.getContext('2d');
+  // v182: the canvas was drawn at its 340x110 backing store and
+  // stretched to the full profile width (~390 CSS px, ~1170 device
+  // px on a 3x iPhone) — that upscale is the blur. Size the backing
+  // store to the CSS size x devicePixelRatio (capped at 3) and draw
+  // in CSS pixels, so the line is sharp on retina.
+  const dpr = Math.min(3, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
+  const rect = (cv.getBoundingClientRect && cv.getBoundingClientRect()) || { width: cv.width, height: cv.height };
+  const w = Math.max(1, Math.round(rect.width || cv.width));
+  const h = Math.max(1, Math.round(rect.height || cv.height));
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
   let hist = (profileData.stats && profileData.stats.eloHistory) || [];
   const now = Date.now();
   if (chartRange === '1m') hist = hist.filter(h => now - new Date(h.created_at).getTime() < 30 * 24 * 3600 * 1000);
@@ -6110,7 +6161,7 @@ function drawEloChart() {
   if (pts.length < 2) pts.push(1000);
   const min = Math.min(...pts) - 20, max = Math.max(...pts) + 20;
   ctx.strokeStyle = '#03eaff'; ctx.lineWidth = 2; ctx.beginPath();
-  pts.forEach((v, i) => { const x = 10 + i * (cv.width - 20) / (pts.length - 1); const y = cv.height - 10 - ((v - min) / (max - min)) * (cv.height - 20); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+  pts.forEach((v, i) => { const x = 10 + i * (w - 20) / (pts.length - 1); const y = h - 10 - ((v - min) / (max - min)) * (h - 20); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
   ctx.stroke();
 }
 $('tabProfile').onclick = () => { show('profileScreen'); if (!profileData) renderProfileUI(); };
@@ -6201,6 +6252,10 @@ function renderPastGamesList(games) {
   if (!games.length) { list.innerHTML = '<div class="past-games-note">No finished games yet.</div>'; renderHistoryMore(); return; }
   list.innerHTML = '';
   games.forEach((g) => list.appendChild(pastGameRowEl(g)));
+  // v182: warm the full payloads for the first 10 rows (the same
+  // prefetch as the v175 record words) — a tap on one opens its
+  // review from the cache instead of awaiting a fetch.
+  games.slice(0, 10).forEach((g) => { if (g && g.id) prefetchStatWordGame(g.id); });
   renderHistoryMore();
 }
 // Switch the history filter (v128, item 4): the active tab is
@@ -6326,34 +6381,47 @@ function showPastGamesCached() {
   else openPastGames();
 }
 async function openPastGameDetail(gameId) {
-  if (isOffline()) { $('status').textContent = 'Game History needs a connection.'; return; }
-  try {
-    const g = await api(`/api/games/${gameId}`);
-    if (!g) return;
-    // Review mode: the finished game, its final board, and the
-    // replay arrows. The auto stat window is suppressed (the user
-    // opens it from the review row's Game Stats button instead).
-    game = g; gameFetchAt = Date.now(); pending = []; selectedRack = null;
-    reviewMode = true;
-    // Start at the final board (v124): the arrows, the point bubble
-    // and the status are set up at once instead of waiting for a
-    // tap. A game with no moveLog has no replay — leave the index
-    // null so the board shows the final state as-is.
-    replayIndex = (g.moveLog && g.moveLog.length) ? g.moveLog.length : null;
-    statShownGameId = g.id;
-    enterReviewScreen();
-  } catch (e) {
-    // Never fail silently (v124): a tap that does nothing is the
-    // bug Jeff reported — say so in the list instead of staying quiet.
-    const list = $('pastGamesList');
-    if (list && !openFailNoteShown) {
-      const note = document.createElement('div');
-      note.classList.add('past-games-note', 'open-fail');
-      note.textContent = 'Could not open that game.';
-      list.prepend(note);
-      openFailNoteShown = true;
+  // v182: the tap used to await GET /api/games/:id before anything
+  // appeared — on a slow connection that read as a dead tap (the
+  // same delay the v175 record-word prefetch fixed). The list
+  // prefetches the first 10 games when it renders, so a tap on one
+  // opens from the cache with no network wait; a cold tap falls back
+  // to the live fetch, and an offline tap still works when cached.
+  let g = null;
+  const prefetched = statWordGameCache[gameId];
+  if (prefetched) g = await prefetched.catch(() => null);
+  if (!g) {
+    if (isOffline()) { $('status').textContent = 'Game History needs a connection.'; return; }
+    try {
+      g = await api(`/api/games/${gameId}`);
+    } catch (e) {
+      // Never fail silently (v124): a tap that does nothing is the
+      // bug Jeff reported — say so in the list instead of staying quiet.
+      const list = $('pastGamesList');
+      if (list && !openFailNoteShown) {
+        const note = document.createElement('div');
+        note.classList.add('past-games-note', 'open-fail');
+        note.textContent = 'Could not open that game.';
+        list.prepend(note);
+        openFailNoteShown = true;
+      }
+      return;
     }
   }
+  if (!g) return;
+  // Review mode: the finished game, its final board, and the
+  // replay arrows. The auto stat window is suppressed (the user
+  // opens it from the review row's Game Stats button instead).
+  game = g; gameFetchAt = Date.now(); pending = []; selectedRack = null;
+  reviewMode = true;
+  // Start at the final board (v124): the arrows, the point bubble
+  // and the status are set up at once instead of waiting for a
+  // tap. A game with no moveLog has no replay — leave the index
+  // null so the board shows the final state as-is.
+  replayIndex = (g.moveLog && g.moveLog.length) ? g.moveLog.length : null;
+  statShownGameId = g.id;
+  reviewOrigin = 'gamelog'; // v182: entered from the Game History list — Exit goes back there.
+  enterReviewScreen();
 }
 // Review entry (v123, item 6): a finished game from Game History.
 // Unlike enterGameScreen (a new game), there is no countdown, no

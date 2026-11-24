@@ -1804,20 +1804,19 @@ async function loadGameForUser(user, id) {
 // persona-vs-persona games in the background: 2 games every 2
 // minutes, K=32 zero-sum with the standard Elo expected score, so
 // Elos drift the way real play would move them. No game rows are
-// written — only the personas table's elo column moves — and Elos
-// stay clamped to [200, 1500], the range the roster was seeded
-// with. PERSONA_SIM=off disables it (the harness sets this, and
+// written — only the personas table's elo column moves — and there is
+// no ceiling: Elos drift up without bound and are floored at 0.
+// PERSONA_SIM=off disables it (the harness sets this, and
 // the timer only starts after initDb succeeds and the server is
 // listening, so a failed Postgres connection never starts it).
-const PERSONA_SIM_MIN_ELO = 200;
-const PERSONA_SIM_MAX_ELO = 1500;
+const PERSONA_SIM_MIN_ELO = 0;
 const PERSONA_SIM_EVERY_MS = 2 * 60 * 1000;
 const PERSONA_SIM_GAMES_PER_TICK = 2;
-function clampPersonaElo(elo) { return Math.max(PERSONA_SIM_MIN_ELO, Math.min(PERSONA_SIM_MAX_ELO, Math.round(elo))); }
+function clampPersonaElo(elo) { return Math.max(0, Math.round(elo)); }
 // Pure: one simulated game between two Elos. The winner is drawn
 // from the standard Elo expected score (the higher Elo is favoured,
 // never certain); the delta is K=32 zero-sum, exactly like a human
-// game (engine eloDelta), then clamped to the roster range.
+// game (engine eloDelta), then floored at 0 (no ceiling).
 function simulatePersonaGame(aElo, bElo, rand) {
   const expectedA = 1 / (1 + Math.pow(10, (bElo - aElo) / 400));
   const aWins = rand() < expectedA;

@@ -683,23 +683,30 @@ squares are the premium colours, spread out across the whole screen. */
    color dominates. */
 .mode-online{background:repeating-linear-gradient(115deg,rgba(255,255,255,.05) 0 6px,transparent 6px 14px),linear-gradient(180deg,rgba(30,211,227,.8) 0%,rgba(28,140,159,.8) 100%);border-color:#1c7b8c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #1c6270}
 .mode-friends{background:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(180deg,rgba(50,227,30,.8) 0%,rgba(40,168,28,.8) 100%);background-size:22px 22px,22px 22px,100% 100%;border-color:#26911c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #22741c}
-/* v187: Challenge via Text — fixed above the tab bar, only on the
-   Friends leaderboard. Same width (100% - 32px, max 358px),
-   shape and texture as the Play Friends home button
-   (.mode.mode-friends), no sub-line, two-bubble icon, 0.75x the
-   92px home height = 69px. The tab bar is 65px + safe-area
-   (1px top border + 14px + 40px button + 10px), so the button
-   sits 16px above it (bottom: 65 + safe + 16); the 16px fade
-   strip above the button matches that 16px gap, and the
-   leaderboard fades across it as it scrolls under. The screen's
-   bottom padding grows to 166px + safe-area (65 tab + 16 gap +
-   69 button + 16 fade) so the last row can scroll clear of the
-   fade. */
-.challenge-text-btn{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(65px + env(safe-area-inset-bottom) + 16px);width:calc(100% - 32px);max-width:358px;height:69px;font-size:20px;z-index:41}
-.challenge-text-btn .sym svg{width:32px;height:32px}
-.challenge-text-btn .label-col .label{white-space:nowrap}
-.ct-fade{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(65px + env(safe-area-inset-bottom) + 16px + 69px);width:calc(100% - 32px);max-width:358px;height:16px;background:linear-gradient(to bottom,rgba(26,29,36,0),#1a1d24);pointer-events:none;z-index:40}
-#friendsScreen.ct-visible{padding-bottom:calc(166px + env(safe-area-inset-bottom))}
+/* v188: Challenge via Text — fixed above the tab bar, only on the
+   Friends leaderboard. Same width (100% - 32px, max 358px) and
+   0.75x the 92px home height = 69px as the Play Friends home
+   button, but the text/icon/chevron now match Home exactly
+   (22px bold label + shadow, 48px icon + drop-shadow, white
+   chevron at the right edge) and the green gradient is fully
+   OPAQUE (same grid texture, solid #32e31e -> #28a81c — the
+   .mode-friends .8 alpha is NOT used here). Single text-bubble
+   icon. Gaps: 24px below the button to the tab bar, 12px above
+   it. A solid #1a1d24 mask covers the whole dead zone from the
+   fade's bottom edge to the tab bar top (105px = 24 + 69 + 12),
+   full width, so no leaderboard row is visible anywhere below
+   the 16px fade band — rows fade across the band and are gone
+   by the gap. The screen's bottom padding is 186px + safe-area
+   (65 tab + 24 gap + 69 button + 12 gap + 16 fade) so the last
+   row can scroll clear of the fade. */
+.challenge-text-btn{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(65px + env(safe-area-inset-bottom) + 24px);width:calc(100% - 32px);max-width:358px;height:69px;font-size:22px;z-index:41;background:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(180deg,#32e31e 0%,#28a81c 100%);background-size:22px 22px,22px 22px,100% 100%}
+.challenge-text-btn .sym svg{width:48px;height:48px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
+.challenge-text-btn .label-col{flex:1;text-align:left;display:flex;flex-direction:column;justify-content:center;min-width:0}
+.challenge-text-btn .label-col .label{flex:none;font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45);white-space:nowrap}
+.challenge-text-btn .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+.ct-fade{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(65px + env(safe-area-inset-bottom) + 24px + 69px + 12px);width:calc(100% - 32px);max-width:358px;height:16px;background:linear-gradient(to bottom,rgba(26,29,36,0),#1a1d24);pointer-events:none;z-index:40}
+.ct-mask{position:fixed;left:0;right:0;bottom:calc(65px + env(safe-area-inset-bottom));height:105px;background:#1a1d24;pointer-events:none;z-index:40}
+#friendsScreen.ct-visible{padding-bottom:calc(186px + env(safe-area-inset-bottom))}
 .mode-bots{background:radial-gradient(rgba(255,255,255,.07) 1.5px,transparent 1.5px),linear-gradient(180deg,rgba(227,138,30,.8) 0%,rgba(197,118,28,.8) 100%);background-size:16px 16px,100% 100%;border-color:#ac661c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #88541c}
 .mode-puzzle{background:repeating-linear-gradient(45deg,rgba(255,255,255,.06) 0 10px,transparent 10px 20px),linear-gradient(180deg,rgba(227,30,214,.8) 0%,rgba(178,28,167,.8) 100%);border-color:#971c8d;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #761c6f}
 /* Text must pop on the bright gradients: bold white title and near-white
@@ -929,6 +936,31 @@ squares are the premium colours, spread out across the whole screen. */
 #friendsScreen .search-wrap{margin-top:0}
 #profileScreen .profile-top{padding-top:0}
 #profileEditScreen .auth-heading,#profileFieldScreen .auth-heading,#profilePhotoScreen .auth-heading,#profilePasswordScreen .auth-heading,#profileProScreen .auth-heading,#authScreen .auth-heading{margin-top:0}
+/* v188 (auth): the auth content block is VERTICALLY CENTRED on the
+   screen (was top-anchored with a huge empty area below) — the
+   screen is a full-viewport flex column, justify-content:center.
+   Top/bottom padding use max() of the two safe-area insets so the
+   block stays exactly centred on a real iPhone (top ~59px vs
+   bottom ~34px would otherwise shift it ~12px low); in headless
+   both insets are 0, so 16px. The status <p> keeps its 20px slot
+   (the button never moves when the error appears/disappears) but
+   loses its default <p> margins; the success <p> collapses when
+   empty (it was a second 20px + margins of dead space between the
+   error and the button). Status-to-button gap is 12px exactly: the
+   <button> is inline-block so its margin-top:10px does NOT collapse
+   with the <p>'s margin-bottom (first pass measured 22px, not 12)
+   — zeroing the auth primary button's top margin makes the 12px
+   live on the status <p> alone. In every auth step the primary
+   button directly follows a status <p>, so this is safe. */
+#authScreen{
+  min-height:100vh; min-height:100dvh;
+  display:flex; flex-direction:column; justify-content:center;
+  padding-top:calc(16px + max(env(safe-area-inset-top),env(safe-area-inset-bottom)));
+  padding-bottom:calc(16px + max(env(safe-area-inset-top),env(safe-area-inset-bottom)));
+}
+#authScreen .error, #authScreen .success{margin:0 0 12px; min-height:20px}
+#authScreen .success:empty{display:none}
+#authScreen .btn.primary{margin-top:0}
 #profilePrivacyScreen #privacyBackBtn{margin-top:0}
 /* The profile gear sat at the old 28px top + the header's 8px,
    so it moves up with the screen. */

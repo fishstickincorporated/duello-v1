@@ -90,7 +90,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 187;
+const APP_VERSION = 188;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -1240,10 +1240,11 @@ function show(id) {
   try { document.body.classList.toggle('game-open', id === 'gameScreen' || id === 'puzzleBoardScreen'); } catch {}
   const tb = $('tabBar'); if (tb) tb.classList.toggle('hidden', !isMenu);
   // v187: the Challenge via Text button lives only on the Friends
-  // leaderboard — hide it (and its fade) on every other screen.
+  // leaderboard — hide it (and its fade + mask) on every other screen.
   const ctOn = id === 'friendsScreen' && lbScope === 'friends';
   const ctb = $('challengeTextBtn'); if (ctb) ctb.classList.toggle('hidden', !ctOn);
   const ctf = $('ctFade'); if (ctf) ctf.classList.toggle('hidden', !ctOn);
+  const ctm = $('ctMask'); if (ctm) ctm.classList.toggle('hidden', !ctOn);
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   if ((id === 'homeScreen' || id === 'botScreen') && $('tabHome')) $('tabHome').classList.add('active');
   if (id === 'friendsScreen' && $('tabFriends')) $('tabFriends').classList.add('active');
@@ -1882,6 +1883,7 @@ async function renderFriendsUI() {
   const ctOn = lbScope === 'friends';
   $('challengeTextBtn').classList.toggle('hidden', !ctOn);
   $('ctFade').classList.toggle('hidden', !ctOn);
+  $('ctMask').classList.toggle('hidden', !ctOn);
   $('friendsScreen').classList.toggle('ct-visible', ctOn);
   // Already loaded for this scope and nothing changed since: just
   // keep the screen as it is. The tab tap already called show(),

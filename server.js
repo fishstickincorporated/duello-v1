@@ -2121,6 +2121,22 @@ const server = http.createServer(async (req, res) => {
       else await q('DELETE FROM push_tokens WHERE user_id=$1', [user.id]);
       return sendJson(res, 200, { ok: true });
     }
+    // v180: push-registration diagnostics. The client posts its
+    // pushDiag snapshot after every step of the token-registration
+    // flow, so a device that never registers a token (Nov 23:
+    // @neo on build 105, challenges 13-17 all 'no-token') is
+    // diagnosable from the server log without the phone in hand.
+    // Authenticated like /api/push/token; any JSON object (or
+    // garbage — readBody already resolves {} on bad JSON) is
+    // accepted and logged; never throws, never breaks other calls.
+    if (pathname === '/api/push/diag' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const diag = (b && typeof b === 'object' && !Array.isArray(b)) ? b : {};
+      console.log('Push diag ' + user.username + ': ' + JSON.stringify(diag));
+      return sendJson(res, 200, { ok: true });
+    }
     if (pathname === '/api/me/update' && req.method === 'POST') {
       const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });

@@ -86,7 +86,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 179;
+const APP_VERSION = 180;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -1945,40 +1945,106 @@ function pushPlugin() {
 }
 let pushDeviceToken = null; // this device's APNs token, once registered
 let pushInitDone = false;
+// ---------- Push-registration diagnostics (v180) ----------
+// Every step of the token-registration flow is recorded in pushDiag
+// and posted to the server, because the Nov 23 failure (@neo on
+// build 105: challenges 13-17 all 'no-token') was invisible — every
+// failure path swallowed its error (empty registrationError listener,
+// empty token-POST catch, register() throw returning false), and
+// there was no Settings row to look at. The diag is what the server
+// log shows when a token never arrives. Fields:
+//   isCapacitor — running in the Capacitor shell (false on web)
+//   plugin — the PushNotifications plugin is present (null = not
+//     checked yet, false = missing from the native build)
+//   permission — checkPermissions receive value ('granted' /
+//     'denied' / 'prompt'), or 'check-failed: <msg>'
+//   register — 'never' / 'called' / 'threw: <msg>'
+//   registrationEvent — 'never' / 'fired' / 'error: <msg>'
+//   tokenPost — 'never' / 'sent' / 'failed: <status or msg>' /
+//     'skipped: no-session'
+let pushDiag = { isCapacitor: false, plugin: null, permission: 'unknown', register: 'never', registrationEvent: 'never', tokenPost: 'never' };
+function loadPushDiag() {
+  try { const raw = localStorage.getItem('duello-push-diag'); if (raw) { const d = JSON.parse(raw); if (d && typeof d === 'object') Object.assign(pushDiag, d); } } catch {}
+}
+function savePushDiag() {
+  try { localStorage.setItem('duello-push-diag', JSON.stringify(pushDiag)); } catch {}
+}
+function postPushDiag() {
+  // Fire-and-forget: a diag failure must never break registration.
+  // iOS only — web has no push, so a web snapshot would just be
+  // log noise. The server logs the line, so a missing token is
+  // diagnosable from the Render logs without the phone in hand.
+  if (!IS_CAPACITOR || !token) return;
+  try { api('/api/push/diag', { method: 'POST', body: JSON.stringify(pushDiag) }).catch(() => {}); } catch {}
+}
+function updatePushDiag(patch) {
+  Object.assign(pushDiag, patch);
+  savePushDiag();
+  try { refreshPushStatusRow(); } catch {}
+  postPushDiag();
+}
+// Pure: the Settings row's plain-language status for a diag
+// snapshot. Tested in the v180 client harness (PU1).
+function pushStatusText(d) {
+  d = d || {};
+  if (d.tokenPost === 'sent') return 'Push notifications: registered';
+  if (!d.isCapacitor) return 'Push notifications: not available on the web';
+  if (d.plugin === false) return 'Push notifications: not registered — the app is missing push support';
+  if (d.permission === 'denied') return 'Push notifications: not registered — permission denied (turn on in iOS Settings)';
+  if (d.permission === 'prompt') return 'Push notifications: not set up yet';
+  if (typeof d.register === 'string' && d.register.indexOf('threw:') === 0) return 'Push notifications: not registered — registration failed (' + d.register.slice(7) + ')';
+  if (typeof d.registrationEvent === 'string' && d.registrationEvent.indexOf('error:') === 0) return 'Push notifications: not registered — registration failed (' + d.registrationEvent.slice(7) + ')';
+  if (typeof d.tokenPost === 'string' && d.tokenPost.indexOf('failed:') === 0) return 'Push notifications: not registered — could not reach the server';
+  if (typeof d.permission === 'string' && d.permission.indexOf('check-failed') === 0) return 'Push notifications: not registered — could not check permission';
+  return 'Push notifications: not set up yet';
+}
 function pushPrefOn() {
   // The server defaults the preference on; an older cached `me`
   // has no pushEnabled field, which also reads as on.
   return !me || me.pushEnabled !== false;
 }
-function refreshPushToggle() {
+function refreshPushStatusRow() {
+  // v180: the Push row owns the registration status now (the old
+  // toggle is gone). The row shows the plain-language status from
+  // pushDiag, so a phone that never registers says so on screen
+  // instead of failing silently. Loads the persisted diag first so
+  // the row is right even before init runs.
+  loadPushDiag();
   const row = $('pushSettingRow'); if (!row) return;
   // Web: no push at all — the row stays hidden.
   row.classList.toggle('hidden', !IS_CAPACITOR || !pushPlugin());
-  const t = $('pushToggle'); if (!t) return;
-  const on = pushPrefOn();
-  t.classList.toggle('on', on);
-  t.setAttribute('aria-checked', on ? 'true' : 'false');
-  // A denied iOS permission means nothing can arrive even with the
-  // preference on — say so instead of showing a live-looking toggle
-  // with no explanation.
-  const P = pushPlugin();
-  if (P && on) {
-    P.checkPermissions().then((perm) => {
-      if (perm && perm.receive === 'denied') setPushNote('Notifications are off — turn them on in iOS Settings to get challenge alerts.');
-    }).catch(() => {});
-  }
+  const s = $('pushSettingStatus'); if (!s) return;
+  s.textContent = pushStatusText(pushDiag);
+}
+function refreshPushToggle() {
+  // v180: the old toggle is gone; the Push row owns the status now.
+  // Kept as a wrapper so older call sites (gear, setPushEnabled)
+  // keep working unchanged.
+  refreshPushStatusRow();
 }
 function setPushNote(msg) {
   const n = $('pushSettingNote'); if (!n) return;
   n.textContent = msg || '';
   n.classList.toggle('hidden', !msg);
 }
+let pushRegisterInFlight = false;
 async function registerPushToken() {
   // Ask iOS for a device token (only after the user has granted
   // permission) and hand it to the server. The 'registration'
   // listener below does the actual send; this just starts it.
+  // v180: the attempt is recorded in pushDiag, and a second call
+  // while one is in flight is a no-op — the foreground retry and
+  // the Settings tap share this guard, so a retry can never stack
+  // registrations.
   const P = pushPlugin(); if (!P) return false;
-  try { await P.register(); return true; } catch { return false; }
+  if (pushRegisterInFlight) return false;
+  pushRegisterInFlight = true;
+  updatePushDiag({ register: 'called' });
+  try { await P.register(); return true; }
+  catch (e) {
+    updatePushDiag({ register: 'threw: ' + (e && e.message ? e.message : 'unknown error') });
+    return false;
+  } finally { pushRegisterInFlight = false; }
 }
 async function setPushEnabled(on) {
   const P = pushPlugin();
@@ -2043,6 +2109,12 @@ function initPushNotifications() {
   // granted, (re-)registers the token — tokens can change between
   // launches. Never prompts on its own: a never-asked permission
   // waits for the Settings toggle.
+  // v180: every step is recorded in pushDiag (persisted + posted to
+  // /api/push/diag) — the Nov 23 failure was invisible because the
+  // registrationError listener was empty, the token-POST catch was
+  // empty, and register() throwing just returned false.
+  loadPushDiag();
+  updatePushDiag({ isCapacitor: !!IS_CAPACITOR, plugin: !!pushPlugin() });
   if (pushInitDone || !IS_CAPACITOR) return;
   const P = pushPlugin();
   if (!P) return;
@@ -2050,10 +2122,19 @@ function initPushNotifications() {
   try {
     P.addListener('registration', async (t) => {
       pushDeviceToken = (t && t.value) || null;
-      if (!pushDeviceToken || !token) return;
-      try { await api('/api/push/token', { method: 'POST', body: JSON.stringify({ token: pushDeviceToken, platform: 'ios' }) }); } catch {}
+      if (!pushDeviceToken) { updatePushDiag({ registrationEvent: 'fired', tokenPost: 'failed: empty-token' }); return; }
+      if (!token) { updatePushDiag({ registrationEvent: 'fired', tokenPost: 'skipped: no-session' }); return; }
+      updatePushDiag({ registrationEvent: 'fired' });
+      try {
+        await api('/api/push/token', { method: 'POST', body: JSON.stringify({ token: pushDeviceToken, platform: 'ios' }) });
+        updatePushDiag({ tokenPost: 'sent' });
+      } catch (e) {
+        updatePushDiag({ tokenPost: 'failed: ' + (e && e.status ? 'http-' + e.status : (e && e.message ? e.message : 'network error')) });
+      }
     });
-    P.addListener('registrationError', () => {});
+    P.addListener('registrationError', (e) => {
+      updatePushDiag({ registrationEvent: 'error: ' + (e && (e.error || e.message) ? (e.error || e.message) : 'unknown error') });
+    });
     P.addListener('pushNotificationReceived', () => {
       // Foreground: the 5s poll already shows the window, but a
       // fresh fetch makes it appear at once instead of on the
@@ -2064,7 +2145,9 @@ function initPushNotifications() {
       const d = (action && action.notification && action.notification.data) || {};
       if (d.type === 'challenge' && d.challengeId != null) openChallengeFromPush(d.challengeId);
     });
-  } catch {}
+  } catch (e) {
+    updatePushDiag({ registrationEvent: 'error: ' + (e && e.message ? e.message : 'listener attach failed') });
+  }
   // Re-register when the preference is on and permission is already
   // granted — this is what refreshes a rotated token. v152: there
   // is no Settings toggle any more, so a 'prompt' (never asked)
@@ -2072,10 +2155,33 @@ function initPushNotifications() {
   // maybeRequestPushAtSetup), never twice.
   if (pushPrefOn() && token) {
     P.checkPermissions().then((perm) => {
-      if (perm && perm.receive === 'granted') registerPushToken();
-      else if (perm && perm.receive === 'prompt') maybeRequestPushAtSetup();
-    }).catch(() => {});
+      const recv = (perm && perm.receive) || 'unknown';
+      updatePushDiag({ permission: recv });
+      if (recv === 'granted') registerPushToken();
+      else if (recv === 'prompt') maybeRequestPushAtSetup();
+    }).catch((e) => {
+      updatePushDiag({ permission: 'check-failed: ' + (e && e.message ? e.message : 'unknown error') });
+    });
   }
+}
+// v180: retry the registration when the app comes back to the
+// foreground and the diag says the token never landed — a first
+// launch can hit a transient failure (no network, plugin not yet
+// ready) and nothing ever retried it until a full restart. One
+// attempt per return (the visibilitychange handler calls this once),
+// permission re-checked fresh, and never while a registration is
+// already in flight (registerPushToken guards that). A 'prompt'
+// permission is left alone — the setup ask owns prompting, once.
+async function retryPushRegistration() {
+  if (!IS_CAPACITOR || !token) return;
+  if (!pushDiag || pushDiag.tokenPost === 'sent') return;
+  const P = pushPlugin(); if (!P) return;
+  let perm = null;
+  try { perm = await P.checkPermissions(); }
+  catch (e) { updatePushDiag({ permission: 'check-failed: ' + (e && e.message ? e.message : 'unknown error') }); return; }
+  const recv = (perm && perm.receive) || 'unknown';
+  updatePushDiag({ permission: recv });
+  if (recv === 'granted') await registerPushToken();
 }
 // v152: push is requested once at app setup (the Settings toggle is
 // gone). Safe to call any time — the flag makes it ask at most once,
@@ -4418,7 +4524,8 @@ if (typeof document !== 'undefined' && document.addEventListener) {
       // v176: a long-lived session (iOS keeps the JS alive for
       // hours) must pick up a new persona roster without a game
       // end or a restart — check the version on every return.
-      else { resumeOfflineClocks(); drainOutbox(); checkPersonasVersion(); }
+      // v180: also retry a push registration that never landed.
+      else { resumeOfflineClocks(); drainOutbox(); checkPersonasVersion(); retryPushRegistration(); }
     } catch {}
   });
 }
@@ -6294,6 +6401,8 @@ function renderEditList() {
   // Names, username and tier still come from u above.
   const photoSrc = (u && u.photoData) || (me && me.photoData) || null;
   $('editRowPfp').innerHTML = (photoSrc && !photoSrc.includes('picsum.photos')) ? `<img src="${photoSrc}" alt="">` : silhouetteSVG(32);
+  // v180: repaint the Push row's status whenever Settings renders.
+  refreshPushStatusRow();
 }
 $('editFirstNameRow').onclick = () => openFieldEditor('firstName');
 $('editLastNameRow').onclick = () => openFieldEditor('lastName');
@@ -6302,6 +6411,23 @@ $('editEmailRow').onclick = () => openFieldEditor('email');
 $('editPasswordRow').onclick = () => openPasswordScreen();
 $('editProRow').onclick = () => openProScreen();
 $('editPhotoRow').onclick = () => openPhotoScreen();
+// v180: tapping the Push row retries registration — permission is
+// re-checked fresh, a granted permission registers at once, a
+// never-asked permission gets the one setup ask. A denied
+// permission never re-prompts; the row's status text says to fix it
+// in iOS Settings instead. The row refreshes after the retry.
+$('pushSettingRow').onclick = async () => {
+  if (!IS_CAPACITOR) return;
+  const P = pushPlugin(); if (!P) { refreshPushStatusRow(); return; }
+  let perm = null;
+  try { perm = await P.checkPermissions(); }
+  catch (e) { updatePushDiag({ permission: 'check-failed: ' + (e && e.message ? e.message : 'unknown error') }); return; }
+  const recv = (perm && perm.receive) || 'unknown';
+  updatePushDiag({ permission: recv });
+  if (recv === 'granted') await registerPushToken();
+  else if (recv === 'prompt') maybeRequestPushAtSetup();
+  refreshPushStatusRow();
+};
 // v151: the policy opens inside the app. window.open('/privacy.html',
 // '_blank') is a no-op in the Capacitor WebView (no Browser plugin,
 // WKWebView swallows _blank), so the row did nothing on Jeff's

@@ -184,7 +184,7 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .controls button.armed-red{background:#ff1303;color:#fff;border-color:transparent}
 .controls button .penalty{display:block;font-size:11px;line-height:1.2;font-weight:700}
 .controls button:disabled{background:#3a3f4b;color:#b3b2b1;border-color:transparent}
-#endButtons #mainMenuBtn,#endButtons #gameStatsBtn,.stat-window #statMainMenu,.stat-window #statBackBtn{background:#3a3f4b;color:#e8ecf1}
+#endButtons #mainMenuBtn,#endButtons #gameStatsBtn,.stat-window #statMainMenu{background:#3a3f4b;color:#e8ecf1}
 #endButtons #playAgainBtn,.stat-window #statPlayAgain{background:#03eaff;color:#1a1d24}
 #playBtn.play-valid{background:#03eaff;color:#1a1d24;border-color:#03eaff}
 #playBtn.play-invalid{background:#3a3f4b;color:#b3b2b1;border-color:transparent}
@@ -828,10 +828,7 @@ squares are the premium colours, spread out across the whole screen. */
 .settings-val{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .settings-chev{color:#6e6e73;font-size:20px;line-height:1}
 .settings-row-danger .settings-label{color:#ff453a}
-/* v180: the Push row's label IS the status text, and the failure
-   messages are long — let it wrap onto as many lines as it needs
-   instead of overflowing the row (the other labels stay single-line). */
-#pushSettingRow .settings-label{flex:1 1 auto;white-space:normal}
+.push-hint{margin:0 4px 16px;color:#b3b2b1;font-size:15px;line-height:1.5;text-align:left}
 .settings-pfp{width:32px;height:32px;border-radius:50%;overflow:hidden;display:inline-flex;flex:0 0 auto;background:#1a1d24}
 .settings-pfp img{width:100%;height:100%;object-fit:cover}
 /* v154: the check always occupies the same 20px slot, checked or

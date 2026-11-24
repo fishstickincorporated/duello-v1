@@ -90,7 +90,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 182;
+const APP_VERSION = 183;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -1025,7 +1025,7 @@ function show(id) {
   if (id !== 'rematchScreen') cancelRematch();
   // v142: puzzleBoardScreen is a full screen like gameScreen — it hides
   // the tab bar (it has its own Exit button) and is not a menu screen.
-  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen', 'puzzleBoardScreen', 'profileFieldScreen', 'profilePhotoScreen', 'profilePasswordScreen', 'profileProScreen', 'profilePrivacyScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
+  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen', 'puzzleBoardScreen', 'profileFieldScreen', 'profilePhotoScreen', 'profilePasswordScreen', 'profileProScreen', 'profilePrivacyScreen', 'profilePushScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
   const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen'].includes(id);
   // Warm the offline engine when the bot screen opens (v107): the
   // dictionary + solver index build used to run on the first bot tap,
@@ -2008,17 +2008,41 @@ function pushPrefOn() {
   return !me || me.pushEnabled !== false;
 }
 function refreshPushStatusRow() {
-  // v180: the Push row owns the registration status now (the old
-  // toggle is gone). The row shows the plain-language status from
-  // pushDiag, so a phone that never registers says so on screen
-  // instead of failing silently. Loads the persisted diag first so
-  // the row is right even before init runs.
+  // v183: the row is a normal Settings row now — white label "Push
+  // notifications", grey right-justified "On"/"Off" (On = the token
+  // actually reached the server). The long status text lives in the
+  // drill-in (renderPushDetail), which repaints here too so it stays
+  // live while open. Loads the persisted diag first so the row is
+  // right even before init runs.
   loadPushDiag();
   const row = $('pushSettingRow'); if (!row) return;
   // Web: no push at all — the row stays hidden.
   row.classList.toggle('hidden', !IS_CAPACITOR || !pushPlugin());
-  const s = $('pushSettingStatus'); if (!s) return;
-  s.textContent = pushStatusText(pushDiag);
+  const v = $('pushSettingValue'); if (v) v.textContent = pushDiag.tokenPost === 'sent' ? 'On' : 'Off';
+  renderPushDetail();
+}
+// Pure: the Push drill-in's status + hint + Retry visibility for a
+// diag snapshot. Tested in the v183 client harness (PU3).
+function pushDetailContent(d) {
+  d = d || {};
+  if (d.tokenPost === 'sent') return { status: 'Push notifications are on.', hint: 'You\u2019ll get a notification when someone challenges you.', retry: false };
+  if (!d.isCapacitor) return { status: 'Push notifications are not available on the web.', hint: '', retry: false };
+  if (d.permission === 'denied') return { status: 'Push notifications are off.', hint: 'Turn them on in iOS Settings \u2192 Duello \u2192 Notifications.', retry: false };
+  if (d.plugin === false) return { status: 'Push notifications are off.', hint: 'This version of the app doesn\u2019t support push notifications.', retry: false };
+  if (d.permission === 'prompt') return { status: 'Push notifications are not set up yet.', hint: 'Tap Retry to turn them on.', retry: true };
+  return { status: 'Push notifications are off.', hint: 'Tap Retry to try again.', retry: true };
+}
+function renderPushDetail() {
+  const s = $('pushDetailStatus'); if (!s) return;
+  const c = pushDetailContent(pushDiag);
+  s.textContent = c.status;
+  const h = $('pushDetailHint'); if (h) h.textContent = c.hint;
+  const r = $('pushRetryBtn'); if (r) r.classList.toggle('hidden', !c.retry);
+}
+function openPushScreen() {
+  loadPushDiag();
+  renderPushDetail();
+  show('profilePushScreen');
 }
 function refreshPushToggle() {
   // v180: the old toggle is gone; the Push row owns the status now.
@@ -5260,11 +5284,12 @@ function showStatWindow(stats) {
   rankCache.clear();
   clearStatDelay(); if (game) statShownGameId = game.id;
   const w = $('statWindow'); w.classList.remove('hidden');
-  // v182: in a game review the stats window has no Main Menu / Play
-  // Again — just a grey Back button that does exactly what tapping
-  // outside the window does (back to the board view).
-  $('statMainMenu').classList.toggle('hidden', reviewMode);
-  $('statPlayAgain').classList.toggle('hidden', reviewMode);
+  // v183: in a game review the stats window has no Main Menu / Play
+  // Again at all — the whole controls row hides and the standard
+  // grey back button (.back-pill, same as the bot selector's) sits
+  // below it instead. It closes the window back to the board view,
+  // exactly like tapping outside it.
+  $('statControls').classList.toggle('hidden', reviewMode);
   $('statBackBtn').classList.toggle('hidden', !reviewMode);
   // v148: a fresh stat window starts with the optimal-moves list closed.
   const optListEl = $('statOptimalList'); if (optListEl) optListEl.classList.add('hidden');
@@ -6479,12 +6504,14 @@ $('editEmailRow').onclick = () => openFieldEditor('email');
 $('editPasswordRow').onclick = () => openPasswordScreen();
 $('editProRow').onclick = () => openProScreen();
 $('editPhotoRow').onclick = () => openPhotoScreen();
-// v180: tapping the Push row retries registration — permission is
-// re-checked fresh, a granted permission registers at once, a
-// never-asked permission gets the one setup ask. A denied
-// permission never re-prompts; the row's status text says to fix it
-// in iOS Settings instead. The row refreshes after the retry.
-$('pushSettingRow').onclick = async () => {
+// v183: tapping the Push row opens the drill-in with the status +
+// instructions. The retry lives on the drill-in's Retry button:
+// permission is re-checked fresh, a granted permission registers at
+// once, a never-asked permission gets the one setup ask. A denied
+// permission never re-prompts; the drill-in says to fix it in iOS
+// Settings instead. The row + drill-in refresh after the retry.
+$('pushSettingRow').onclick = () => { if (!IS_CAPACITOR) return; openPushScreen(); };
+$('pushRetryBtn').onclick = async () => {
   if (!IS_CAPACITOR) return;
   const P = pushPlugin(); if (!P) { refreshPushStatusRow(); return; }
   let perm = null;
@@ -6496,6 +6523,7 @@ $('pushSettingRow').onclick = async () => {
   else if (recv === 'prompt') maybeRequestPushAtSetup();
   refreshPushStatusRow();
 };
+$('pushBackBtn').onclick = () => show('profileEditScreen');
 // v151: the policy opens inside the app. window.open('/privacy.html',
 // '_blank') is a no-op in the Capacitor WebView (no Browser plugin,
 // WKWebView swallows _blank), so the row did nothing on Jeff's

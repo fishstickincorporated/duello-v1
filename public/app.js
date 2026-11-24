@@ -90,7 +90,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 186;
+const APP_VERSION = 187;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -646,6 +646,99 @@ function maybeOpenPuzzleDeepLink() {
     openDailyPuzzle();
   } catch {}
 }
+// v187: friend + text-challenge deep links (?friend=<user> and
+// ?challenge=<user>), mirroring the puzzle link. The param is
+// consumed from the URL so a later trip home does not re-open it,
+// and the username is stashed in localStorage when the recipient
+// is not signed in yet, or when a game is in progress, so the
+// link lands after sign-in / after the game ends instead of being
+// lost. The 5-second challenge poll re-checks the stash, and
+// showStatWindow does too, so a link deferred by a game lands
+// the moment the game ends. The harness vm has no URL global,
+// so params are read with a regex on the raw query string (the
+// v185 puzzle listener does the same for presence).
+function deepLinkParam(name) {
+  try {
+    const q = (typeof window !== 'undefined' && window.location && window.location.search) || '';
+    const m = q.match(new RegExp('[?&]' + name + '=([^&]*)'));
+    return m ? decodeURIComponent(m[1]) : null;
+  } catch { return null; }
+}
+function consumeDeepLinkParam(name) {
+  try {
+    const q = (typeof window !== 'undefined' && window.location && window.location.search) || '';
+    if (!new RegExp('[?&]' + name + '(?:=|&|$)').test(q)) return;
+    const rest = q.replace(new RegExp('[?&]' + name + '=[^&]*'), '').replace(/^[?&]/, '');
+    const url = window.location.pathname + (rest ? '?' + rest : '');
+    // Bare history, like maybeOpenPuzzleDeepLink (the vm exposes
+    // it as a global; in the browser it is window.history).
+    if (typeof history !== 'undefined' && history.replaceState) history.replaceState(null, '', url);
+    else if (window.history && window.history.replaceState) window.history.replaceState(null, '', url);
+  } catch {}
+}
+function maybeOpenFriendDeepLink() {
+  try {
+    let username = deepLinkParam('friend');
+    if (!username) { try { username = localStorage.getItem('duello-pending-friend'); } catch {} }
+    if (!username) return;
+    consumeDeepLinkParam('friend');
+    if (!token) { try { localStorage.setItem('duello-pending-friend', username); } catch {} return; }
+    if (game && game.status === 'active') { try { localStorage.setItem('duello-pending-friend', username); } catch {} return; }
+    try { localStorage.removeItem('duello-pending-friend'); } catch {}
+    processFriendDeepLink(username);
+  } catch {}
+}
+function maybeOpenChallengeDeepLink() {
+  try {
+    let username = deepLinkParam('challenge');
+    if (!username) { try { username = localStorage.getItem('duello-pending-challenge'); } catch {} }
+    if (!username) return;
+    consumeDeepLinkParam('challenge');
+    if (!token) { try { localStorage.setItem('duello-pending-challenge', username); } catch {} return; }
+    if (game && game.status === 'active') { try { localStorage.setItem('duello-pending-challenge', username); } catch {} return; }
+    if (challengeModalChallenge) { try { localStorage.setItem('duello-pending-challenge', username); } catch {} return; }
+    try { localStorage.removeItem('duello-pending-challenge'); } catch {}
+    processChallengeDeepLink(username);
+  } catch {}
+}
+async function processFriendDeepLink(username) {
+  username = String(username || '').trim().toLowerCase();
+  if (!username || (me && username === me.username)) { showFriendsTab(); return; }
+  try {
+    await api('/api/friends/text-request', { method: 'POST', body: JSON.stringify({ username }) });
+  } catch {
+    // Offline or a failed request: keep the link pending so the
+    // next poll retries instead of landing on an empty Friends tab.
+    try { localStorage.setItem('duello-pending-friend', username); } catch {}
+    return;
+  }
+  await loadServerFriends(true);
+  showFriendsTab();
+}
+async function processChallengeDeepLink(username) {
+  username = String(username || '').trim().toLowerCase();
+  if (!username || (me && username === me.username)) return;
+  let sender = null;
+  try {
+    const d = await api('/api/users/search?q=' + encodeURIComponent(username));
+    sender = (d.users || []).find(u => String(u.username || '').toLowerCase() === username) || null;
+  } catch {
+    // Offline: keep the link pending so the next poll retries.
+    try { localStorage.setItem('duello-pending-challenge', username); } catch {}
+    return;
+  }
+  if (!sender) return;
+  showTextChallengeModal(sender);
+}
+function showTextChallengeModal(sender) {
+  // The sender's profile for the challenge window: the same
+  // accept/decline window as a live challenge, but there is no
+  // server challenge row yet — accepting creates the friendship
+  // AND the game in one step (POST /api/challenges/text-accept),
+  // declining creates nothing and adds no friend.
+  const c = { textChallenge: true, id: null, from: { id: sender.id || null, username: sender.username, firstName: sender.firstName || sender.first_name || '', lastName: sender.lastName || sender.last_name || '', elo: sender.elo, photoData: sender.photoData || sender.photo_data || null } };
+  showChallengeModal(c);
+}
 function enablePuzzleRackDrag(el, idx) {
   let dragging = false, moved = false, startX = 0, startY = 0, drop = null, captureId = null;
   const cleanup = () => {
@@ -993,6 +1086,111 @@ function puzzleBoardShare() {
   const msg = 'I solved the Duello Daily Puzzle at ' + h + ':' + m + ap + '! https://duellogame.com/?puzzle=today';
   window.location.href = 'sms:?&body=' + encodeURIComponent(msg);
 }
+// v187: the profile share card — the image behind a ?friend= link.
+// The client renders the sender's own profile card (circular photo,
+// name, @handle, Elo and Global Rank, no X) to a 1200x630 canvas
+// and uploads the PNG, so the preview is always current. Best
+// effort: a failed render or upload still shares the text, and the
+// server falls back to the app icon for the preview image. The
+// card matches the person modal (dark #262a33 card, 2px #e8ecf1
+// border, cyan Arial numbers) at ~2.8x scale.
+function drawShareCardSilhouette(ctx, cx, cy, r) {
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.closePath();
+  ctx.fillStyle = '#3a3f4b'; ctx.fill();
+  ctx.clip();
+  ctx.fillStyle = '#b3b2b1';
+  ctx.beginPath(); ctx.arc(cx, cy - r * 0.25, r * 0.42, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cx - r * 0.85, cy + r); ctx.quadraticCurveTo(cx - r * 0.85, cy + r * 0.15, cx, cy + r * 0.15); ctx.quadraticCurveTo(cx + r * 0.85, cy + r * 0.15, cx + r * 0.85, cy + r); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.lineWidth = 5; ctx.strokeStyle = '#03eaff'; ctx.stroke();
+}
+function drawShareCardStat(ctx, label, value, cx, y) {
+  ctx.font = '400 40px Comfortaa, sans-serif';
+  const lw = ctx.measureText(label + ' ').width;
+  ctx.font = '800 40px Arial, Helvetica, sans-serif';
+  const vw = ctx.measureText(value).width;
+  const x = cx - (lw + vw) / 2;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.font = '400 40px Comfortaa, sans-serif'; ctx.fillStyle = '#b3b2b1';
+  ctx.fillText(label + ' ', x, y);
+  ctx.font = '800 40px Arial, Helvetica, sans-serif'; ctx.fillStyle = '#03eaff';
+  ctx.fillText(value, x + lw, y);
+}
+async function myGlobalRank() {
+  try {
+    if (typeof rankCache !== 'undefined' && rankCache && rankCache.get(me.username) != null) return rankCache.get(me.username);
+    const d = await api('/api/users/rank?username=' + encodeURIComponent(me.username));
+    if (d && d.rank != null) { try { setRank(me.username, d.rank); } catch {} return d.rank; }
+  } catch {}
+  try { if (typeof persistedRankCache !== 'undefined' && persistedRankCache && persistedRankCache.get(me.username) != null) return persistedRankCache.get(me.username); } catch {}
+  return null;
+}
+async function drawShareCardCanvas() {
+  try {
+    if (!me) return null;
+    const cv = document.createElement('canvas');
+    cv.width = 1200; cv.height = 630;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return null;
+    ctx.fillStyle = '#1a1d24'; ctx.fillRect(0, 0, 1200, 630);
+    const card = { x: 150, y: 30, w: 900, h: 570, r: 44 };
+    ctx.beginPath();
+    ctx.moveTo(card.x + card.r, card.y);
+    ctx.lineTo(card.x + card.w - card.r, card.y);
+    ctx.arcTo(card.x + card.w, card.y, card.x + card.w, card.y + card.r, card.r);
+    ctx.lineTo(card.x + card.w, card.y + card.h - card.r);
+    ctx.arcTo(card.x + card.w, card.y + card.h, card.x + card.w - card.r, card.y + card.h, card.r);
+    ctx.lineTo(card.x + card.r, card.y + card.h);
+    ctx.arcTo(card.x, card.y + card.h, card.x, card.y + card.h - card.r, card.r);
+    ctx.lineTo(card.x, card.y + card.r);
+    ctx.arcTo(card.x, card.y, card.x + card.r, card.y, card.r);
+    ctx.closePath();
+    ctx.fillStyle = '#262a33'; ctx.fill();
+    ctx.lineWidth = 4; ctx.strokeStyle = '#e8ecf1'; ctx.stroke();
+    const photo = usablePhoto(me) ? me.photoData : null;
+    if (photo) {
+      const img = await new Promise((resolve) => { const im = new Image(); im.onload = () => resolve(im); im.onerror = () => resolve(null); im.src = photo; });
+      if (img) {
+        ctx.save();
+        ctx.beginPath(); ctx.arc(600, 195, 85, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
+        ctx.drawImage(img, 515, 110, 170, 170);
+        ctx.restore();
+      } else drawShareCardSilhouette(ctx, 600, 195, 85);
+    } else drawShareCardSilhouette(ctx, 600, 195, 85);
+    const name = [me.firstName, me.lastName].filter(Boolean).join(' ') || me.username;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#e8ecf1'; ctx.font = '800 58px Comfortaa, sans-serif';
+    ctx.fillText(name, 600, 330);
+    ctx.fillStyle = '#b3b2b1'; ctx.font = '400 38px Comfortaa, sans-serif';
+    ctx.fillText('@' + me.username, 600, 388);
+    const elo = (typeof localElo === 'function' ? localElo() : me.elo);
+    const rank = await myGlobalRank();
+    drawShareCardStat(ctx, 'Elo', String(elo), 600, 462);
+    drawShareCardStat(ctx, 'Global Rank', rank == null ? '—' : String(rank), 600, 520);
+    return cv;
+  } catch { return null; }
+}
+async function uploadShareCard() {
+  try {
+    const cv = await drawShareCardCanvas();
+    if (!cv || typeof cv.toBlob !== 'function') return false;
+    const blob = await new Promise((resolve) => { try { cv.toBlob(resolve, 'image/png'); } catch { resolve(null); } });
+    if (!blob) return false;
+    await api('/api/share-card', { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: blob });
+    return true;
+  } catch { return false; }
+}
+// v187: the share icon on the Profile tab. The card is rendered
+// and uploaded first so the preview in the message shows the
+// sender's current Elo and rank; the text goes out either way.
+async function shareProfileCard() {
+  if (!me) return;
+  await uploadShareCard();
+  const msg = 'Add me as a friend on Duello. https://duellogame.com/?friend=' + encodeURIComponent(me.username);
+  window.location.href = 'sms:?&body=' + encodeURIComponent(msg);
+}
+$('profileShareBtn').onclick = shareProfileCard;
 // v156: Replay sits to the right of Share and shows only on a solved
 // puzzle. It re-opens today's puzzle fresh — empty rack, no placed
 // tiles, 0% strength, "Find the best move." — but it does NOT
@@ -1041,6 +1239,11 @@ function show(id) {
   // have no business behind it either.
   try { document.body.classList.toggle('game-open', id === 'gameScreen' || id === 'puzzleBoardScreen'); } catch {}
   const tb = $('tabBar'); if (tb) tb.classList.toggle('hidden', !isMenu);
+  // v187: the Challenge via Text button lives only on the Friends
+  // leaderboard — hide it (and its fade) on every other screen.
+  const ctOn = id === 'friendsScreen' && lbScope === 'friends';
+  const ctb = $('challengeTextBtn'); if (ctb) ctb.classList.toggle('hidden', !ctOn);
+  const ctf = $('ctFade'); if (ctf) ctf.classList.toggle('hidden', !ctOn);
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   if ((id === 'homeScreen' || id === 'botScreen') && $('tabHome')) $('tabHome').classList.add('active');
   if (id === 'friendsScreen' && $('tabFriends')) $('tabFriends').classList.add('active');
@@ -1672,6 +1875,14 @@ async function renderFriendsUI() {
   // the list is already rendered. Fire-and-forget: the tab never
   // waits on it, and a version change re-renders in place.
   try { checkPersonasVersion(); } catch {}
+  // v187: Challenge via Text lives only on the Friends leaderboard
+  // — before the early return, so a tab tap re-gates even when
+  // the list is already rendered. show() gates it the same way
+  // on every navigation (leaving Friends hides it at once).
+  const ctOn = lbScope === 'friends';
+  $('challengeTextBtn').classList.toggle('hidden', !ctOn);
+  $('ctFade').classList.toggle('hidden', !ctOn);
+  $('friendsScreen').classList.toggle('ct-visible', ctOn);
   // Already loaded for this scope and nothing changed since: just
   // keep the screen as it is. The tab tap already called show(),
   // so there is no blanking, no refetch, and no rebuild.
@@ -1865,7 +2076,9 @@ async function renderIncomingChallenges(list) {
 // backdrop tap to get out of it — the player must Accept or Decline.
 let challengeModalChallenge = null;
 function maybeShowChallengeModal(list) {
-  if (challengeModalChallenge && !list.some(x => x.id === challengeModalChallenge.id)) hideChallengeModal();
+  // A text challenge is not a server row, so the poll's list can
+  // never contain it — the guard must not close it.
+  if (challengeModalChallenge && !challengeModalChallenge.textChallenge && !list.some(x => x.id === challengeModalChallenge.id)) hideChallengeModal();
   if (challengeModalChallenge) return;
   const c = (list || [])[0];
   if (!c) return;
@@ -1895,6 +2108,17 @@ $('challengeAcceptBtn').onclick = async () => {
   // Accepting withdraws any outgoing challenge I am waiting on, so
   // its accept can never strand me in a second game.
   cancelSearch();
+  if (c.textChallenge) {
+    // v187: a text challenge has no server row — accepting creates
+    // the friendship AND the game in one step, and the sender is
+    // told by push (they are not on a waiting screen).
+    try {
+      const d = await api('/api/challenges/text-accept', { method: 'POST', body: JSON.stringify({ username: c.from.username }) });
+      if (d.gameId) { joinChallengeGame(d.gameId); return; }
+    } catch {}
+    checkIncomingChallenges();
+    return;
+  }
   try {
     const d = await api(`/api/challenges/${c.id}/respond`, { method: 'POST', body: JSON.stringify({ accept: true }) });
     if (d.gameId) { joinChallengeGame(d.gameId); return; }
@@ -1904,6 +2128,9 @@ $('challengeAcceptBtn').onclick = async () => {
 $('challengeDeclineBtn').onclick = async () => {
   const c = challengeModalChallenge; if (!c) return;
   hideChallengeModal();
+  // v187: declining a text challenge creates nothing — no friend,
+  // no game — so there is no server call at all.
+  if (c.textChallenge) { checkIncomingChallenges(); return; }
   try { await api(`/api/challenges/${c.id}/respond`, { method: 'POST', body: JSON.stringify({ accept: false }) }); } catch {}
   checkIncomingChallenges();
 };
@@ -1929,6 +2156,11 @@ async function checkIncomingChallenges() {
   if (list === null) return;
   renderIncomingChallenges(list);
   maybeShowChallengeModal(list);
+  // v187: a friend / text-challenge link deferred by a game (or
+  // by an open challenge window) lands here — the 5s poll and the
+  // post-game stat window both re-check the stash.
+  try { maybeOpenFriendDeepLink(); } catch {}
+  try { maybeOpenChallengeDeepLink(); } catch {}
 }
 startChallengePoll();
 
@@ -2207,7 +2439,16 @@ function initAppUrlOpenListener() {
       try {
         const url = data && data.url ? String(data.url) : '';
         if (!url) return;
-        if (/[?&]puzzle(?:=|&|$)/.test(url)) openDailyPuzzle();
+        if (/[?&]puzzle(?:=|&|$)/.test(url)) { openDailyPuzzle(); return; }
+        // v187: a shared friend / text-challenge link tapped in
+        // Messages opens the app with the same query. The URL
+        // itself is not in window.location (capacitor://), so the
+        // username is stashed and the deep link processes from
+        // the stash, exactly like the web load path.
+        const fm = url.match(/[?&]friend=([^&]*)/);
+        if (fm) { try { localStorage.setItem('duello-pending-friend', decodeURIComponent(fm[1])); } catch {} try { maybeOpenFriendDeepLink(); } catch {} return; }
+        const cm = url.match(/[?&]challenge=([^&]*)/);
+        if (cm) { try { localStorage.setItem('duello-pending-challenge', decodeURIComponent(cm[1])); } catch {} try { maybeOpenChallengeDeepLink(); } catch {} return; }
       } catch {}
     });
   } catch {}
@@ -2270,6 +2511,14 @@ function showFriendsTab() {
 $('tabFriends').onclick = showFriendsTab;
 $('lbFriendsTab').onclick = () => { lbScope = 'friends'; $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active'); renderFriendsUI(); };
 $('lbGlobalTab').onclick = () => { lbScope = 'global'; deleteMode = false; $('lbGlobalTab').classList.add('active'); $('lbFriendsTab').classList.remove('active'); renderFriendsUI(); };
+// v187: Challenge via Text — the preview image is the app icon, so
+// no upload is needed; the link itself carries the sender.
+$('challengeTextBtn').onclick = async () => {
+  if (!me) await loadMe();
+  if (!me) return;
+  const msg = 'Let\'s play Duello! https://duellogame.com/?challenge=' + encodeURIComponent(me.username);
+  window.location.href = 'sms:?&body=' + encodeURIComponent(msg);
+};
 $('friendsPencil').onclick = () => { if (lbScope !== 'friends') return; deleteMode = !deleteMode; friendsStale = true; renderFriendsUI(); };
 async function runFriendSearch() {
   // A leading @ is stripped: typing "@neo" searches for neo, so
@@ -5955,7 +6204,7 @@ function enablePlacedDrag(el, pend) {
   try { await refreshOfflineTotals(); } catch {}
   let resumed = false;
   try { resumed = await maybeResumeOfflineGame(); } catch {}
-  if (!resumed) { show('homeScreen'); try { maybeOpenPuzzleDeepLink(); } catch {} }
+  if (!resumed) { show('homeScreen'); try { maybeOpenPuzzleDeepLink(); maybeOpenFriendDeepLink(); maybeOpenChallengeDeepLink(); } catch {} }
   // Push notifications (v120): register the listeners and, when the
   // preference is on and iOS permission is already granted,
   // (re-)register the device token. Fire and forget — a push setup
@@ -7012,7 +7261,7 @@ $('authForm').onsubmit = async e => {
     const d = await api('/api/signin', { method: 'POST', body: JSON.stringify({ email, password }) });
     token = d.token; storeSet('duello_token', token); me = d.user; persistMe(); profileData = null;
     show('homeScreen');
-    try { initPushNotifications(); initAppUrlOpenListener(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); } catch {}
+    try { initPushNotifications(); initAppUrlOpenListener(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); maybeOpenFriendDeepLink(); maybeOpenChallengeDeepLink(); } catch {}
   } catch (err) { $('authError').textContent = err.message || 'Something went wrong.'; }
 };
 $('suSendBtn').onclick = async () => {
@@ -7051,7 +7300,7 @@ $('suCreateBtn').onclick = async () => {
     const d = await api('/api/signup', { method: 'POST', body: JSON.stringify({ firstName, lastName, username, email: suEmail, password, verifiedToken: suVerifiedToken }) });
     token = d.token; storeSet('duello_token', token); me = d.user; persistMe(); profileData = null;
     show('homeScreen');
-    try { initPushNotifications(); initAppUrlOpenListener(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); } catch {}
+    try { initPushNotifications(); initAppUrlOpenListener(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); maybeOpenFriendDeepLink(); maybeOpenChallengeDeepLink(); } catch {}
   } catch (err) { $('suError3').textContent = err.message || 'Something went wrong.'; }
 };
 let rpEmail = '', rpVerifiedToken = '';

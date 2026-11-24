@@ -161,6 +161,16 @@ async function initDb() {
     PRIMARY KEY (user_id, token)
   )`);
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS push_enabled BOOLEAN NOT NULL DEFAULT TRUE');
+  // Share cards (v187): one rendered profile card per user, as PNG
+  // bytes in Postgres — Render's disk is ephemeral, so the image
+  // must live in the database, not on disk. The client renders the
+  // card fresh at share time (current Elo/rank) and upserts it;
+  // GET /api/share-card/:username.png serves it for link previews.
+  await pool.query(`CREATE TABLE IF NOT EXISTS share_cards (
+    username TEXT PRIMARY KEY,
+    png BYTEA NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
   await seedPersonas();
 }
 async function seedPersonas() {
@@ -421,6 +431,32 @@ async function notifyChallengePush(challenger, target, challengeId) {
     return { sent: sentCount > 0, attempted: tokens.length, sentCount, results };
   } catch (e) {
     console.error('Challenge push failed:', e.message);
+    return { sent: false, reason: 'error' };
+  }
+}
+// v187: the text-challenge accept — the sender is not sitting on a
+// waiting screen, so a push is the only way they learn the game is
+// ready. Same gates as the invite push, fire and forget.
+async function notifyChallengeAccepted(sender, recipient, gameId) {
+  try {
+    if (!sender || !sender.id || sender.isPersona) return { sent: false, reason: 'not-a-user' };
+    if (sender.push_enabled === false) return { sent: false, reason: 'disabled' };
+    const toks = await q('SELECT token FROM push_tokens WHERE user_id=$1', [sender.id]);
+    const tokens = (toks.rows || []).map(r => r.token).filter(Boolean);
+    if (!tokens.length) return { sent: false, reason: 'no-token' };
+    if (!apnsConfigured()) return { sent: false, reason: 'apns-not-configured' };
+    const body = '@' + recipient.username + ' accepted your challenge — your game is ready!';
+    const payload = { aps: { alert: { title: 'Duello', body }, sound: 'default', 'content-available': 1 }, type: 'challenge-accepted', gameId: Number(gameId) };
+    const results = [];
+    for (const t of tokens) {
+      const r = await sendApnsPush(t, payload);
+      results.push({ ok: r.ok, status: r.status, reason: r.reason || null });
+      if (r.status === 410) { try { await q('DELETE FROM push_tokens WHERE user_id=$1 AND token=<redacted>', [sender.id, t]); } catch {} }
+    }
+    const sentCount = results.filter(r => r.ok).length;
+    return { sent: sentCount > 0, attempted: tokens.length, sentCount, results };
+  } catch (e) {
+    console.error('Challenge-accepted push failed:', e.message);
     return { sent: false, reason: 'error' };
   }
 }
@@ -1797,6 +1833,17 @@ function readBody(req) {
     req.on('end', () => { try { resolve(data ? JSON.parse(data) : {}); } catch { resolve({}); } });
   });
 }
+// v187: raw bytes (the share-card PNG upload) — readBody above is
+// JSON-only, so binary bodies need their own reader. Caps at 3MB.
+function readRawBody(req) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', chunk => { chunks.push(chunk); size += chunk.length; if (size > 3e6) req.destroy(); });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', () => resolve(Buffer.concat(chunks)));
+  });
+}
 async function loadGameForUser(user, id) {
   // Either player of a real game can load it: the challenger by
   // user_id, the recipient by opponent_id. Bot games only ever
@@ -1898,16 +1945,32 @@ const server = http.createServer(async (req, res) => {
       // v185: the AASA file has no extension (the MIME map would call
       // it text/html) and Apple requires application/json.
       const type = pathname === '/.well-known/apple-app-site-association' ? 'application/json' : ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.txt' ? 'text/plain' : ext === '.json' ? 'application/json' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'text/html';
-      // v186: a Daily Puzzle share link (?puzzle=today) previews as
-      // "Daily Puzzle" instead of "Duello". Only the og:title meta
-      // changes — the <title> (browser tab) stays "Duello" in both
-      // cases, and a plain / is served unchanged. The service worker
-      // keys by full URL, so / and /?puzzle=today are separate cache
-      // entries and the replace is never defeated by a cached /.
-      if (pathname === '/' && url.searchParams.has('puzzle')) {
-        const html = fs.readFileSync(safe, 'utf8').replace('<meta property="og:title" content="Duello">', '<meta property="og:title" content="Daily Puzzle">');
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        return res.end(html);
+      // v186/v187: share-link previews (the title INSIDE the card,
+      // not the message text above it). A ?puzzle= link previews as
+      // "Daily Puzzle"; a ?friend=<user> link previews as
+      // "Add friend - @<handle>" with that user's share-card image;
+      // a ?challenge= link previews as "Play Duello" with the app
+      // icon. The handle is safe to interpolate as-is: usernames
+      // are lowercase alphanumerics + underscore by validation.
+      // Only the og meta changes — the <title> (browser tab) stays
+      // "Duello", and a plain / is served unchanged. The service
+      // worker keys by full URL, so each variant is its own cache
+      // entry and the replace is never defeated by a cached /.
+      if (pathname === '/') {
+        let html = null;
+        if (url.searchParams.has('friend')) {
+          const fu = await getUserByUsername(String(url.searchParams.get('friend') || '').trim().toLowerCase());
+          if (fu) {
+            html = fs.readFileSync(safe, 'utf8')
+              .replace('<meta property="og:title" content="Duello">', '<meta property="og:title" content="Add friend - @' + fu.username + '">')
+              .replace('<meta property="og:image" content="/assets/app-icon.png">', '<meta property="og:image" content="/api/share-card/' + fu.username + '.png">');
+          }
+        } else if (url.searchParams.has('challenge')) {
+          html = fs.readFileSync(safe, 'utf8').replace('<meta property="og:title" content="Duello">', '<meta property="og:title" content="Play Duello">');
+        } else if (url.searchParams.has('puzzle')) {
+          html = fs.readFileSync(safe, 'utf8').replace('<meta property="og:title" content="Duello">', '<meta property="og:title" content="Daily Puzzle">');
+        }
+        if (html) { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end(html); }
       }
       res.writeHead(200, { 'Content-Type': type });
       return fs.createReadStream(safe).pipe(res);
@@ -2499,6 +2562,34 @@ const server = http.createServer(async (req, res) => {
       ) SELECT COUNT(*)::int + 1 AS rank FROM allrows WHERE elo > $1`, [target.elo]);
       return sendJson(res, 200, { rank: r.rows[0].rank });
     }
+    // ---------- Share cards (v187) ----------
+    // The client renders the sender's profile card to a 1200x630
+    // canvas at share time and uploads the PNG; the bytes live in
+    // Postgres (share_cards) because Render's disk is ephemeral.
+    // The GET is public (no auth) — iMessage's crawler fetches the
+    // og:image without a session — and falls back to the app icon
+    // when that user has never shared a card.
+    if (pathname === '/api/share-card' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const png = await readRawBody(req);
+      if (!png || png.length < 100 || png.length > 2000000) return sendJson(res, 400, { error: 'That image could not be saved.' });
+      if (png[0] !== 0x89 || png[1] !== 0x50 || png[2] !== 0x4e || png[3] !== 0x47) return sendJson(res, 400, { error: 'That image could not be saved.' });
+      await q('INSERT INTO share_cards (username, png) VALUES ($1,$2) ON CONFLICT (username) DO UPDATE SET png=EXCLUDED.png, updated_at=now()', [user.username, png]);
+      return sendJson(res, 200, { ok: true });
+    }
+    const shareCardMatch = pathname.match(/^\/api\/share-card\/([a-z0-9_]+)\.png$/);
+    if (shareCardMatch && req.method === 'GET') {
+      const row = (await q('SELECT png FROM share_cards WHERE username=$1', [shareCardMatch[1]])).rows[0];
+      if (row && row.png) {
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=300', ...CORS_HEADERS });
+        return res.end(row.png);
+      }
+      const icon = path.join(ROOT, 'public', 'assets', 'app-icon.png');
+      if (!fs.existsSync(icon)) return sendJson(res, 404, { error: 'No image.' });
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=300', ...CORS_HEADERS });
+      return fs.createReadStream(icon).pipe(res);
+    }
     // ---------- Friends (real requests, v53) ----------
     // Requests used to live only in the sender's localStorage, so a
     // request never reached the other person's phone — and because
@@ -2560,6 +2651,31 @@ const server = http.createServer(async (req, res) => {
       if (!other) return sendJson(res, 400, { error: 'That player is not available.' });
       // Cancels a request you sent, or removes an accepted friend.
       await q('DELETE FROM friend_requests WHERE (from_user_id=$1 AND to_user_id=$2) OR (from_user_id=$2 AND to_user_id=$1)', [user.id, other.id]);
+      return sendJson(res, 200, { ok: true });
+    }
+    // v187: a text friend link (?friend=<sender>) — the recipient
+    // opens it and the sender's request is created for them, so the
+    // recipient lands on the incoming-request accept/decline row.
+    // The request runs sender -> recipient (the sender is asking);
+    // if the recipient already asked the sender, that request
+    // becomes the friendship at once (same rule as /api/friends/request).
+    if (pathname === '/api/friends/text-request' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const sender = await getUserByUsername(String(b.username || '').trim().toLowerCase());
+      if (!sender) return sendJson(res, 400, { error: 'That player is not available.' });
+      if (sender.id === user.id) return sendJson(res, 400, { error: 'You cannot add yourself as a friend.' });
+      const existing = (await q('SELECT * FROM friend_requests WHERE (from_user_id=$1 AND to_user_id=$2) OR (from_user_id=$2 AND to_user_id=$1)', [sender.id, user.id])).rows[0];
+      if (existing) {
+        if (existing.status === 'accepted') return sendJson(res, 200, { ok: true, alreadyFriends: true });
+        if (existing.from_user_id === user.id) {
+          await q("UPDATE friend_requests SET status='accepted' WHERE id=$1", [existing.id]);
+          return sendJson(res, 200, { ok: true, accepted: true });
+        }
+        return sendJson(res, 200, { ok: true, alreadyRequested: true });
+      }
+      await q('INSERT INTO friend_requests (from_user_id, to_user_id) VALUES ($1,$2)', [sender.id, user.id]);
       return sendJson(res, 200, { ok: true });
     }
     // ---------- Challenges (real-player games, v76) ----------
@@ -2639,6 +2755,33 @@ const server = http.createServer(async (req, res) => {
         await q("UPDATE challenges SET status='cancelled' WHERE id=$1", [ch.id]);
         return sendJson(res, 200, { ok: true, status: 'cancelled' });
       }
+    }
+    // v187: a text challenge accept (?challenge=<sender>) — one
+    // step, no pending challenge row ever exists: the recipient
+    // accepting makes them friends AND creates/starts the game.
+    // The sender is told by push (their game is ready — they are
+    // not sitting on a waiting screen). Decline creates nothing
+    // and adds no friend: the client never calls this endpoint.
+    if (pathname === '/api/challenges/text-accept' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const sender = await getUserByUsername(String(b.username || '').trim().toLowerCase());
+      if (!sender) return sendJson(res, 400, { error: 'That player is not available.' });
+      if (sender.id === user.id) return sendJson(res, 400, { error: 'You cannot challenge yourself.' });
+      const fr = (await q('SELECT * FROM friend_requests WHERE (from_user_id=$1 AND to_user_id=$2) OR (from_user_id=$2 AND to_user_id=$1)', [sender.id, user.id])).rows[0];
+      // The pair may already have a pending row (the recipient
+      // tapped ?friend= first, or asked the sender themself):
+      // upgrade that row instead of inserting a second one — the
+      // table has a UNIQUE (from_user_id, to_user_id), so a blind
+      // insert 500s on the duplicate (caught by a live check).
+      if (!fr) await q("INSERT INTO friend_requests (from_user_id, to_user_id, status) VALUES ($1,$2,'accepted')", [sender.id, user.id]);
+      else if (fr.status !== 'accepted') await q("UPDATE friend_requests SET status='accepted' WHERE id=$1", [fr.id]);
+      const game = newGame(sender, 'human', null, user);
+      await saveGameRow(game);
+      const ins = await q("INSERT INTO challenges (from_user_id, to_user_id, status, game_id) VALUES ($1,$2,'accepted',$3) RETURNING id", [sender.id, user.id, game.id]);
+      notifyChallengeAccepted(sender, user, game.id).catch(() => {});
+      return sendJson(res, 200, { ok: true, gameId: game.id, challengeId: Number(ins.rows[0].id) });
     }
     if (pathname === '/api/define' && req.method === 'GET') {
       return sendJson(res, 200, await getDefinition(url.searchParams.get('word') || ''));

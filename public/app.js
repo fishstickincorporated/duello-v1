@@ -90,7 +90,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 184;
+const APP_VERSION = 185;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -2176,6 +2176,34 @@ function initPushNotifications() {
       updatePushDiag({ permission: 'check-failed: ' + (e && e.message ? e.message : 'unknown error') });
     });
   }
+}
+// v185: Universal Links — when a duellogame.com/?puzzle=... link is
+// tapped and the installed app opens, Capacitor fires 'appUrlOpen'
+// with the URL (warm start and cold start — the plugin delivers the
+// launch URL once the listener is attached, so this is registered
+// early, next to initPushNotifications). A puzzle param opens the
+// Daily Puzzle, exactly like the web ?puzzle deep link; any other URL
+// is a no-op (normal Home boot). The param is only presence-checked
+// with a regex, not new URL — the harness vm has no URL global.
+let appUrlOpenInitDone = false;
+function appPlugin() {
+  try {
+    return (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.Plugins) ? (window.Capacitor.Plugins.App || null) : null;
+  } catch { return null; }
+}
+function initAppUrlOpenListener() {
+  if (appUrlOpenInitDone || !IS_CAPACITOR) return;
+  const A = appPlugin(); if (!A) return;
+  appUrlOpenInitDone = true;
+  try {
+    A.addListener('appUrlOpen', (data) => {
+      try {
+        const url = data && data.url ? String(data.url) : '';
+        if (!url) return;
+        if (/[?&]puzzle(?:=|&|$)/.test(url)) openDailyPuzzle();
+      } catch {}
+    });
+  } catch {}
 }
 // v180: retry the registration when the app comes back to the
 // foreground and the diag says the token never landed — a first
@@ -5904,7 +5932,7 @@ function enablePlacedDrag(el, pend) {
   // preference is on and iOS permission is already granted,
   // (re-)register the device token. Fire and forget — a push setup
   // failure must never stall boot.
-  try { initPushNotifications(); } catch {}
+  try { initPushNotifications(); initAppUrlOpenListener(); } catch {}
 })();
 
 // ---------- Profile tab + real accounts ----------
@@ -6956,7 +6984,7 @@ $('authForm').onsubmit = async e => {
     const d = await api('/api/signin', { method: 'POST', body: JSON.stringify({ email, password }) });
     token = d.token; storeSet('duello_token', token); me = d.user; persistMe(); profileData = null;
     show('homeScreen');
-    try { initPushNotifications(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); } catch {}
+    try { initPushNotifications(); initAppUrlOpenListener(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); } catch {}
   } catch (err) { $('authError').textContent = err.message || 'Something went wrong.'; }
 };
 $('suSendBtn').onclick = async () => {
@@ -6995,7 +7023,7 @@ $('suCreateBtn').onclick = async () => {
     const d = await api('/api/signup', { method: 'POST', body: JSON.stringify({ firstName, lastName, username, email: suEmail, password, verifiedToken: suVerifiedToken }) });
     token = d.token; storeSet('duello_token', token); me = d.user; persistMe(); profileData = null;
     show('homeScreen');
-    try { initPushNotifications(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); } catch {}
+    try { initPushNotifications(); initAppUrlOpenListener(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); } catch {}
   } catch (err) { $('suError3').textContent = err.message || 'Something went wrong.'; }
 };
 let rpEmail = '', rpVerifiedToken = '';

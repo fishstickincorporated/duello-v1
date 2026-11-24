@@ -1889,13 +1889,15 @@ const server = http.createServer(async (req, res) => {
     // daily puzzle data from it, and the service worker caches it for
     // offline play. Without this the whitelist 404s it and the puzzle
     // never loads.
-    if (req.method === 'GET' && (pathname === '/' || pathname === '/privacy.html' || pathname.startsWith('/app.js') || pathname.startsWith('/engine.js') || pathname.startsWith('/sw.js') || pathname.startsWith('/words.txt') || pathname.startsWith('/style.css') || pathname.startsWith('/favicon') || pathname.startsWith('/definitions/') || pathname.startsWith('/assets/') || pathname.startsWith('/daily-puzzles.json'))) {
+    if (req.method === 'GET' && (pathname === '/' || pathname === '/privacy.html' || pathname === '/.well-known/apple-app-site-association' || pathname.startsWith('/app.js') || pathname.startsWith('/engine.js') || pathname.startsWith('/sw.js') || pathname.startsWith('/words.txt') || pathname.startsWith('/style.css') || pathname.startsWith('/favicon') || pathname.startsWith('/definitions/') || pathname.startsWith('/assets/') || pathname.startsWith('/daily-puzzles.json'))) {
       const file = pathname === '/' ? 'index.html' : pathname.slice(1);
       const safe = path.join(ROOT, 'public', file);
       if (!safe.startsWith(path.join(ROOT, 'public'))) { res.writeHead(403); return res.end(); }
       if (!fs.existsSync(safe)) { res.writeHead(404); return res.end('Not found'); }
       const ext = path.extname(safe);
-      const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.txt' ? 'text/plain' : ext === '.json' ? 'application/json' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'text/html';
+      // v185: the AASA file has no extension (the MIME map would call
+      // it text/html) and Apple requires application/json.
+      const type = pathname === '/.well-known/apple-app-site-association' ? 'application/json' : ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.txt' ? 'text/plain' : ext === '.json' ? 'application/json' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'text/html';
       res.writeHead(200, { 'Content-Type': type });
       return fs.createReadStream(safe).pipe(res);
     }

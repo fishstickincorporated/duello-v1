@@ -708,7 +708,14 @@ squares are the premium colours, spread out across the whole screen. */
    (65 tab + 24 gap + 69 button + 12 gap + 16 fade) so the last
    row can scroll clear of the fade. */
 .challenge-text-btn{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(65px + env(safe-area-inset-bottom) + 24px);width:calc(100% - 32px);max-width:358px;height:69px;font-size:22px;z-index:41;background:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(180deg,rgba(50,227,30,.8) 0%,rgba(40,168,28,.8) 100%);background-size:22px 22px,22px 22px,100% 100%}
-.challenge-text-btn .sym svg{width:48px;height:48px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
+.challenge-text-btn .sym svg{width:48px;height:48px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35));transform:translateY(3px)}
+/* v190: the bubble GLYPH is centred, not just its box. The path
+   spans y=3..18 in the 24-unit viewBox, so its visual centre is
+   1.5 units (3px at 48px) above the box centre even though the
+   box itself is flex-centred — measured -3.2px from the button
+   centre in the headless render before this fix. The 3px shift
+   puts the ink centre on the button centre; the home people icon
+   measured +0.8px (inside 1px), so it is left alone. */
 .challenge-text-btn .label-col{flex:1;text-align:left;display:flex;flex-direction:column;justify-content:center;min-width:0}
 .challenge-text-btn .label-col .label{flex:none;font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45);white-space:nowrap}
 .challenge-text-btn .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}

@@ -1967,6 +1967,11 @@ const server = http.createServer(async (req, res) => {
           }
         } else if (url.searchParams.has('challenge')) {
           html = fs.readFileSync(safe, 'utf8').replace('<meta property="og:title" content="Duello">', '<meta property="og:title" content="Play Duello">');
+        } else if (url.searchParams.has('invite')) {
+          // v190: an invite link previews as "Sign Up" (the card
+          // title Jeff chose) with the app icon — the message text
+          // above the card still says "Join Duello!".
+          html = fs.readFileSync(safe, 'utf8').replace('<meta property="og:title" content="Duello">', '<meta property="og:title" content="Sign Up">');
         } else if (url.searchParams.has('puzzle')) {
           html = fs.readFileSync(safe, 'utf8').replace('<meta property="og:title" content="Duello">', '<meta property="og:title" content="Daily Puzzle">');
         }
@@ -2676,6 +2681,28 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { ok: true, alreadyRequested: true });
       }
       await q('INSERT INTO friend_requests (from_user_id, to_user_id) VALUES ($1,$2)', [sender.id, user.id]);
+      return sendJson(res, 200, { ok: true });
+    }
+    // v190: an invite link (?invite=<inviter>) — tapping it is
+    // acceptance: creating an account makes the pair friends at
+    // once, with no accept/decline step. Mirror text-request's
+    // errors and text-accept's upgrade: an existing pending row
+    // in either direction is upgraded instead of inserting a
+    // second one (UNIQUE (from_user_id, to_user_id)).
+    if (pathname === '/api/friends/invite-accept' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const inviter = await getUserByUsername(String(b.username || '').trim().toLowerCase());
+      if (!inviter) return sendJson(res, 400, { error: 'That player is not available.' });
+      if (inviter.id === user.id) return sendJson(res, 400, { error: 'You cannot add yourself as a friend.' });
+      const existing = (await q('SELECT * FROM friend_requests WHERE (from_user_id=$1 AND to_user_id=$2) OR (from_user_id=$2 AND to_user_id=$1)', [inviter.id, user.id])).rows[0];
+      if (existing) {
+        if (existing.status === 'accepted') return sendJson(res, 200, { ok: true, alreadyFriends: true });
+        await q("UPDATE friend_requests SET status='accepted' WHERE id=$1", [existing.id]);
+        return sendJson(res, 200, { ok: true, accepted: true });
+      }
+      await q("INSERT INTO friend_requests (from_user_id, to_user_id, status) VALUES ($1,$2,'accepted')", [inviter.id, user.id]);
       return sendJson(res, 200, { ok: true });
     }
     // ---------- Challenges (real-player games, v76) ----------

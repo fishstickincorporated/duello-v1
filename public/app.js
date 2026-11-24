@@ -90,7 +90,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 189;
+const APP_VERSION = 190;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -700,6 +700,39 @@ function maybeOpenChallengeDeepLink() {
     try { localStorage.removeItem('duello-pending-challenge'); } catch {}
     processChallengeDeepLink(username);
   } catch {}
+}
+// v190: invite deep link (?invite=<inviter>). Tapping it is
+// acceptance: the recipient becomes the inviter's friend at
+// once, with no accept/decline step. Not signed in yet: stash
+// the inviter and show the SIGN-UP screen — after the account
+// is created the signup handler re-runs this and the friendship
+// lands automatically. In a game: stash and defer to the 5s
+// poll, like the friend/challenge links.
+function maybeOpenInviteDeepLink() {
+  try {
+    let username = deepLinkParam('invite');
+    if (!username) { try { username = localStorage.getItem('duello-pending-invite'); } catch {} }
+    if (!username) return;
+    consumeDeepLinkParam('invite');
+    if (!token) { try { localStorage.setItem('duello-pending-invite', username); } catch {} try { setAuthMode('signup'); } catch {} return; }
+    if (game && game.status === 'active') { try { localStorage.setItem('duello-pending-invite', username); } catch {} return; }
+    try { localStorage.removeItem('duello-pending-invite'); } catch {}
+    processInviteDeepLink(username);
+  } catch {}
+}
+async function processInviteDeepLink(username) {
+  username = String(username || '').trim().toLowerCase();
+  if (!username || (me && username === me.username)) { showFriendsTab(); return; }
+  try {
+    await api('/api/friends/invite-accept', { method: 'POST', body: JSON.stringify({ username }) });
+  } catch {
+    // Offline or a failed request: keep the link pending so the
+    // next poll retries instead of landing on an empty Friends tab.
+    try { localStorage.setItem('duello-pending-invite', username); } catch {}
+    return;
+  }
+  await loadServerFriends(true);
+  showFriendsTab();
 }
 async function processFriendDeepLink(username) {
   username = String(username || '').trim().toLowerCase();
@@ -1543,6 +1576,19 @@ let globalRowsVersion = null;
 // toggles, a remove confirm), and friendsRenderedScope tracks
 // which scope the DOM currently shows.
 let friendsStale = true, friendsRenderedScope = null;
+// v190: the signature of the friend data the Friends screen
+// currently shows — accepted friends + incoming + outgoing
+// usernames, bucketed (the bucket IS the status: the rows carry
+// no status field). maybeRefreshFriendsList compares a fresh
+// fetch against this and only re-renders when it differs, so a
+// request accepted elsewhere appears on this screen within one
+// 5s poll cycle without any tap.
+let friendsSignature = null;
+function friendsListSignature() {
+  if (!serverFriends) return '';
+  const names = (list) => (list || []).map(u => u.username).sort().join(',');
+  return names(serverFriends.friends) + '|' + names(serverFriends.incoming) + '|' + names(serverFriends.outgoing);
+}
 // Global Ranks already fetched for a profile, by username, so
 // opening the same profile again shows the rank at once instead
 // of waiting on the fetch. Keyed by the viewed player, not the
@@ -1596,6 +1642,23 @@ async function loadServerFriends(force) {
     serverFriendsFromCache = !!cached;
   }
   return serverFriends;
+}
+// v190: live Friends list. The 5s challenge poll (and a
+// foreground return) call this: refetch the server friend state
+// and re-render ONLY when it actually changed. Never while the
+// screen isn't showing, never in delete mode (a rebuild would
+// clobber a pending remove), and never when the data is the
+// same — a no-op leaves the DOM (and the scroll position) alone.
+async function maybeRefreshFriendsList() {
+  if (!token) return;
+  if (deleteMode) return;
+  if (lbScope !== 'friends') return;
+  const el = $('friendsScreen');
+  if (!el || el.classList.contains('hidden')) return;
+  try { await loadServerFriends(true); } catch { return; }
+  if (friendsListSignature() === friendsSignature) { friendsStale = false; return; }
+  friendsStale = true;
+  renderFriendsUI();
 }
 function isRealFriend(username) { return (serverFriends && serverFriends.friends || []).some(u => u.username === username); }
 function isRealRequested(username) { return (serverFriends && serverFriends.outgoing || []).some(u => u.username === username); }
@@ -1905,6 +1968,10 @@ async function renderFriendsUI() {
   // render this account's lists on a cleared token.
   if (!token) return;
   await loadServerFriends();
+  // v190: the rendered data's signature — the live refresh
+  // compares fresh fetches against this, so a tab tap that
+  // re-renders the same data does not trip a second rebuild.
+  friendsSignature = friendsListSignature();
   let rows = [];
   if (lbScope === 'global') {
     const users = await ensureGlobalRows();
@@ -2163,6 +2230,10 @@ async function checkIncomingChallenges() {
   // post-game stat window both re-check the stash.
   try { maybeOpenFriendDeepLink(); } catch {}
   try { maybeOpenChallengeDeepLink(); } catch {}
+  try { maybeOpenInviteDeepLink(); } catch {}
+  // v190: a friend request accepted elsewhere lands on this
+  // screen within one poll cycle — no tap needed.
+  try { maybeRefreshFriendsList(); } catch {}
 }
 startChallengePoll();
 
@@ -2451,6 +2522,11 @@ function initAppUrlOpenListener() {
         if (fm) { try { localStorage.setItem('duello-pending-friend', decodeURIComponent(fm[1])); } catch {} try { maybeOpenFriendDeepLink(); } catch {} return; }
         const cm = url.match(/[?&]challenge=([^&]*)/);
         if (cm) { try { localStorage.setItem('duello-pending-challenge', decodeURIComponent(cm[1])); } catch {} try { maybeOpenChallengeDeepLink(); } catch {} return; }
+        // v190: an invite link (?invite=<inviter>) opens the app
+        // the same way — stash it and let the deep link process
+        // from the stash, exactly like the web load path.
+        const im = url.match(/[?&]invite=([^&]*)/);
+        if (im) { try { localStorage.setItem('duello-pending-invite', decodeURIComponent(im[1])); } catch {} try { maybeOpenInviteDeepLink(); } catch {} return; }
       } catch {}
     });
   } catch {}
@@ -2513,12 +2589,15 @@ function showFriendsTab() {
 $('tabFriends').onclick = showFriendsTab;
 $('lbFriendsTab').onclick = () => { lbScope = 'friends'; $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active'); renderFriendsUI(); };
 $('lbGlobalTab').onclick = () => { lbScope = 'global'; deleteMode = false; $('lbGlobalTab').classList.add('active'); $('lbFriendsTab').classList.remove('active'); renderFriendsUI(); };
-// v187: Challenge via Text — the preview image is the app icon, so
-// no upload is needed; the link itself carries the sender.
+// v190: Invite Friends to Duello — the button no longer starts
+// a text challenge; it invites a new player. The link takes them
+// to sign-up, and creating their account makes them your friend
+// automatically (POST /api/friends/invite-accept). The old
+// ?challenge= links keep working — only the button changed.
 $('challengeTextBtn').onclick = async () => {
   if (!me) await loadMe();
   if (!me) return;
-  const msg = 'Let\'s play Duello! https://duellogame.com/?challenge=' + encodeURIComponent(me.username);
+  const msg = 'Join Duello! https://duellogame.com/?invite=' + encodeURIComponent(me.username);
   window.location.href = 'sms:?&body=' + encodeURIComponent(msg);
 };
 $('friendsPencil').onclick = () => { if (lbScope !== 'friends') return; deleteMode = !deleteMode; friendsStale = true; renderFriendsUI(); };
@@ -4869,7 +4948,9 @@ if (typeof document !== 'undefined' && document.addEventListener) {
       // hours) must pick up a new persona roster without a game
       // end or a restart — check the version on every return.
       // v180: also retry a push registration that never landed.
-      else { resumeOfflineClocks(); drainOutbox(); checkPersonasVersion(); retryPushRegistration(); }
+      // v190: and refresh the Friends list, so an accept that
+      // happened while the app was backgrounded shows at once.
+      else { resumeOfflineClocks(); drainOutbox(); checkPersonasVersion(); retryPushRegistration(); try { maybeRefreshFriendsList(); } catch {} }
     } catch {}
   });
 }
@@ -6170,7 +6251,10 @@ function enablePlacedDrag(el, pend) {
   // under Capacitor and needs no network, so it loads during the
   // intro instead of on the first bot tap. Fire and forget.
   try { ensureLocalWords(); } catch {}
-  if (!token) { setAuthMode('signin'); show('authScreen'); return; }
+  // v190: an invite link lands on the SIGN-UP screen, not
+  // sign-in — a tap on ?invite= is a new player joining, and
+  // creating their account makes them the inviter's friend.
+  if (!token) { if (deepLinkParam('invite')) setAuthMode('signup'); else setAuthMode('signin'); show('authScreen'); return; }
   // A login check that never answers must not leave the page black: if
   // /api/me takes over 10s, show Home anyway (the transient-error path).
   // The dummy catch keeps a late rejection from surfacing as unhandled.
@@ -6206,7 +6290,7 @@ function enablePlacedDrag(el, pend) {
   try { await refreshOfflineTotals(); } catch {}
   let resumed = false;
   try { resumed = await maybeResumeOfflineGame(); } catch {}
-  if (!resumed) { show('homeScreen'); try { maybeOpenPuzzleDeepLink(); maybeOpenFriendDeepLink(); maybeOpenChallengeDeepLink(); } catch {} }
+  if (!resumed) { show('homeScreen'); try { maybeOpenPuzzleDeepLink(); maybeOpenFriendDeepLink(); maybeOpenChallengeDeepLink(); maybeOpenInviteDeepLink(); } catch {} }
   // Push notifications (v120): register the listeners and, when the
   // preference is on and iOS permission is already granted,
   // (re-)register the device token. Fire and forget — a push setup
@@ -7263,7 +7347,7 @@ $('authForm').onsubmit = async e => {
     const d = await api('/api/signin', { method: 'POST', body: JSON.stringify({ email, password }) });
     token = d.token; storeSet('duello_token', token); me = d.user; persistMe(); profileData = null;
     show('homeScreen');
-    try { initPushNotifications(); initAppUrlOpenListener(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); maybeOpenFriendDeepLink(); maybeOpenChallengeDeepLink(); } catch {}
+    try { initPushNotifications(); initAppUrlOpenListener(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); maybeOpenFriendDeepLink(); maybeOpenChallengeDeepLink(); maybeOpenInviteDeepLink(); } catch {}
   } catch (err) { $('authError').textContent = err.message || 'Something went wrong.'; }
 };
 $('suSendBtn').onclick = async () => {
@@ -7302,7 +7386,7 @@ $('suCreateBtn').onclick = async () => {
     const d = await api('/api/signup', { method: 'POST', body: JSON.stringify({ firstName, lastName, username, email: suEmail, password, verifiedToken: suVerifiedToken }) });
     token = d.token; storeSet('duello_token', token); me = d.user; persistMe(); profileData = null;
     show('homeScreen');
-    try { initPushNotifications(); initAppUrlOpenListener(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); maybeOpenFriendDeepLink(); maybeOpenChallengeDeepLink(); } catch {}
+    try { initPushNotifications(); initAppUrlOpenListener(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); maybeOpenFriendDeepLink(); maybeOpenChallengeDeepLink(); maybeOpenInviteDeepLink(); } catch {}
   } catch (err) { $('suError3').textContent = err.message || 'Something went wrong.'; }
 };
 let rpEmail = '', rpVerifiedToken = '';

@@ -688,10 +688,18 @@ squares are the premium colours, spread out across the whole screen. */
    0.75x the 92px home height = 69px as the Play Friends home
    button, but the text/icon/chevron now match Home exactly
    (22px bold label + shadow, 48px icon + drop-shadow, white
-   chevron at the right edge) and the green gradient is fully
-   OPAQUE (same grid texture, solid #32e31e -> #28a81c — the
-   .mode-friends .8 alpha is NOT used here). Single text-bubble
-   icon. Gaps: 24px below the button to the tab bar, 12px above
+   chevron at the right edge) and the green gradient is the SAME
+   as .mode-friends (same grid texture, same .8-alpha gradient —
+   rgba(50,227,30,.8) -> rgba(40,168,28,.8) — so the button is the
+   exact same slightly muted green as Play Friends. v188 had made
+   it fully OPAQUE here (solid #32e31e -> #28a81c) so nothing
+   showed through; v189 goes back to the .8 gradient because
+   nothing can show through anyway — the solid #1a1d24 .ct-mask
+   sits behind the button (z-index 40 under the button's 41) and
+   the body behind Home is the same #1a1d24, so the rendered
+   color matches Home exactly. The opacity now comes from the
+   mask behind the button, not from the button itself.) Single
+   text-bubble icon. Gaps: 24px below the button to the tab bar, 12px above
    it. A solid #1a1d24 mask covers the whole dead zone from the
    fade's bottom edge to the tab bar top (105px = 24 + 69 + 12),
    full width, so no leaderboard row is visible anywhere below
@@ -699,7 +707,7 @@ squares are the premium colours, spread out across the whole screen. */
    by the gap. The screen's bottom padding is 186px + safe-area
    (65 tab + 24 gap + 69 button + 12 gap + 16 fade) so the last
    row can scroll clear of the fade. */
-.challenge-text-btn{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(65px + env(safe-area-inset-bottom) + 24px);width:calc(100% - 32px);max-width:358px;height:69px;font-size:22px;z-index:41;background:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(180deg,#32e31e 0%,#28a81c 100%);background-size:22px 22px,22px 22px,100% 100%}
+.challenge-text-btn{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(65px + env(safe-area-inset-bottom) + 24px);width:calc(100% - 32px);max-width:358px;height:69px;font-size:22px;z-index:41;background:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(180deg,rgba(50,227,30,.8) 0%,rgba(40,168,28,.8) 100%);background-size:22px 22px,22px 22px,100% 100%}
 .challenge-text-btn .sym svg{width:48px;height:48px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
 .challenge-text-btn .label-col{flex:1;text-align:left;display:flex;flex-direction:column;justify-content:center;min-width:0}
 .challenge-text-btn .label-col .label{flex:none;font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45);white-space:nowrap}

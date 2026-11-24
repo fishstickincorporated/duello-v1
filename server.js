@@ -1898,6 +1898,17 @@ const server = http.createServer(async (req, res) => {
       // v185: the AASA file has no extension (the MIME map would call
       // it text/html) and Apple requires application/json.
       const type = pathname === '/.well-known/apple-app-site-association' ? 'application/json' : ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.txt' ? 'text/plain' : ext === '.json' ? 'application/json' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'text/html';
+      // v186: a Daily Puzzle share link (?puzzle=today) previews as
+      // "Daily Puzzle" instead of "Duello". Only the og:title meta
+      // changes — the <title> (browser tab) stays "Duello" in both
+      // cases, and a plain / is served unchanged. The service worker
+      // keys by full URL, so / and /?puzzle=today are separate cache
+      // entries and the replace is never defeated by a cached /.
+      if (pathname === '/' && url.searchParams.has('puzzle')) {
+        const html = fs.readFileSync(safe, 'utf8').replace('<meta property="og:title" content="Duello">', '<meta property="og:title" content="Daily Puzzle">');
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        return res.end(html);
+      }
       res.writeHead(200, { 'Content-Type': type });
       return fs.createReadStream(safe).pipe(res);
     }

@@ -90,7 +90,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 185;
+const APP_VERSION = 186;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -2005,15 +2005,21 @@ function refreshPushStatusRow() {
   const row = $('pushSettingRow'); if (!row) return;
   // Web: no push at all — the row stays hidden.
   row.classList.toggle('hidden', !IS_CAPACITOR || !pushPlugin());
-  const v = $('pushSettingValue'); if (v) v.textContent = pushDiag.tokenPost === 'sent' ? 'On' : 'Off';
+  // v186: On only when the token actually reached the server AND
+  // iOS permission is not denied — a token posted before the user
+  // turned notifications off in iOS Settings must not read On.
+  const v = $('pushSettingValue'); if (v) v.textContent = (pushDiag.tokenPost === 'sent' && pushDiag.permission !== 'denied') ? 'On' : 'Off';
   renderPushDetail();
 }
 // Pure: the Push drill-in's status + hint + Retry visibility for a
 // diag snapshot. Tested in the v183 client harness (PU3).
 function pushDetailContent(d) {
   d = d || {};
-  if (d.tokenPost === 'sent') return { status: 'Push notifications are on.', hint: '', retry: false };
+  // v186: denied takes precedence over registered — a token posted
+  // before the user turned notifications off in iOS Settings must
+  // show the denied state, not On.
   if (d.permission === 'denied') return { status: 'Push notifications are off.', hint: 'Turn them on in Phone Settings > Apps > Duello > Notifications.', retry: false };
+  if (d.tokenPost === 'sent') return { status: 'Push notifications are on.', hint: 'Push notifications are controlled in your phone\u2019s settings.', retry: false };
   if (d.permission === 'prompt') return { status: 'Push notifications are not set up yet.', hint: 'Tap Retry to turn them on.', retry: true };
   return { status: 'Push notifications are off.', hint: 'Tap Retry to try again.', retry: true };
 }
@@ -2172,6 +2178,7 @@ function initPushNotifications() {
       updatePushDiag({ permission: recv });
       if (recv === 'granted') registerPushToken();
       else if (recv === 'prompt') maybeRequestPushAtSetup();
+      else if (recv === 'denied') removePostedPushToken();
     }).catch((e) => {
       updatePushDiag({ permission: 'check-failed: ' + (e && e.message ? e.message : 'unknown error') });
     });
@@ -2213,15 +2220,36 @@ function initAppUrlOpenListener() {
 // permission re-checked fresh, and never while a registration is
 // already in flight (registerPushToken guards that). A 'prompt'
 // permission is left alone — the setup ask owns prompting, once.
+// v186: iOS permission was turned off after a token was posted —
+// the stored token can never produce a visible notification, and
+// the row must stop claiming On. Delete the server-side token via
+// the same /api/push/token/delete call setPushEnabled(false) uses
+// (no token value on a fresh launch: the endpoint deletes all of
+// the user's tokens when the body has none) and clear tokenPost so
+// a later re-grant re-registers from scratch. The server preference
+// is deliberately left alone — flipping it off would stop init's
+// launch re-check (pushPrefOn gate) and the user could never come
+// back just by re-enabling in iOS Settings.
+async function removePostedPushToken() {
+  if (!pushDiag || pushDiag.tokenPost !== 'sent') return;
+  try { await api('/api/push/token/delete', { method: 'POST', body: JSON.stringify({ token: pushDeviceToken || '' }) }); } catch {}
+  pushDeviceToken = null;
+  updatePushDiag({ tokenPost: 'never' });
+}
 async function retryPushRegistration() {
   if (!IS_CAPACITOR || !token) return;
-  if (!pushDiag || pushDiag.tokenPost === 'sent') return;
   const P = pushPlugin(); if (!P) return;
+  // v186: permission is re-checked on EVERY foreground return,
+  // even when a token was posted — the old early return on
+  // tokenPost 'sent' meant a flip to denied in iOS Settings was
+  // never picked up until a full restart.
   let perm = null;
   try { perm = await P.checkPermissions(); }
   catch (e) { updatePushDiag({ permission: 'check-failed: ' + (e && e.message ? e.message : 'unknown error') }); return; }
   const recv = (perm && perm.receive) || 'unknown';
   updatePushDiag({ permission: recv });
+  if (recv === 'denied') { await removePostedPushToken(); return; }
+  if (pushDiag.tokenPost === 'sent') return;
   if (recv === 'granted') await registerPushToken();
 }
 // v152: push is requested once at app setup (the Settings toggle is

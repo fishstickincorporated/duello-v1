@@ -228,9 +228,24 @@ async function seedPersonas() {
   // (full-width rows at 254-255), not window light or a ceiling.
   // Same 500 identities, same mix counts; only photo data changes.
   // Same delete + re-insert shape as v5/v6/v7/v8.
+  // v10 (Nov 23) fixes a v9 GATE blind spot: the v9 gate only
+  // examined the 6 rows/cols nearest each edge, so INTERIOR gutter
+  // seams sailed through — @carlos_h rows 11-12 + cols 15-16,
+  // @stoneskiing rows 81-84, @violetcello rows 20-22, all 11-22px
+  // in. Jeff played a game (fresh leaderboard fetch) and the white
+  // persisted, proving it is in the photo data, not stale rows.
+  // The full-frame gate (border_gate_v178.py) flags any row/col
+  // anywhere in the crop and found 64 offenders (random 61,
+  // fullbody 3), all re-cropped with an iterative box-relative
+  // gutter detector (recrop_clean_v178.py) — a horizontal gutter
+  // only spans one cell's width, so measured over the full window
+  // it reads 82% and is missed; re-detecting inside the trimmed
+  // box reads it at ~100%. Same 500 identities, same mix counts;
+  // only photo data changes. Same delete + re-insert shape as
+  // v5/v6/v7/v8/v9.
   await q('CREATE TABLE IF NOT EXISTS persona_seed (version INT PRIMARY KEY)');
   const v = await q('SELECT MAX(version) AS v FROM persona_seed');
-  if ((v.rows[0].v || 0) >= 9) return;
+  if ((v.rows[0].v || 0) >= 10) return;
   // v6 needs NULL photos: the original schema declared photo_url
   // NOT NULL, so drop that first (idempotent on later boots).
   await q('ALTER TABLE personas ALTER COLUMN photo_url DROP NOT NULL');
@@ -252,8 +267,8 @@ async function seedPersonas() {
     params.push(p.username, p.firstName, p.lastName, p.gender, p.elo, p.photoUrl);
   });
   await q(`INSERT INTO personas (username, first_name, last_name, gender, elo, photo_url) VALUES ${values.join(',')}`, params);
-  await q('INSERT INTO persona_seed (version) VALUES (9)');
-  console.log(`Personas refreshed to seed v9 (${rows.length})`);
+  await q('INSERT INTO persona_seed (version) VALUES (10)');
+  console.log(`Personas refreshed to seed v10 (${rows.length})`);
 }
 async function q(text, params) { return pool.query(text, params); }
 function hashPassword(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }

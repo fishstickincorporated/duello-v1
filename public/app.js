@@ -90,7 +90,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 183;
+const APP_VERSION = 184;
 async function api(path, opts = {}) {
   const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
@@ -1989,19 +1989,6 @@ function updatePushDiag(patch) {
 }
 // Pure: the Settings row's plain-language status for a diag
 // snapshot. Tested in the v180 client harness (PU1).
-function pushStatusText(d) {
-  d = d || {};
-  if (d.tokenPost === 'sent') return 'Push notifications: registered';
-  if (!d.isCapacitor) return 'Push notifications: not available on the web';
-  if (d.plugin === false) return 'Push notifications: not registered — the app is missing push support';
-  if (d.permission === 'denied') return 'Push notifications: not registered — permission denied (turn on in iOS Settings)';
-  if (d.permission === 'prompt') return 'Push notifications: not set up yet';
-  if (typeof d.register === 'string' && d.register.indexOf('threw:') === 0) return 'Push notifications: not registered — registration failed (' + d.register.slice(7) + ')';
-  if (typeof d.registrationEvent === 'string' && d.registrationEvent.indexOf('error:') === 0) return 'Push notifications: not registered — registration failed (' + d.registrationEvent.slice(7) + ')';
-  if (typeof d.tokenPost === 'string' && d.tokenPost.indexOf('failed:') === 0) return 'Push notifications: not registered — could not reach the server';
-  if (typeof d.permission === 'string' && d.permission.indexOf('check-failed') === 0) return 'Push notifications: not registered — could not check permission';
-  return 'Push notifications: not set up yet';
-}
 function pushPrefOn() {
   // The server defaults the preference on; an older cached `me`
   // has no pushEnabled field, which also reads as on.
@@ -2025,10 +2012,8 @@ function refreshPushStatusRow() {
 // diag snapshot. Tested in the v183 client harness (PU3).
 function pushDetailContent(d) {
   d = d || {};
-  if (d.tokenPost === 'sent') return { status: 'Push notifications are on.', hint: 'You\u2019ll get a notification when someone challenges you.', retry: false };
-  if (!d.isCapacitor) return { status: 'Push notifications are not available on the web.', hint: '', retry: false };
-  if (d.permission === 'denied') return { status: 'Push notifications are off.', hint: 'Turn them on in iOS Settings \u2192 Duello \u2192 Notifications.', retry: false };
-  if (d.plugin === false) return { status: 'Push notifications are off.', hint: 'This version of the app doesn\u2019t support push notifications.', retry: false };
+  if (d.tokenPost === 'sent') return { status: 'Push notifications are on.', hint: '', retry: false };
+  if (d.permission === 'denied') return { status: 'Push notifications are off.', hint: 'Turn them on in Phone Settings > Apps > Duello > Notifications.', retry: false };
   if (d.permission === 'prompt') return { status: 'Push notifications are not set up yet.', hint: 'Tap Retry to turn them on.', retry: true };
   return { status: 'Push notifications are off.', hint: 'Tap Retry to try again.', retry: true };
 }
@@ -2036,7 +2021,7 @@ function renderPushDetail() {
   const s = $('pushDetailStatus'); if (!s) return;
   const c = pushDetailContent(pushDiag);
   s.textContent = c.status;
-  const h = $('pushDetailHint'); if (h) h.textContent = c.hint;
+  const h = $('pushDetailHint'); if (h) { h.textContent = c.hint; h.classList.toggle('hidden', !c.hint); }
   const r = $('pushRetryBtn'); if (r) r.classList.toggle('hidden', !c.retry);
 }
 function openPushScreen() {
@@ -2085,13 +2070,13 @@ async function setPushEnabled(on) {
     let perm = null;
     try { perm = await P.checkPermissions(); } catch { perm = null; }
     if (perm && perm.receive === 'denied') {
-      setPushNote('Notifications are off for Duello — turn them on in iOS Settings (Duello → Notifications) to get challenge alerts.');
+      setPushNote('Notifications are off for Duello — turn them on in Phone Settings > Apps > Duello > Notifications to get challenge alerts.');
       refreshPushToggle();
       return;
     }
     try { perm = await P.requestPermissions(); } catch { perm = null; }
     if (!perm || perm.receive !== 'granted') {
-      setPushNote('Notifications are off for Duello — turn them on in iOS Settings (Duello → Notifications) to get challenge alerts.');
+      setPushNote('Notifications are off for Duello — turn them on in Phone Settings > Apps > Duello > Notifications to get challenge alerts.');
       refreshPushToggle();
       return;
     }

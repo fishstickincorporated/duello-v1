@@ -90,7 +90,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 195;
+const APP_VERSION = 196;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -309,7 +309,7 @@ function puzzleLockTimer() {
   const pill = $('puzzleTimerPill'); if (pill) pill.classList.add('hidden');
   const fin = $('puzzleFinalScore');
   if (fin) { fin.textContent = st.lockedPct + '%'; fin.classList.remove('hidden'); }
-  renderPuzzleBoard(); renderPuzzleWeekStrip();
+  renderPuzzleBoard();
 }
 let puzzleServerSynced = false;
 async function puzzleSyncFromServer() {
@@ -551,21 +551,12 @@ function renderPuzzleBoard() {
     if (pill) pill.classList.add('hidden');
     if (fin) { fin.textContent = puzzlePostedPct(st) + '%'; fin.classList.remove('hidden'); }
   }
-  puzzleFitBoard();
+  // v196: the puzzle board uses the shared .board sizing, exactly
+  // like the game board — no fitted override, no resize listener.
+  // (The v195 fit is gone with the week strip: the puzzle page is
+  // the game layout now, so the board sits in flow at the same
+  // position and size as a regular game.)
 }
-// v195: the board is the only flexible piece of the puzzle screen —
-// it takes the largest square that fits the space the header, rack
-// and buttons leave, so the screen never scrolls. Called on every
-// board render (open, placement, timer lock) and on resize.
-function puzzleFitBoard() {
-  const wrap = document.querySelector('#puzzleBoardScreen .board-wrap');
-  const b = $('puzzleBoard');
-  if (!wrap || !b) return;
-  const r = wrap.getBoundingClientRect();
-  const size = Math.floor(Math.min(r.width, r.height));
-  if (size > 0) { b.style.width = size + 'px'; b.style.height = size + 'px'; }
-}
-window.addEventListener('resize', () => { try { if (puzzleBoardState && !$('puzzleBoardScreen').classList.contains('hidden')) puzzleFitBoard(); } catch {} });
 function puzzleBoardSelectRack(i) {
   const st = puzzleBoardState; if (!st) return;
   const t = st.rack[i]; if (!t || t.used) return;
@@ -725,6 +716,11 @@ function puzzleHideBubble() { document.querySelectorAll('#puzzleBoard .play-bubb
 function puzzleShowBubble(score, mainCells) {
   puzzleHideBubble();
   const st = puzzleBoardState; if (!st || !st.placed.length) return;
+  // v196: record the bubble in state so a board re-render (e.g. the
+  // timer lock after a sync) re-attaches it — renderPuzzleBoard
+  // rebuilds from st.bubble. (The restore paths used to attach a
+  // DOM-only bubble that the next render dropped.)
+  st.bubble = { score, mainCells: mainCells || null };
   // Bubble goes over the positionally last letter of the word string,
   // not the last tile the player happened to drop (same as the game).
   let target = null;
@@ -784,7 +780,7 @@ function puzzleLiveValidate() {
 }
 // v191: record a valid word. The day is played (streak credit),
 // the best score updates when this word beats it, Share enables,
-// and the home header + week strip refresh. Hitting the optimal
+// and the home header refreshes. Hitting the optimal
 // is the ceiling — confetti, once, when a NEW best reaches it (a
 // re-play of an already-maxed day does not rain again). The board
 // never locks: renderPuzzleBoard refreshes the buttons, and the
@@ -805,7 +801,7 @@ function puzzleRecordPlay(res) {
   st.played = true;
   if (isNewBest) st.bestScore = score;
   puzzleSavePlay(st.dateKey, st.placed, locked ? undefined : score);
-  renderPuzzleBoard(); renderHomeHeader(); renderPuzzleWeekStrip();
+  renderPuzzleBoard(); renderHomeHeader();
   if (isNewBest && score >= st.puzzle.optimalScore) puzzleConfetti();
   // v195: the optimal word ends the timed window early — Share
   // appears at once and the score (100%) locks in.
@@ -836,43 +832,6 @@ function puzzleConfetti() {
 // v152: the 7-day strip above the puzzle board — today on the right,
 // the 6 most recent days to its left. A solid flame for a day the
 // puzzle was played, a grey flame for a missed one.
-// v191: between the flame and the weekday letter, each played day
-// shows its best percentage (best score / that day's optimal) —
-// the puzzle is a high-score chase now, not a 100% gate. A pre-v191
-// solve reads 100% (see puzzleBestPct). The % needs the day's
-// puzzle entry; the cache is warm whenever the strip renders from
-// the puzzle screen, and a cold cache re-renders once the file lands.
-// v192: an unplayed day reads 0% (flame grey via .missed) —
-// every day shows a number now, never a blank.
-function renderPuzzleWeekStrip() {
-  const strip = $('puzzleWeekStrip'); if (!strip) return;
-  const solved = puzzleSolvedDates();
-  const letters = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-  // v153: the flame is the home page's streak icon (same SVG, same
-  // #ff8d03), not the 🔥 emoji — and it sits above its weekday
-  // letter now, not below it.
-  // v154: 24px (was 18px) — Jeff wants the icons bigger.
-  const flameSvg = '<svg viewBox="0 0 24 24" width="24" height="24"><path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z" fill="#ff8d03"/></svg>';
-  const all = dailyPuzzlesCache;
-  strip.innerHTML = '';
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    const key = localDateKey(d);
-    const day = document.createElement('div');
-    day.className = 'day' + (i === 0 ? ' today' : '') + (solved.has(key) ? '' : ' missed');
-    const letter = document.createElement('span'); letter.className = 'letter'; letter.textContent = letters[d.getDay()];
-    const flame = document.createElement('span'); flame.className = 'flame'; flame.innerHTML = flameSvg;
-    day.appendChild(flame);
-    const pct = solved.has(key) ? (puzzleBestPct(key, all && all[key] ? all[key].optimalScore : null) ?? 100) : 0;
-    const p = document.createElement('span'); p.className = 'pct'; p.textContent = pct + '%'; day.appendChild(p);
-    day.appendChild(letter); strip.appendChild(day);
-  }
-  if (!all) loadDailyPuzzles().then(() => { if ($('puzzleWeekStrip')) renderPuzzleWeekStrip(); }).catch(() => {});
-  // v195: the strip sets the board's room — refit after it populates.
-  // On first open the strip is empty when renderPuzzleBoard fits, so
-  // without this the board is ~55px too tall and overlaps the rack.
-  puzzleFitBoard();
-}
 // v152: a Share link (?puzzle=...) opens the daily puzzle once the
 // app is up. The param is consumed (cleared from the URL) so a later
 // trip home doesn't re-open it.
@@ -1302,7 +1261,10 @@ async function openDailyPuzzle(dateKey) {
   // the score the moment the puzzle opens.
   if (isToday) {
     puzzleTimerStartMs(entry.dateKey);
-    if (puzzleTimerRemainingMs(entry.dateKey) <= 0) {
+    // v196: the day may already be 100% — the optimal was hit on
+    // another device and merged — so the clock stops on open, not
+    // just when this device's own window runs out.
+    if (puzzleTimerRemainingMs(entry.dateKey) <= 0 || puzzleBestPct(entry.dateKey, entry.puzzle.optimalScore) === 100) {
       puzzleBoardState.timerDone = true;
       const pct = puzzleBestPct(entry.dateKey, entry.puzzle.optimalScore);
       puzzleBoardState.lockedPct = pct == null ? 0 : pct;
@@ -1324,7 +1286,6 @@ async function openDailyPuzzle(dateKey) {
   }
   renderPuzzleBoard();
   if (bestCells) puzzleShowBubble(puzzleBoardState.bestScore, bestCells);
-  renderPuzzleWeekStrip();
   // v195: start the 1s timer tick while today's window is running.
   // A past puzzle has no timer; an already-expired window locks on
   // open (above) and needs no tick.
@@ -1355,8 +1316,12 @@ async function openDailyPuzzle(dateKey) {
         puzzleBoardState.lastPct = null;
         renderPuzzleBoard();
       }
-      renderHomeHeader(); renderPuzzleWeekStrip();
+      renderHomeHeader();
     }
+    // v196: the sync may have brought down a 100% best from another
+    // device — lock the local timer too instead of letting it tick
+    // until this device's own window expires.
+    if (puzzleBoardState.isToday && !puzzleBoardState.timerDone && puzzleBestPct(entry.dateKey, entry.puzzle.optimalScore) === 100) puzzleLockTimer();
   }).catch(() => {});
 }
 function closeDailyPuzzle() { puzzleClearTimerInterval(); show('homeScreen'); }
@@ -1364,7 +1329,29 @@ function closeDailyPuzzle() { puzzleClearTimerInterval(); show('homeScreen'); }
 // button opens this list instead of today's board: every puzzle in
 // the file up to today, newest first (today at the top), each with
 // its recorded score. Tapping one opens it to continue playing.
+// v196: 7 rows at a time, then Load more (the exact Game History
+// buttons), and each row carries a mini pre-solution board right of
+// the % — the starting board for that date, drawn from the puzzle
+// file (no new storage).
+let puzzleLogShown = 7;
+let puzzleLogKeys = [];
+function puzzleMiniBoardEl(puzzle) {
+  const wrap = document.createElement('div');
+  wrap.className = 'puzzle-log-mini';
+  const base = puzzleBoardBase({ puzzle });
+  for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+    const cell = document.createElement('div');
+    const prem = puzzle.premiums[`${r},${c}`];
+    const fixed = base[r][c];
+    cell.className = 'cell' + (prem ? ' ' + prem : '') + (fixed ? ' fixed-tile' : '');
+    cell.textContent = fixed ? '' : (prem || '');
+    if (fixed) { const t = document.createElement('div'); t.className = 'tile'; t.innerHTML = tileSVG(fixed); cell.appendChild(t); }
+    wrap.appendChild(cell);
+  }
+  return wrap;
+}
 async function openPuzzleLog() {
+  puzzleLogShown = 7;
   show('puzzleLogScreen');
   renderPuzzleLog();
 }
@@ -1372,10 +1359,12 @@ async function renderPuzzleLog() {
   const list = $('puzzleLogList'); if (!list) return;
   const all = await loadDailyPuzzles();
   list.innerHTML = '';
+  const moreBtn = $('puzzleLogMoreBtn');
+  if (moreBtn) moreBtn.classList.add('hidden');
   if (!all) { list.textContent = 'No puzzles loaded yet — check your connection and try again.'; return; }
   const today = localDateKey(new Date());
-  const keys = Object.keys(all).filter(k => k <= today).sort().reverse();
-  for (const key of keys) {
+  puzzleLogKeys = Object.keys(all).filter(k => k <= today).sort().reverse();
+  for (const key of puzzleLogKeys.slice(0, puzzleLogShown)) {
     const row = document.createElement('button');
     row.className = 'puzzle-log-row';
     const pct = puzzleBestPct(key, all[key].optimalScore);
@@ -1383,13 +1372,15 @@ async function renderPuzzleLog() {
     const dateStr = new Date(y, m - 1, d, 12).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
     const label = document.createElement('span'); label.className = 'puzzle-log-date'; label.textContent = (key === today ? 'Today · ' : '') + dateStr;
     const score = document.createElement('span'); score.className = 'puzzle-log-pct'; score.textContent = (pct == null ? 0 : pct) + '%';
+    const mini = puzzleMiniBoardEl(all[key]);
     const chev = document.createElement('span'); chev.className = 'chev'; chev.textContent = '›';
-    row.appendChild(label); row.appendChild(score); row.appendChild(chev);
+    row.appendChild(label); row.appendChild(score); row.appendChild(mini); row.appendChild(chev);
     // Today is the top row and opens today's puzzle (timer + Share);
     // any other row opens that past puzzle as practice.
     row.onclick = key === today ? () => openDailyPuzzle() : () => openDailyPuzzle(key);
     list.appendChild(row);
   }
+  if (moreBtn) moreBtn.classList.toggle('hidden', puzzleLogShown >= puzzleLogKeys.length);
 }
 // v191: Share opens the Messages app with the day's best
 // percentage — "I scored ___% on the Duello Daily Puzzle!" —
@@ -3022,6 +3013,9 @@ $('dailyPuzzleBtn').onclick = () => {
   else openDailyPuzzle();
 };
 $('puzzleLogBackBtn').onclick = () => show('homeScreen');
+// v196: Load more appends the next 7 log rows (the count resets
+// every time the log opens — see openPuzzleLog).
+$('puzzleLogMoreBtn').onclick = () => { puzzleLogShown += 7; renderPuzzleLog(); };
 // v149: on Free the Pro badge is replaced by this pill, which opens
 // the Duello Pro settings page.
 $('homeUpgradePill').onclick = () => openProScreen();
@@ -3666,7 +3660,20 @@ function replayMoveIsOptimal(n) {
   const moves = (game.moves && game.moves[m.side]) || [];
   let idx = -1;
   for (let i = 0; i < n; i++) if (game.moveLog[i].side === m.side) idx++;
-  return !!(moves[idx] && moves[idx].isOptimal);
+  if (moves[idx] && moves[idx].isOptimal) return true;
+  // v196: server games opened from Game History (or a profile stat)
+  // carry no game.moves — serializeGame never sends it — so fall
+  // back to the stats payload, which lists that side's optimal moves
+  // by their 1-based per-side number (same numbering as idx + 1).
+  // Both the moveLog and the stats payload are flipped to viewer
+  // terms, so the index aligns for either player's view. A missing
+  // stats object reads as today (no blue), never a crash.
+  const st = game.stats && game.stats[m.side];
+  if (st && Array.isArray(st.optimalMoves)) {
+    const num = idx + 1;
+    for (const o of st.optimalMoves) if (o && o.n === num) return true;
+  }
+  return false;
 }
 // v170: the last cell of the main word on a replayed board — where
 // the review's point bubble rides. moveLog placements are in DROP

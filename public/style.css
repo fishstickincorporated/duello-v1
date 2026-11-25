@@ -403,6 +403,10 @@ same 52px column, right-aligned, on every row including your own
 .past-game-score-loss{color:#fff}
 .past-game-date{flex:0 0 auto;color:#b3b2b1;font-size:13px}
 .past-games-note{text-align:center;color:#b3b2b1;padding:16px 0}
+/* v196: the note is a transient message (e.g. the voided-game
+   notice) — an empty note takes no space, so the home button stack
+   centres against the tab bar instead of sitting 32px high. */
+#homeNote:empty{display:none}
 /* Game History (v124): the username under the heading, and the
    Game History / Back to Profile buttons — the same size as the
    Aggregate stats tab (padding 9px, 13px, 800 weight, 10px radius)
@@ -611,7 +615,7 @@ squares are the premium colours, spread out across the whole screen. */
 #introLogo{display:block;width:min(88vw,340px);height:auto}
 
 /* ---------- v131: home redesign (faint blue texture + daily hook) ---------- */
-#homeScreen{position:relative;display:flex;flex-direction:column;min-height:100dvh;min-height:100svh;padding-bottom:128px}
+#homeScreen{position:relative;display:flex;flex-direction:column;min-height:100dvh;min-height:100svh;padding-bottom:calc(65px + env(safe-area-inset-bottom))}
 #homeScreen .logo-img.home-logo{width:72%;margin-bottom:0;position:relative;z-index:1}
 #homeScreen .home-head,#homeScreen .modes{position:relative;z-index:1}
 /* v154: the pfp sits centred between the logo and the Play Online
@@ -831,12 +835,12 @@ squares are the premium colours, spread out across the whole screen. */
    become .tile.empty placeholders, selected gets the gold outline).
    Only the strength bar and the title/date header are
    puzzle-specific. */
-/* v195: the screen is a DEFINITE 100svh flex column (not
-   min-height) with overflow hidden — the puzzle fits on ONE screen
-   and never scrolls. The board is the only flexible piece:
-   puzzleFitBoard sizes it to the largest square that fits the
-   space the header, rack and buttons leave. */
-#puzzleBoardScreen{display:flex;flex-direction:column;height:100vh;height:100dvh;height:100svh;overflow:hidden;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
+/* v196: the puzzle screen is the regular game layout again — a
+   min-height column that grows and scrolls on short viewports,
+   exactly like #gameScreen. The v195 definite-height no-scroll fit
+   (and puzzleFitBoard) is gone with the week strip; the board sits
+   in flow at the game's position and size. */
+#puzzleBoardScreen{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
 /* v154: the board sits in flow exactly like the game's — no flex
    centring, no container-query shrink. The v150 shrink kept the
    buttons on screen on short viewports, but it moved the board off
@@ -845,40 +849,35 @@ squares are the premium colours, spread out across the whole screen. */
    screen's board is a fixed square too, so the puzzle matches it
    (same short-screen overflow as the game). The rack's
    margin-top:auto below is what anchors the deck + buttons to the
-   bottom, like #gameScreen #rack. */
-#puzzleBoardScreen .board-wrap{position:relative;width:100%;flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center}
+   bottom, like #gameScreen #rack. (v196: the v195 flex:1 centring
+   is gone with the week strip — the wrap is a plain flow element
+   again, so the board lands at the game board's Y.) */
+#puzzleBoardScreen .board-wrap{position:relative;width:100%}
 #puzzleBoard{width:100%;aspect-ratio:1}
 #puzzleBoardScreen #puzzleRack{margin-top:auto}
 #puzzleBoardScreen>.controls{margin-bottom:40px}
-/* v152: the 7-day week strip above the board — one column per day,
-   weekday letter over a flame; solid orange for a solved day, grey
-   for a missed one. Today is the right-most column. */
-.puzzle-week{display:flex;justify-content:space-between;max-width:280px;margin:19px auto 0}
-.puzzle-week .day{display:flex;flex-direction:column;align-items:center;gap:2px;width:32px}
-.puzzle-week .day .letter{font-size:11px;color:#b3b2b1;font-weight:700}
-.puzzle-week .day.today .letter{color:#e8ecf1}
-/* v191: the day's best % sits between the flame and the letter —
-   small, grey on past days, near-white today. An unplayed day
-   shows no % at all (the span is only added when there is one). */
-.puzzle-week .day .pct{font-size:10px;font-weight:700;color:#b3b2b1;line-height:1}
-.puzzle-week .day.today .pct{color:#e8ecf1}
-.puzzle-week .day .flame{font-size:16px;line-height:1}
-.puzzle-week .day.missed .flame{filter:grayscale(1);opacity:.4}
 /* v152: confetti that rains on a puzzle solve — the container covers
    the puzzle screen and ignores taps; pieces fall from the top and
    are removed once the animation ends. */
 .puzzle-confetti{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:60}
 .puzzle-confetti .confetti-piece{position:absolute;top:-14px;border-radius:2px;animation:confetti-fall linear forwards}
 @keyframes confetti-fall{to{transform:translateY(110vh) rotate(720deg);opacity:.85}}
-.puzzle-board-title{font-size:22px;font-weight:800;margin-top:27.7px}
+/* v196: 28.7px — the title compensates the game logo (72% wide, so
+   its height varies with viewport width: the game board top is
+   186.1px at 390px wide and 183.3px at 375px). With the week strip
+   gone the header puts the puzzle board at 183.7px with the v160
+   27.7px; 28.7px splits the difference (midpoint 184.7px), so the
+   puzzle board sits within ~1.4px of the game board at both widths.
+   Measured on the real layout — see measure-v196-layout.js. */
+.puzzle-board-title{font-size:22px;font-weight:800;margin-top:28.7px}
 .puzzle-board-date{color:#b3b2b1;font-size:13px;margin-top:2px}
 #puzzleBoard .cell.fixed-tile{cursor:default}
-/* v154: the strength dial sits above the board (below the week
-   strip) and shows at all times — no "Move strength x%" text any
-   more. The percentage rides in a white circle at the end of the
-   coloured fill (black Arial text, like the game's numbers); the
-   knob is positioned by JS and clamped to the track ends. The block
-   is a fixed 30px tall so the knob's overhang never moves the
+/* v154: the strength dial sits above the board (below the timer
+   pill / final score) and shows at all times — no "Move strength x%"
+   text any more. The percentage rides in a white circle at the end
+   of the coloured fill (black Arial text, like the game's numbers);
+   the knob is positioned by JS and clamped to the track ends. The
+   block is a fixed 30px tall so the knob's overhang never moves the
    board. */
 .puzzle-strength{height:30px;margin:12px 0;display:flex;align-items:center}
 .puzzle-strength-track{position:relative;flex:1;height:12px;border-radius:6px;background:#262a33}
@@ -895,12 +894,25 @@ squares are the premium colours, spread out across the whole screen. */
 #puzzleTimerPct{color:#03eaff}
 .puzzle-final-score{text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:28px;font-weight:800;color:#03eaff;font-variant-numeric:tabular-nums;line-height:1;margin:10px auto 0;padding:10px 0}
 /* v195: the past-puzzle log — one row per day (newest first, today
-   at the top): date left, recorded % right, chevron. */
+   at the top): date left, recorded % right, chevron.
+   v196: rows are twice as tall (~104px) and carry a mini
+   pre-solution board right of the % (between the % and the
+   chevron). The Load more button sits below the list, then Back —
+   the exact Game History design. */
 .puzzle-log-list{display:flex;flex-direction:column;gap:8px;margin-top:16px}
-.puzzle-log-row{display:flex;align-items:center;gap:12px;width:100%;background:#262a33;border:0;border-radius:12px;padding:14px 16px;font-size:16px;color:#e8ecf1;text-align:left;cursor:pointer;font-family:inherit}
+.puzzle-log-row{display:flex;align-items:center;gap:12px;width:100%;background:#262a33;border:0;border-radius:12px;padding:20px 16px;font-size:16px;color:#e8ecf1;text-align:left;cursor:pointer;font-family:inherit}
 .puzzle-log-date{flex:1}
 .puzzle-log-pct{font-family:Arial,Helvetica,sans-serif;font-weight:800;color:#03eaff;font-variant-numeric:tabular-nums}
 .puzzle-log-row .chev{color:#b3b2b1;font-size:18px}
+/* v196: the mini board — 64px, 10 columns, 1px gaps. It reuses
+   .cell/.tile at a tiny scale; the premium letters are unreadable
+   at 5.5px a cell, so they are hidden (font-size:0) and the
+   premiums read as colour, like the board at a glance. */
+.puzzle-log-mini{display:grid;grid-template-columns:repeat(10,1fr);gap:1px;width:64px;height:64px;flex:0 0 auto}
+.puzzle-log-mini .cell{font-size:0;border-radius:1px}
+.puzzle-log-mini .cell.DL,.puzzle-log-mini .cell.DW,.puzzle-log-mini .cell.TL,.puzzle-log-mini .cell.TW{font-size:0;text-shadow:none}
+.puzzle-log-mini .tile{border-radius:1px;box-shadow:none;cursor:default}
+#puzzleLogScreen .menu-btn{margin-top:0}
 /* v191: the old #puzzleBoardShareBtn blue rule is gone — Share is
    grey while disabled (.controls button:disabled) and solid blue
    only once played (.controls button.share-ready, above). The old
@@ -945,13 +957,6 @@ squares are the premium colours, spread out across the whole screen. */
 /* v155: the bottom back button is left-justified too (was centered
    by the .back-pill auto margins, like the top one was before v153). */
 #profilePrivacyScreen #privacyBottomBackBtn{margin:22px 0 0}
-/* v154: the strip is tighter than the full board width (was 100% in
-   v153) and sits closer to the board, with bigger flames (24px in
-   renderPuzzleWeekStrip). The flame is the home page's streak SVG,
-   so the span needs no font size. */
-.puzzle-week{max-width:280px;width:100%;margin:19px auto 0}
-.puzzle-week .day{gap:4px}
-.puzzle-week .day .flame svg{display:block}
 
 /* ---------- v154 ---------- */
 /* Field editor: the input row gives the text more room (12px sides
@@ -969,15 +974,14 @@ squares are the premium colours, spread out across the whole screen. */
    of the space below the logo. */
 #searchingScreen{position:relative;display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding-bottom:12px}
 #searchingScreen .searching-box{position:absolute;inset:0;flex:none;justify-content:center;margin-top:0}
-/* The puzzle's top section (title, date, week strip, strength dial)
-   never shrinks: on a short screen the flex container overflows and
-   flex-shrink would otherwise collapse it (the strength dial went
-   from 30px to 12px at 375x667), which moved the board off the
-   game's position. The board, status, deck and buttons below it
-   absorb the overflow instead, the same way the game screen does. */
+/* The puzzle's top section (title, date, timer pill / final score,
+   strength dial) never shrinks: on a short screen the flex
+   container overflows and flex-shrink would otherwise collapse it
+   (the strength dial went from 30px to 12px at 375x667), which
+   moved the board off the game's position. The board, status, deck
+   and buttons below it absorb the overflow instead, the same way the game screen does. */
 #puzzleBoardScreen > .puzzle-board-title,
 #puzzleBoardScreen > .puzzle-board-date,
-#puzzleBoardScreen > .puzzle-week,
 #puzzleBoardScreen > .puzzle-strength,
 #puzzleBoardScreen > .puzzle-timer-pill,
 #puzzleBoardScreen > .puzzle-final-score{flex-shrink:0}

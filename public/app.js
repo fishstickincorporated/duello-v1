@@ -90,7 +90,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 193;
+const APP_VERSION = 194;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -2997,8 +2997,16 @@ async function startChallenge(r) {
         if (ch.status !== 'pending') { searchingActive = false; searchTimer = null; liveChallengeId = null; $('searchingText').textContent = `That challenge ended.`; stopSearchingDots(); $('searchCancelBtn').textContent = 'Back to Friends'; return; }
       } catch {}
       waited += 2000;
-      if (waited >= 60000) {
+      if (waited >= CHALLENGE_WAIT_MS) {
         searchingActive = false; searchTimer = null; liveChallengeId = null;
+        // v194: the accept may have landed while the last poll was in
+        // flight — one final check before withdrawing, so an accept
+        // can never strand the recipient in a game the challenger
+        // never joins.
+        try {
+          const ch = await api(`/api/challenges/${challengeId}`);
+          if (ch && ch.status === 'accepted' && ch.gameId) { joinChallengeGame(ch.gameId); return; }
+        } catch {}
         try { await api(`/api/challenges/${challengeId}/cancel`, { method: 'POST' }); } catch {}
         $('searchingText').textContent = `${first} didn't answer — they may not be in the app right now.`;
         stopSearchingDots();
@@ -3033,6 +3041,23 @@ async function startChallenge(r) {
 // X to accept…" screen. joinRetryGameId carries the game id to
 // the Cancel button, which becomes Retry until the join lands.
 let joinRetryGameId = null;
+// v194: the searching screen doubles as the join-error screen —
+// Retry re-runs the join for this game id (see the Cancel button
+// handler), Back to Friends gives up.
+function showJoinRetry(gameId) {
+  joinRetryGameId = gameId;
+  show('searchingScreen');
+  $('searchingText').textContent = `Couldn't open the game. Check your connection and tap Retry.`;
+  stopSearchingDots();
+  $('searchCancelBtn').textContent = 'Retry';
+}
+function showGameGone() {
+  joinRetryGameId = null;
+  show('searchingScreen');
+  $('searchingText').textContent = `That game is no longer available.`;
+  stopSearchingDots();
+  $('searchCancelBtn').textContent = 'Back to Friends';
+}
 async function joinChallengeGame(gameId) {
   currentBot = 'human'; currentPersonaId = null; botTurnTapTime = Date.now();
   try {
@@ -3041,16 +3066,41 @@ async function joinChallengeGame(gameId) {
     try { await new Promise(r => setTimeout(r, 1000)); game = await api(`/api/games/${gameId}`); }
     catch (e2) {
       if (e2 && e2.message === 'Not signed in.') { token = ''; storeDel('duello_token'); me = null; setAuthMode('signin'); show('authScreen'); return; }
-      joinRetryGameId = gameId;
-      show('searchingScreen');
-      $('searchingText').textContent = `Couldn't open the game. Check your connection and tap Retry.`;
-      stopSearchingDots();
-      $('searchCancelBtn').textContent = 'Retry';
+      showJoinRetry(gameId);
       return;
     }
   }
+  // v194: the game may have been voided between the accept and this
+  // load (never started, or abandoned) — entering a dead game would
+  // strand the player on a board that can never play. Clear the
+  // loaded game first, so no stale void game sits in `game`.
+  if (!game || game.status !== 'active') { game = null; showGameGone(); return; }
   joinRetryGameId = null;
-  enterGameScreen();
+  try {
+    enterGameScreen();
+  } catch {
+    // v194: an enter failure (a bad render, a missing element) used
+    // to strand the player silently with the game already created —
+    // the same Retry way back as a failed load.
+    showJoinRetry(gameId);
+  }
+}
+// v194: the server voided this game (never started, or abandoned) —
+// there is no In progress list anymore, so a player who still has
+// it open must be sent home with a reason, not left staring at a
+// dead board.
+function exitVoidGame(g) {
+  try { if (syncFallbackTimer) { clearTimeout(syncFallbackTimer); syncFallbackTimer = null; } } catch {}
+  waitingForSync = false;
+  closeGameStream();
+  try { $('statWindow').classList.add('hidden'); } catch {}
+  game = null;
+  show('homeScreen');
+  const n = $('homeNote');
+  if (n) {
+    n.textContent = (g && g.started) ? 'That game was voided — both players left.' : 'That game was voided — it never started.';
+    setTimeout(() => { try { if (n.textContent.indexOf('voided') !== -1) n.textContent = ''; } catch {} }, 8000);
+  }
 }
 // The shared game start: clocks pinned during the countdown,
 // rack hidden until the countdown ends. startGame (bot games)
@@ -3070,6 +3120,10 @@ let waitingForSync = false, syncFallbackTimer = null;
 // poll) before this phone falls back to a local one. A module-level
 // let so the harness can shrink it — the production value is 15s.
 let SYNC_FALLBACK_MS = 15000;
+// v194: how long the challenger waits for an accept before the 60s
+// timeout re-checks once and then withdraws. A module-level let so
+// the harness can shrink it — the production value is 60s.
+let CHALLENGE_WAIT_MS = 60000;
 function enterGameScreen() {
   // A fetch from a previous game may still be in flight: invalidate
   // it, so its response cannot overwrite this game with old state.
@@ -3129,6 +3183,10 @@ function enterGameScreen() {
       try {
         const fresh = await api(`/api/games/${syncGameId}`);
         if (!waitingForSync || !game || game.id !== syncGameId) return;
+        // v194: the game was voided while waiting for the opponent —
+        // go home with a reason instead of starting a local countdown
+        // on a dead game.
+        if (fresh && fresh.status === 'void') { exitVoidGame(fresh); return; }
         if (fresh && fresh.countdownRemainingMs != null) {
           waitingForSync = false;
           startCountdown(Date.now() + fresh.countdownRemainingMs);
@@ -3281,6 +3339,8 @@ async function endCountdown() {
   try {
     try { game = await api(`/api/games/${game.id}/start`, { method: 'POST' }); }
     catch { game = await api(`/api/games/${game.id}`); }
+    // v194: the game may have been voided during the countdown.
+    if (game && game.status === 'void') { countdownActive = false; $('gameScreen').classList.remove('counting'); exitVoidGame(game); return; }
     countdownActive = false;
     $('gameScreen').classList.remove('counting');
     clockHoldUntil = Date.now() + 1000;
@@ -4162,6 +4222,9 @@ function openGameStream() {
     // in-flight GET so a stale poll response can never overwrite it.
     gameAppliedSeq = gameFetchSeq;
     game = state; gameFetchAt = Date.now();
+    // v194: the server voided this game while it was open — send
+    // the player home with a reason instead of leaving a dead board.
+    if (state.status === 'void') { exitVoidGame(state); return; }
     // Placed tiles only go back when the game is over or it is no longer
     // my turn (a timeout flip, a pass). A move by the opponent flips the
     // turn TO me, and my own play's echo leaves the turn with them — in
@@ -4198,6 +4261,8 @@ async function pollBotTurn() {
     if (mySeq <= gameAppliedSeq) return;
     const botMoved = (next.lastBot ? JSON.stringify(next.lastBot) : '') !== prevBot || (next.scores && next.scores.bot !== prevBotScore);
     game = next; gameAppliedSeq = mySeq; gameFetchAt = Date.now(); pending = []; selectedRack = null;
+    // v194: the server voided this game while it was open.
+    if (next.status === 'void') { exitVoidGame(next); return; }
     // v154: start the runoff BEFORE the render — renderGame's tick
     // would otherwise snap the bot clock straight to the stepped
     // value, and the animation would then jump it back up to
@@ -6820,54 +6885,9 @@ function pastGameRowEl(g) {
   row.onclick = () => openPastGameDetail(g.id);
   return row;
 }
-// One row per ACTIVE human game (v193): the opponent, the live
-// score, and a Resume label. Tapping joins the game in progress
-// (joinChallengeGame loads it and runs the countdown/late-join
-// start) instead of opening a finished-game review.
-function activeGameRowEl(g) {
-  const row = document.createElement('button');
-  row.className = 'past-game-row';
-  const picEl = document.createElement('span');
-  picEl.className = 'past-game-pic';
-  if (g.opponentPhoto) picEl.innerHTML = `<img src="${g.opponentPhoto}" alt="">`;
-  else picEl.innerHTML = silhouetteSVG(28);
-  const oppEl = document.createElement('span');
-  oppEl.className = 'past-game-opp';
-  oppEl.textContent = g.opponentUsername || g.opponentName || 'Opponent';
-  const scoreEl = document.createElement('span');
-  scoreEl.className = 'past-game-score num';
-  scoreEl.textContent = `${g.myScore}–${g.oppScore}`;
-  const resumeEl = document.createElement('span');
-  resumeEl.className = 'past-game-resume';
-  resumeEl.textContent = 'Resume ›';
-  row.append(picEl, oppEl, scoreEl, resumeEl);
-  row.onclick = () => joinChallengeGame(g.id);
-  return row;
-}
-// v193: the resume list — active human games for this account,
-// fetched when Game History opens. A failure is not an error:
-// the finished list still renders and the section simply stays
-// hidden until the next open.
-let activeGamesCache = null;
-async function fetchActiveGames() {
-  try {
-    const r = await api('/api/games?limit=25&offset=0&scope=active');
-    return (r && r.games) || [];
-  } catch { return []; }
-}
 function renderPastGamesList(games) {
   const list = $('pastGamesList');
   list.innerHTML = '';
-  // v193: active human games sit above the finished list, so an
-  // accepted-but-unjoined game is one tap away instead of
-  // unreachable from the UI.
-  if (activeGamesCache && activeGamesCache.length) {
-    const head = document.createElement('div');
-    head.className = 'past-games-note';
-    head.textContent = 'In progress — tap to resume';
-    list.appendChild(head);
-    activeGamesCache.forEach((g) => list.appendChild(activeGameRowEl(g)));
-  }
   if (!games.length) {
     const note = document.createElement('div');
     note.className = 'past-games-note';
@@ -6944,14 +6964,6 @@ async function openPastGames() {
   // Warm the other filters too (v133): Vs Humans / Vs Bots are
   // already cached by the time their tab is tapped.
   try { warmHistoryScopes(); } catch {}
-  // v193: active games load alongside the finished list — the
-  // resume section renders as soon as they land (or on the next
-  // render if they land first).
-  fetchActiveGames().then((games) => {
-    activeGamesCache = games;
-    const cur = historyScopeState();
-    if (cur.games) renderPastGamesList(cur.games);
-  }).catch(() => {});
   // The username under the heading (v124): whose history this is.
   const un = (me && me.username) || (profileData && profileData.user && profileData.user.username) || '';
   $('pastGamesUser').textContent = un ? '@' + un : '';

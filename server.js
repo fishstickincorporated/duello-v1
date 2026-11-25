@@ -201,6 +201,13 @@ async function initDb() {
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`);
   await seedPersonas();
+  // v194: void any games stranded by the old crashes on boot — the
+  // same sweep as the 60s interval, so the four rows Jeff saw (two
+  // never-started 0–0s and two started-but-abandoned scored games)
+  // are voided the moment this version deploys. Idempotent: void
+  // games no longer match status='active', so a restart re-voids
+  // nothing.
+  await voidStaleGames();
 }
 async function seedPersonas() {
   // Persona data is versioned, not just seeded-once: v1 (Nov 4) was
@@ -899,6 +906,58 @@ async function presenceCheckExit(game, user) {
   presenceByGame.delete(game.id);
   broadcastGame(game);
   return true;
+}
+// Voiding stranded games (v194): an "In progress" game you're not in
+// should be impossible — the 30s presence exit only fires once a game
+// has started AND the remaining player keeps requesting, so a game
+// where a side never entered (or both sides walked away) sat active
+// forever and showed up as a Resume row. A voided game is a distinct
+// terminal state: it never finished, so it appears in no finished
+// list, moves no Elo, and writes no stats or elo_history (only
+// endGame does that, and voiding never calls it).
+//   N = 5 minutes for a game that never started: accept -> enter ->
+//   countdown -> /start completes in ~30s, so 5 minutes is 10x
+//   headroom; a game still unstarted after that had a side that
+//   never arrived.
+//   M = 60 minutes with no save at all (updated_at): anyone on the
+//   game screen saves at least every few seconds (1s poll, plays,
+//   passes), so an hour of silence means both players walked away.
+//   Presence already decides shorter absences when one side returns.
+// Thresholds are overridable so the harness can shrink them.
+let VOID_NEVER_STARTED_MS = 5 * 60 * 1000;
+let VOID_ABANDONED_MS = 60 * 60 * 1000;
+const VOID_SWEEP_EVERY_MS = 60 * 1000;
+async function voidStaleGames(opts = {}) {
+  const neverStartedMs = opts.neverStartedMs ?? VOID_NEVER_STARTED_MS;
+  const abandonedMs = opts.abandonedMs ?? VOID_ABANDONED_MS;
+  try {
+    const neverCutoff = new Date(Date.now() - neverStartedMs).toISOString();
+    const abandonedCutoff = new Date(Date.now() - abandonedMs).toISOString();
+    const r = await q(`UPDATE games SET state = jsonb_set(state, '{status}', '"void"'), updated_at = now()
+      WHERE bot_type = 'human' AND state->>'status' = 'active'
+      AND (
+        (COALESCE((state->>'started')::boolean, false) = false
+         AND COALESCE(jsonb_array_length(state->'moves'->'human'), 0) = 0
+         AND COALESCE(jsonb_array_length(state->'moves'->'bot'), 0) = 0
+         AND state->>'lastHuman' IS NULL AND state->>'lastBot' IS NULL
+         AND created_at < $1::timestamptz)
+        OR updated_at < $2::timestamptz
+      )
+      RETURNING id`, [neverCutoff, abandonedCutoff]);
+    for (const row of (r.rows || [])) console.log(`Voided stale game ${row.id}`);
+    return (r.rows || []).map((row) => row.id);
+  } catch (e) {
+    console.error('Void sweep failed:', e.message);
+    return [];
+  }
+}
+let voidSweepTimer = null;
+function startVoidSweep() {
+  if (voidSweepTimer) return voidSweepTimer;
+  const t = setInterval(() => { voidStaleGames(); }, VOID_SWEEP_EVERY_MS);
+  if (t.unref) t.unref();
+  voidSweepTimer = t;
+  return t;
 }
 // Play Online matchmaking (v123, item 4): a 7-second real-person
 // search. Waiting players sit in this in-memory queue (userId ->
@@ -2963,12 +3022,12 @@ const server = http.createServer(async (req, res) => {
     // the profile's Past Games screen. The full game (final board +
     // moveLog for replay) comes from GET /api/games/:id. Only
     // finished games are listed — an active game is not a past game.
-    // v193: scope=active lists the user's ACTIVE human games instead
-    // (newest first) — the resume path. An accepted-but-unjoined
-    // challenge game was unreachable from the UI until now; the
-    // Past Games screen shows these above the finished list with a
-    // Resume tap. Bot games never need it (they resume locally from
-    // the device), so the scope is human-only.
+    // v194: scope=active is a stub that returns no games. The v193
+    // resume list is gone — an active game you're not in should be
+    // impossible (never-started games are voided after 5 min,
+    // abandoned ones after 60) — but v193 clients already in the
+    // wild still call it, and handing them the finished list would
+    // mis-render finished games as resumable rows.
     // Paging + filter (v128, items 4+5): limit/offset page 25 at a
     // time (limit capped at 50) and scope filters by opponent kind
     // (aggregate = all, vsHumans = personas + real players, vsBots =
@@ -2981,6 +3040,8 @@ const server = http.createServer(async (req, res) => {
       const limit = Math.max(1, Math.min(50, parseInt(url.searchParams.get('limit') || '25', 10) || 25));
       const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
       const scope = url.searchParams.get('scope') || 'aggregate';
+      // v194: see the stub note above — no games, ever.
+      if (scope === 'active') return sendJson(res, 200, { games: [], hasMore: false });
       let scopeSql = '';
       if (scope === 'vsHumans') scopeSql = " AND bot_type IN ('persona','human')";
       else if (scope === 'vsBots') scopeSql = " AND bot_type IN ('fishstick','competitive')";
@@ -2989,9 +3050,7 @@ const server = http.createServer(async (req, res) => {
       // the limit/offset paging exact. COALESCE guards a state with
       // no scores key at all: such a game is never excluded.
       const zeroZeroBotSql = " AND NOT (bot_type IN ('fishstick','competitive') AND COALESCE((state->'scores'->>'human')::int, -1) = 0 AND COALESCE((state->'scores'->>'bot')::int, -1) = 0)";
-      const whereSql = scope === 'active'
-        ? " WHERE (user_id=$1 OR opponent_id=$1) AND state->>'status'='active' AND bot_type='human'"
-        : " WHERE (user_id=$1 OR opponent_id=$1) AND state->>'status'='finished'" + scopeSql + zeroZeroBotSql;
+      const whereSql = " WHERE (user_id=$1 OR opponent_id=$1) AND state->>'status'='finished'" + scopeSql + zeroZeroBotSql;
       const r = await q("SELECT id, user_id, opponent_id, bot_type, state, created_at, updated_at FROM games" + whereSql + " ORDER BY updated_at DESC LIMIT $2 OFFSET $3", [user.id, limit + 1, offset]);
       const hasMore = r.rows.length > limit;
       const pageRows = hasMore ? r.rows.slice(0, limit) : r.rows;
@@ -3530,5 +3589,6 @@ initDb().then(() => {
     console.log(`Duello bot-play listening on http://localhost:${PORT}`);
     console.log(`Dictionary: ${WORDS.size} words; definitions bundled: ${Object.keys(DEFS).length}`);
     startPersonaSim();
+    startVoidSweep();
   });
 }).catch(e => { console.error('Postgres init failed:', e.message); process.exit(1); });

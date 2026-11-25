@@ -402,7 +402,6 @@ same 52px column, right-aligned, on every row including your own
 .past-game-score-win{color:#03eaff;font-weight:800}
 .past-game-score-loss{color:#fff}
 .past-game-date{flex:0 0 auto;color:#b3b2b1;font-size:13px}
-.past-game-resume{flex:0 0 auto;color:#03eaff;font-size:13px;font-weight:800}
 .past-games-note{text-align:center;color:#b3b2b1;padding:16px 0}
 /* Game History (v124): the username under the heading, and the
    Game History / Back to Profile buttons — the same size as the

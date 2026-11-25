@@ -831,13 +831,12 @@ squares are the premium colours, spread out across the whole screen. */
    become .tile.empty placeholders, selected gets the gold outline).
    Only the strength bar and the title/date header are
    puzzle-specific. */
-/* v150: the screen used to have a DEFINITE height (100svh), not
-   min-height, and the board shrank to fit — v154 removed both, so
-   the screen is min-height like the game's: on a short viewport it
-   grows past the fold and scrolls, exactly like the real game
-   (the v150 shrink crushed the status line to its 22px floor at
-   375x667 and moved the deck/buttons off the game's position). */
-#puzzleBoardScreen{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
+/* v195: the screen is a DEFINITE 100svh flex column (not
+   min-height) with overflow hidden — the puzzle fits on ONE screen
+   and never scrolls. The board is the only flexible piece:
+   puzzleFitBoard sizes it to the largest square that fits the
+   space the header, rack and buttons leave. */
+#puzzleBoardScreen{display:flex;flex-direction:column;height:100vh;height:100dvh;height:100svh;overflow:hidden;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
 /* v154: the board sits in flow exactly like the game's — no flex
    centring, no container-query shrink. The v150 shrink kept the
    buttons on screen on short viewports, but it moved the board off
@@ -847,7 +846,7 @@ squares are the premium colours, spread out across the whole screen. */
    (same short-screen overflow as the game). The rack's
    margin-top:auto below is what anchors the deck + buttons to the
    bottom, like #gameScreen #rack. */
-#puzzleBoardScreen .board-wrap{position:relative;width:100%}
+#puzzleBoardScreen .board-wrap{position:relative;width:100%;flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center}
 #puzzleBoard{width:100%;aspect-ratio:1}
 #puzzleBoardScreen #puzzleRack{margin-top:auto}
 #puzzleBoardScreen>.controls{margin-bottom:40px}
@@ -885,6 +884,23 @@ squares are the premium colours, spread out across the whole screen. */
 .puzzle-strength-track{position:relative;flex:1;height:12px;border-radius:6px;background:#262a33}
 .puzzle-strength-fill{height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,#03eaff,#1cff03);transition:width .35s ease}
 .puzzle-strength-knob{position:absolute;top:50%;left:15px;transform:translate(-50%,-50%);width:30px;height:30px;border-radius:50%;background:#fff;color:#1a1d24;display:flex;align-items:center;justify-content:center;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:800;font-variant-numeric:tabular-nums;transition:left .35s ease}
+/* v195: the 2-minute timer pill — a black rounded pill with the
+   time left in white and the best % so far in Duello blue, like
+   Jeff's mockup. After the window the pill goes away and the locked
+   score centers at the top in its place (same 48px height, so the
+   board never jumps). */
+.puzzle-timer-pill{display:flex;align-items:center;justify-content:center;gap:18px;background:#000;border-radius:999px;padding:10px 28px;margin:10px auto 0}
+.puzzle-timer-pill span{font-family:Arial,Helvetica,sans-serif;font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1}
+#puzzleTimerClock{color:#e8ecf1}
+#puzzleTimerPct{color:#03eaff}
+.puzzle-final-score{text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:28px;font-weight:800;color:#03eaff;font-variant-numeric:tabular-nums;line-height:1;margin:10px auto 0;padding:10px 0}
+/* v195: the past-puzzle log — one row per day (newest first, today
+   at the top): date left, recorded % right, chevron. */
+.puzzle-log-list{display:flex;flex-direction:column;gap:8px;margin-top:16px}
+.puzzle-log-row{display:flex;align-items:center;gap:12px;width:100%;background:#262a33;border:0;border-radius:12px;padding:14px 16px;font-size:16px;color:#e8ecf1;text-align:left;cursor:pointer;font-family:inherit}
+.puzzle-log-date{flex:1}
+.puzzle-log-pct{font-family:Arial,Helvetica,sans-serif;font-weight:800;color:#03eaff;font-variant-numeric:tabular-nums}
+.puzzle-log-row .chev{color:#b3b2b1;font-size:18px}
 /* v191: the old #puzzleBoardShareBtn blue rule is gone — Share is
    grey while disabled (.controls button:disabled) and solid blue
    only once played (.controls button.share-ready, above). The old
@@ -962,7 +978,9 @@ squares are the premium colours, spread out across the whole screen. */
 #puzzleBoardScreen > .puzzle-board-title,
 #puzzleBoardScreen > .puzzle-board-date,
 #puzzleBoardScreen > .puzzle-week,
-#puzzleBoardScreen > .puzzle-strength{flex-shrink:0}
+#puzzleBoardScreen > .puzzle-strength,
+#puzzleBoardScreen > .puzzle-timer-pill,
+#puzzleBoardScreen > .puzzle-final-score{flex-shrink:0}
 /* v161 (Nov 21, 2026) */
 /* (1) Logo up to the game position: the home and bot logos sat at
    32px (28px screen padding + 4px margin) while the game logo
@@ -978,7 +996,7 @@ squares are the premium colours, spread out across the whole screen. */
    rematch screens are excluded (centred content). The first
    element's own top spacing is zeroed so it does not push the top
    pixel back down. */
-#friendsScreen,#profileScreen,#pastGamesScreen,#profileEditScreen,#profileFieldScreen,#profilePhotoScreen,#profilePasswordScreen,#profileProScreen,#profilePrivacyScreen,#authScreen{padding-top:calc(4px + env(safe-area-inset-top))}
+#friendsScreen,#profileScreen,#pastGamesScreen,#puzzleLogScreen,#profileEditScreen,#profileFieldScreen,#profilePhotoScreen,#profilePasswordScreen,#profileProScreen,#profilePrivacyScreen,#authScreen{padding-top:calc(4px + env(safe-area-inset-top))}
 #friendsScreen .search-wrap{margin-top:0}
 #profileScreen .profile-top{padding-top:0}
 #profileEditScreen .auth-heading,#profileFieldScreen .auth-heading,#profilePhotoScreen .auth-heading,#profilePasswordScreen .auth-heading,#profileProScreen .auth-heading,#authScreen .auth-heading{margin-top:0}

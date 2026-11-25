@@ -90,7 +90,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 194;
+const APP_VERSION = 195;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -238,6 +238,78 @@ function puzzleBestPct(dateKey, optimalScore) {
   if (best != null) return Math.min(100, Math.round(best / optimalScore * 100));
   if (puzzleSolvedDates().has(dateKey)) return 100;
   return null;
+}
+// v195: the 2-minute timed window. The window starts on the first
+// open of that day's puzzle and is wall-clock based — the start is
+// persisted per date, so leaving the puzzle or closing the app
+// never pauses it: remaining = start + 2 min - now, computed on
+// every tick/render. After the window the score locks (the best %
+// within the window is final) and Share appears.
+const PUZZLE_TIMER_MS = 120000;
+const PUZZLE_TIMER_KEY = 'duello-daily-puzzle-timer-v1';
+function puzzleTimerStarts() {
+  try { const raw = JSON.parse(localStorage.getItem(PUZZLE_TIMER_KEY) || 'null'); if (raw && typeof raw === 'object') return raw; } catch {}
+  return {};
+}
+function puzzleTimerStartMs(dateKey) {
+  const starts = puzzleTimerStarts();
+  if (starts[dateKey] == null) {
+    starts[dateKey] = Date.now();
+    try { localStorage.setItem(PUZZLE_TIMER_KEY, JSON.stringify(starts)); } catch {}
+  }
+  return starts[dateKey];
+}
+function puzzleTimerRemainingMs(dateKey) {
+  const starts = puzzleTimerStarts();
+  const start = starts[dateKey];
+  if (start == null) return PUZZLE_TIMER_MS;
+  // Clamp: a clock skew (or a fixed-date test) must never show a
+  // negative or >2:00 remaining.
+  return Math.max(0, Math.min(PUZZLE_TIMER_MS, start + PUZZLE_TIMER_MS - Date.now()));
+}
+function puzzleTimerText(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+// The posted score for the open puzzle: the locked % once the window
+// is over, else the best % so far (0 when nothing has been played).
+function puzzlePostedPct(st) {
+  if (st.lockedPct != null) return st.lockedPct;
+  const p = puzzleBestPct(st.dateKey, st.puzzle.optimalScore);
+  return p == null ? 0 : p;
+}
+let puzzleTimerInterval = null;
+function puzzleClearTimerInterval() { if (puzzleTimerInterval) { clearInterval(puzzleTimerInterval); puzzleTimerInterval = null; } }
+function puzzleUpdateTimerPill() {
+  const st = puzzleBoardState; if (!st || !st.isToday || st.timerDone) return;
+  const pill = $('puzzleTimerPill'); if (!pill) return;
+  const clock = $('puzzleTimerClock'), pct = $('puzzleTimerPct');
+  if (clock) clock.textContent = puzzleTimerText(puzzleTimerRemainingMs(st.dateKey));
+  if (pct) pct.textContent = puzzlePostedPct(st) + '%';
+}
+function puzzleTickTimer() {
+  const st = puzzleBoardState; if (!st || !st.isToday || st.timerDone) { puzzleClearTimerInterval(); return; }
+  if (puzzleTimerRemainingMs(st.dateKey) <= 0) { puzzleLockTimer(); return; }
+  puzzleUpdateTimerPill();
+}
+function puzzleStartTimerInterval() {
+  puzzleClearTimerInterval();
+  puzzleTimerInterval = setInterval(puzzleTickTimer, 1000);
+}
+// v195: lock the day's score at the end of the timed window (or the
+// moment the optimal word lands). The best % within the window is
+// final — later play is practice and never moves it. The pill goes
+// away, the locked score centers at the top, Share appears.
+function puzzleLockTimer() {
+  const st = puzzleBoardState; if (!st) return;
+  if (st.timerDone) return;
+  st.timerDone = true;
+  st.lockedPct = puzzlePostedPct(st);
+  puzzleClearTimerInterval();
+  const pill = $('puzzleTimerPill'); if (pill) pill.classList.add('hidden');
+  const fin = $('puzzleFinalScore');
+  if (fin) { fin.textContent = st.lockedPct + '%'; fin.classList.remove('hidden'); }
+  renderPuzzleBoard(); renderPuzzleWeekStrip();
 }
 let puzzleServerSynced = false;
 async function puzzleSyncFromServer() {
@@ -443,11 +515,11 @@ function renderPuzzleBoard() {
   // element), so re-attach it from the state after every rebuild —
   // the same pattern as the game's last-play bubble.
   if (st.bubble && st.placed.length) puzzleShowBubble(st.bubble.score, st.bubble.mainCells);
-  // v191: the row is always Exit, Recall, Shuffle, Share — all
-  // visible, always. There is no Replay and no solved screen any
-  // more: the board stays playable after a word (the chase is the
-  // best score), and Share is greyed until a valid word has been
-  // made on this day's puzzle, then solid blue (.share-ready).
+  // v195: the row is Exit, Recall, Shuffle — plus Share only once
+  // the timed window is over or the optimal word has landed (today's
+  // puzzle only; a past puzzle never shows Share). There is no Replay
+  // and no solved screen any more: the board stays playable after a
+  // word, and Share is solid blue (.share-ready) whenever it shows.
   // v154: the controls row itself must be visible — a finished real
   // game used to hide it (renderGame toggled the first .controls in
   // the document, which was this row), so reopening a solved puzzle
@@ -459,8 +531,41 @@ function renderPuzzleBoard() {
   if (exit) exit.classList.remove('hidden');
   if (recall) { recall.disabled = false; recall.classList.remove('hidden'); }
   if (shuffle) { shuffle.disabled = false; shuffle.classList.remove('hidden'); }
-  if (share) { share.classList.remove('hidden'); share.disabled = !st.played; share.classList.toggle('share-ready', !!st.played); }
+  // v195: Share exists ONLY on today's puzzle, and only once the
+  // timed window is over or the optimal word has landed. Before
+  // that the row is exactly Exit, Recall, Shuffle — no placeholder,
+  // no greyed Share.
+  const hitOptimal = st.lastScore != null && st.lastScore >= st.puzzle.optimalScore;
+  const shareVisible = st.isToday && (st.timerDone || hitOptimal);
+  if (share) { share.classList.toggle('hidden', !shareVisible); share.disabled = !shareVisible; share.classList.toggle('share-ready', shareVisible); }
+  // v195: the timer pill (today, window running) vs the locked score
+  // (today, window over — or a past puzzle, whose window is long
+  // over). The pill shows the live clock + the best % so far; the
+  // final score is the posted % centered at the top.
+  const pill = $('puzzleTimerPill'), fin = $('puzzleFinalScore');
+  if (st.isToday && !st.timerDone) {
+    if (pill) pill.classList.remove('hidden');
+    if (fin) fin.classList.add('hidden');
+    puzzleUpdateTimerPill();
+  } else {
+    if (pill) pill.classList.add('hidden');
+    if (fin) { fin.textContent = puzzlePostedPct(st) + '%'; fin.classList.remove('hidden'); }
+  }
+  puzzleFitBoard();
 }
+// v195: the board is the only flexible piece of the puzzle screen —
+// it takes the largest square that fits the space the header, rack
+// and buttons leave, so the screen never scrolls. Called on every
+// board render (open, placement, timer lock) and on resize.
+function puzzleFitBoard() {
+  const wrap = document.querySelector('#puzzleBoardScreen .board-wrap');
+  const b = $('puzzleBoard');
+  if (!wrap || !b) return;
+  const r = wrap.getBoundingClientRect();
+  const size = Math.floor(Math.min(r.width, r.height));
+  if (size > 0) { b.style.width = size + 'px'; b.style.height = size + 'px'; }
+}
+window.addEventListener('resize', () => { try { if (puzzleBoardState && !$('puzzleBoardScreen').classList.contains('hidden')) puzzleFitBoard(); } catch {} });
 function puzzleBoardSelectRack(i) {
   const st = puzzleBoardState; if (!st) return;
   const t = st.rack[i]; if (!t || t.used) return;
@@ -686,14 +791,25 @@ function puzzleLiveValidate() {
 // player keeps chasing a better word.
 function puzzleRecordPlay(res) {
   const st = puzzleBoardState; if (!st) return;
+  // v195: a past puzzle is practice — playing it never records
+  // anything (no streak, no best, no score change).
+  if (!st.isToday) return;
   const score = res.score;
+  // v195: after the timed window the score is locked — a word played
+  // past the timer still counts for the streak (played), but it never
+  // moves the best score, never uploads a new best, and never rains
+  // confetti. The day's best is the best within the window.
+  const locked = !!st.timerDone;
   const prevBest = puzzleBestScores()[st.dateKey];
-  const isNewBest = prevBest == null || score > prevBest;
+  const isNewBest = !locked && (prevBest == null || score > prevBest);
   st.played = true;
   if (isNewBest) st.bestScore = score;
-  puzzleSavePlay(st.dateKey, st.placed, score);
+  puzzleSavePlay(st.dateKey, st.placed, locked ? undefined : score);
   renderPuzzleBoard(); renderHomeHeader(); renderPuzzleWeekStrip();
   if (isNewBest && score >= st.puzzle.optimalScore) puzzleConfetti();
+  // v195: the optimal word ends the timed window early — Share
+  // appears at once and the score (100%) locks in.
+  if (!locked && score >= st.puzzle.optimalScore) puzzleLockTimer();
 }
 // v152: confetti rains from the top of the screen on a puzzle solve
 // — brand-colour pieces, random sizes and fall speeds, cleaned up
@@ -752,6 +868,10 @@ function renderPuzzleWeekStrip() {
     day.appendChild(letter); strip.appendChild(day);
   }
   if (!all) loadDailyPuzzles().then(() => { if ($('puzzleWeekStrip')) renderPuzzleWeekStrip(); }).catch(() => {});
+  // v195: the strip sets the board's room — refit after it populates.
+  // On first open the strip is empty when renderPuzzleBoard fits, so
+  // without this the board is ~55px too tall and overlaps the rack.
+  puzzleFitBoard();
 }
 // v152: a Share link (?puzzle=...) opens the daily puzzle once the
 // app is up. The param is consumed (cleared from the URL) so a later
@@ -1145,14 +1265,18 @@ function puzzleRestoreBestMove(st) {
   const sorted = placed.slice().sort((a, b) => sameRow ? a.col - b.col : a.row - b.row);
   return sorted.map(p => [p.row, p.col]);
 }
-async function openDailyPuzzle() {
+async function openDailyPuzzle(dateKey) {
   show('puzzleBoardScreen');
   const status = $('puzzleBoardStatus');
   // v150: while loading, the status shows the start-of-game default
   // (the status line only ever says one of the four puzzle messages).
   if (status) { status.textContent = 'Find the best move.'; status.className = 'status puzzle-status'; }
   const [all, words] = await Promise.all([loadDailyPuzzles(), ensureLocalWords()]);
-  const entry = dailyPuzzleEntry(all);
+  // v195: no dateKey = today's puzzle (the entry dailyPuzzleEntry
+  // picks — today, or the latest in the file when today has none).
+  // A dateKey opens a past puzzle from the log, which is practice:
+  // no timer, no Share, no recording.
+  const entry = dateKey ? (all && all[dateKey] ? { dateKey, puzzle: all[dateKey] } : null) : dailyPuzzleEntry(all);
   if (!entry || !words || !localEngine) {
     puzzleBoardState = null;
     if (status) { status.textContent = !entry ? 'No puzzle loaded yet — check your connection and try again.' : 'Words still loading — check your connection and try again.'; status.className = 'status puzzle-status'; }
@@ -1164,13 +1288,26 @@ async function openDailyPuzzle() {
     dateEl.textContent = new Date(y, m - 1, d, 12).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   }
   const played = puzzleSolvedDates().has(entry.dateKey);
+  const isToday = !dateKey;
   puzzleBoardState = {
     entry, dateKey: entry.dateKey, puzzle: entry.puzzle, board: puzzleBoardBase(entry),
     rack: entry.puzzle.rack.map(ch => ({ ch, used: false })),
     placed: [], selected: null, played, msg: '',
     lastPct: null, lastScore: null, bubble: null,
-    bestScore: null,
+    bestScore: null, isToday, timerDone: !isToday, lockedPct: null,
   };
+  // v195: today's puzzle runs the 2-minute timed window from its
+  // first open (wall-clock — the start is persisted, so leaving or
+  // closing never pauses it). A window that already ran out locks
+  // the score the moment the puzzle opens.
+  if (isToday) {
+    puzzleTimerStartMs(entry.dateKey);
+    if (puzzleTimerRemainingMs(entry.dateKey) <= 0) {
+      puzzleBoardState.timerDone = true;
+      const pct = puzzleBestPct(entry.dateKey, entry.puzzle.optimalScore);
+      puzzleBoardState.lockedPct = pct == null ? 0 : pct;
+    }
+  }
   // v191: a played puzzle reopens with the best word on the board
   // and the bar at the best % (not 100% unless the best IS the
   // optimal). The status reads "That's it!" only when the best
@@ -1188,6 +1325,11 @@ async function openDailyPuzzle() {
   renderPuzzleBoard();
   if (bestCells) puzzleShowBubble(puzzleBoardState.bestScore, bestCells);
   renderPuzzleWeekStrip();
+  // v195: start the 1s timer tick while today's window is running.
+  // A past puzzle has no timer; an already-expired window locks on
+  // open (above) and needs no tick.
+  if (isToday && !puzzleBoardState.timerDone) puzzleStartTimerInterval();
+  else puzzleClearTimerInterval();
   // The played-state sync runs in the background (v148): it was
   // already warmed by the preload, and blocking the board on a fresh
   // fetch is what made the first tap wait. If the sync finds the
@@ -1217,19 +1359,53 @@ async function openDailyPuzzle() {
     }
   }).catch(() => {});
 }
-function closeDailyPuzzle() { show('homeScreen'); }
+function closeDailyPuzzle() { puzzleClearTimerInterval(); show('homeScreen'); }
+// v195: the past-puzzle log. After today is solved, the Daily Puzzle
+// button opens this list instead of today's board: every puzzle in
+// the file up to today, newest first (today at the top), each with
+// its recorded score. Tapping one opens it to continue playing.
+async function openPuzzleLog() {
+  show('puzzleLogScreen');
+  renderPuzzleLog();
+}
+async function renderPuzzleLog() {
+  const list = $('puzzleLogList'); if (!list) return;
+  const all = await loadDailyPuzzles();
+  list.innerHTML = '';
+  if (!all) { list.textContent = 'No puzzles loaded yet — check your connection and try again.'; return; }
+  const today = localDateKey(new Date());
+  const keys = Object.keys(all).filter(k => k <= today).sort().reverse();
+  for (const key of keys) {
+    const row = document.createElement('button');
+    row.className = 'puzzle-log-row';
+    const pct = puzzleBestPct(key, all[key].optimalScore);
+    const [y, m, d] = key.split('-').map(Number);
+    const dateStr = new Date(y, m - 1, d, 12).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    const label = document.createElement('span'); label.className = 'puzzle-log-date'; label.textContent = (key === today ? 'Today · ' : '') + dateStr;
+    const score = document.createElement('span'); score.className = 'puzzle-log-pct'; score.textContent = (pct == null ? 0 : pct) + '%';
+    const chev = document.createElement('span'); chev.className = 'chev'; chev.textContent = '›';
+    row.appendChild(label); row.appendChild(score); row.appendChild(chev);
+    // Today is the top row and opens today's puzzle (timer + Share);
+    // any other row opens that past puzzle as practice.
+    row.onclick = key === today ? () => openDailyPuzzle() : () => openDailyPuzzle(key);
+    list.appendChild(row);
+  }
+}
 // v191: Share opens the Messages app with the day's best
 // percentage — "I scored ___% on the Duello Daily Puzzle!" —
 // plus a link that opens the puzzle in the app (the ?puzzle link
-// is picked up on load by maybeOpenPuzzleDeepLink). The % is the
-// same number the week strip shows for the day. Share is only
-// enabled once a valid word has been made (the button is greyed
-// before that), so the guard here is belt-and-braces.
+// v195: Share shows only once the timed window is over or the
+// optimal word has landed (today's puzzle only), so the guard here
+// is belt-and-braces — the button is hidden before that.
 // v192: the message text is exactly the sentence; the puzzle link
 // rides on its own line below it, still tappable — the deep link
 // is not dropped.
 function puzzleBoardShare() {
-  const st = puzzleBoardState; if (!st || !st.played) return;
+  const st = puzzleBoardState; if (!st || !st.played || !st.isToday) return;
+  // v195: Share is gated — the timed window must be over, or the
+  // optimal word must have landed. The % is the locked/posted score.
+  const hitOptimal = st.lastScore != null && st.lastScore >= st.puzzle.optimalScore;
+  if (!st.timerDone && !hitOptimal) return;
   const pct = puzzleBestPct(st.dateKey, st.puzzle.optimalScore);
   if (pct == null) return;
   const msg = 'I scored ' + pct + '% on the Duello Daily Puzzle!\nhttps://duellogame.com/?puzzle=today';
@@ -1353,8 +1529,8 @@ function show(id) {
   if (id !== 'rematchScreen') cancelRematch();
   // v142: puzzleBoardScreen is a full screen like gameScreen — it hides
   // the tab bar (it has its own Exit button) and is not a menu screen.
-  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen', 'puzzleBoardScreen', 'profileFieldScreen', 'profilePhotoScreen', 'profilePasswordScreen', 'profileProScreen', 'profilePrivacyScreen', 'profilePushScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
-  const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen'].includes(id);
+  ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen', 'authScreen', 'gameScreen', 'searchingScreen', 'rematchScreen', 'puzzleBoardScreen', 'puzzleLogScreen', 'profileFieldScreen', 'profilePhotoScreen', 'profilePasswordScreen', 'profileProScreen', 'profilePrivacyScreen', 'profilePushScreen'].forEach(s => { const el = $(s); if (el) el.classList.toggle('hidden', s !== id); });
+  const isMenu = ['homeScreen', 'botScreen', 'friendsScreen', 'profileScreen', 'profileEditScreen', 'pastGamesScreen', 'puzzleLogScreen'].includes(id);
   // Warm the offline engine when the bot screen opens (v107): the
   // dictionary + solver index build used to run on the first bot tap,
   // so the game took a few seconds to open. Warming here — while the
@@ -2839,7 +3015,13 @@ async function loadMe() {
 }
 $('playBotsBtn').onclick = () => show('botScreen');
 $('playFriendsBtn').onclick = showFriendsTab;
-$('dailyPuzzleBtn').onclick = openDailyPuzzle;
+// v195: after today is solved, the button opens the past-puzzle log
+// instead of today's board (today is the top row of the log).
+$('dailyPuzzleBtn').onclick = () => {
+  if (puzzleSolvedDates().has(localDateKey(new Date()))) openPuzzleLog();
+  else openDailyPuzzle();
+};
+$('puzzleLogBackBtn').onclick = () => show('homeScreen');
 // v149: on Free the Pro badge is replaced by this pill, which opens
 // the Duello Pro settings page.
 $('homeUpgradePill').onclick = () => openProScreen();
@@ -6068,7 +6250,7 @@ $('replayBackBtn').onclick = () => stepReplay(-1);
 $('replayFwdBtn').onclick = () => stepReplay(1);
 // Game History review (v123, item 6; renamed v124): Exit returns to
 // the list; Game Stats opens the stat window for that game.
-$('reviewExitBtn').onclick = () => { reviewMode = false; clearReplay(); if (reviewOrigin === 'profile') { show('profileScreen'); if (!profileData) renderProfileUI(); } else showPastGamesCached(); };
+$('reviewExitBtn').onclick = () => { reviewMode = false; clearReplay(); if (reviewOrigin === 'profile') { show('profileScreen'); if (!profileData) renderProfileUI(); else drawEloChart(); } else showPastGamesCached(); };
 $('reviewStatsBtn').onclick = () => { if (game && game.stats) showStatWindow(game.stats); };
 const defCache = new Map();
 // Local definitions bundle (v115): the client copy of every bundled
@@ -6774,6 +6956,10 @@ async function openStatWordBoard(gameId, moveIndex, word) {
 function closeTenLetterModal() { $('tenLetterModal').classList.add('hidden'); }
 $('tenLetterCloseBtn').onclick = closeTenLetterModal;
 $('tenLetterModal').addEventListener('click', e => { if (e.target === $('tenLetterModal')) closeTenLetterModal(); });
+// v195: the last visible CSS size of the chart canvas — the
+// belt-and-braces guard so a hidden draw can never feed the
+// backing-store (device px) width back in as CSS px.
+let lastChartW = 0, lastChartH = 0;
 function drawEloChart() {
   const cv = $('eloChart'); if (!cv || !profileData) return;
   const ctx = cv.getContext('2d');
@@ -6783,9 +6969,15 @@ function drawEloChart() {
   // store to the CSS size x devicePixelRatio (capped at 3) and draw
   // in CSS pixels, so the line is sharp on retina.
   const dpr = Math.min(3, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
-  const rect = (cv.getBoundingClientRect && cv.getBoundingClientRect()) || { width: cv.width, height: cv.height };
-  const w = Math.max(1, Math.round(rect.width || cv.width));
-  const h = Math.max(1, Math.round(rect.height || cv.height));
+  const rect = (cv.getBoundingClientRect && cv.getBoundingClientRect()) || { width: 0, height: 0 };
+  // v195: a hidden draw (display:none -> 0x0 rect) must never run —
+  // the old `rect.width || cv.width` fallback read the backing-store
+  // width (device px) as CSS px and multiplied it by dpr on every
+  // hidden re-draw, thinning the 2px line by 3x a draw on iPhone.
+  if (!rect.width || !rect.height) return;
+  const w = Math.max(1, Math.round(rect.width || lastChartW));
+  const h = Math.max(1, Math.round(rect.height || lastChartH));
+  lastChartW = w; lastChartH = h;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
@@ -6802,10 +6994,13 @@ function drawEloChart() {
   pts.forEach((v, i) => { const x = 10 + i * (w - 20) / (pts.length - 1); const y = h - 10 - ((v - min) / (max - min)) * (h - 20); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
   ctx.stroke();
 }
-$('tabProfile').onclick = () => { show('profileScreen'); if (!profileData) renderProfileUI(); };
+// v195: draw synchronously from the cached profile, so the chart is
+// there the moment the tab opens — no blank frame, no fetch wait.
+// (When profileData is null the fetch-then-render path runs instead.)
+$('tabProfile').onclick = () => { show('profileScreen'); if (!profileData) renderProfileUI(); else drawEloChart(); };
 // Tapping your own pfp on the home screen opens the profile tab
 // (v133): exactly what the profile tab does.
-$('homePfp').onclick = () => { show('profileScreen'); if (!profileData) renderProfileUI(); };
+$('homePfp').onclick = () => { show('profileScreen'); if (!profileData) renderProfileUI(); else drawEloChart(); };
 $('homePfp').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('homePfp').onclick(); } });
 // Game History (v123, item 6; renamed v124): the finished games list, from the
 // server (GET /api/games). Each row shows the opponent's pic and

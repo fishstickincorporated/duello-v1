@@ -49,6 +49,17 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
+// v193 safety net: an idle client erroring (a dropped Postgres
+// connection) used to be an uncaught 'error' on the pool and killed
+// the process; log it and keep serving — the next query opens a
+// fresh client. And a last-resort guard for anything else uncaught:
+// log the stack, then exit for uncaughtException (the process is in
+// an unknown state — never swallow it), log only for an unhandled
+// rejection.
+pool.on('error', (err) => { console.error('Postgres pool error (idle client):', err && err.message); });
+process.on('uncaughtException', (err) => { console.error('Uncaught exception:', err && err.stack || err); process.exit(1); });
+process.on('unhandledRejection', (reason) => { console.error('Unhandled rejection:', reason && reason.stack || reason); });
+
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const ROOT = __dirname;
 // Usernames a real account may never take (v126, v133): the bot handles.
@@ -147,6 +158,20 @@ async function initDb() {
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (from_user_id <> to_user_id)
   )`);
+  // v193: one live challenge per pair. The SELECT-first check in
+  // POST /api/challenges closes the normal case, but two creates
+  // racing through the same instant both pass it and insert — the
+  // index makes the second insert fail (23505) instead of writing
+  // a duplicate, and the endpoint answers with the existing row.
+  // The pair is UNORDERED (LEAST/GREATEST): the endpoint treats a
+  // reverse-direction create as the same challenge, so the index
+  // must too — a plain (from_user_id, to_user_id) index still lets
+  // a simultaneous reverse create through (proven live: two rows
+  // from three concurrent creates, ids 1 and 2). Same shape as
+  // games_client_game_id_unique below: created here, after the
+  // table, not in the schema file — the table itself is created
+  // here too.
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS challenges_pending_pair_unique ON challenges (LEAST(from_user_id, to_user_id), GREATEST(from_user_id, to_user_id)) WHERE status='pending'");
   await pool.query('ALTER TABLE games ADD COLUMN IF NOT EXISTS opponent_id INT REFERENCES users(id)');
   // Offline sync (v106): client_game_id is the idempotency key for a
   // finished offline game (POST /api/games/sync). A re-submit with the
@@ -377,37 +402,81 @@ function apnsJwt() {
 async function sendApnsPush(deviceToken, payload) {
   // One APNs HTTP/2 POST. Returns { ok, status, reason }. A 410
   // (device token no longer valid) is the caller's cue to drop the
-  // token. Throws only on a transport failure.
+  // token. This function NEVER throws: every failure mode resolves
+  // as { ok: false, ... } instead.
+  //
+  // v193: the old code read the status from req.headers[':status']
+  // in the 'end' handler — but Node's ClientHttp2Stream has NO
+  // .headers property (response headers only arrive via the
+  // 'response' event argument), so EVERY push that got an APNs
+  // response threw an uncaught TypeError and killed the process,
+  // even though Apple had already accepted the push. The status
+  // now comes from the 'response' event; a missing status resolves
+  // as a failed push. The http2 session also gets its own 'error'
+  // listener (a bare session with none also kills the process on
+  // DNS/TLS/reset/GOAWAY), and a 10s timeout bounds a hung
+  // connection so the fire-and-forget can never stall forever.
   const jwt = apnsJwt();
   if (!jwt) return { ok: false, status: 0, reason: 'apns-not-configured' };
   const http2 = require('http2');
-  const client = http2.connect('https://' + APNS_HOST);
+  let client;
   try {
-    const req = client.request({
-      ':method': 'POST',
-      ':path': '/3/device/' + deviceToken,
-      'authorization': 'bearer ' + jwt,
-      'apns-topic': APNS_BUNDLE_ID,
-      'apns-push-type': 'alert',
-      'apns-priority': '10',
-      'apns-expiration': String(Math.floor(Date.now() / 1000) + 300),
-    });
+    client = http2.connect('https://' + APNS_HOST);
+  } catch (e) {
+    return { ok: false, status: 0, reason: 'apns-connect-failed' };
+  }
+  let settled = false;
+  let timer = null;
+  const result = await new Promise((resolve) => {
+    const finish = (r) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(r);
+    };
+    // Transport failures on the session itself (DNS, TLS, reset,
+    // GOAWAY) land here — without this listener they are uncaught
+    // and kill the process.
+    client.on('error', () => finish({ ok: false, status: 0, reason: 'apns-session-error' }));
+    let req;
+    try {
+      req = client.request({
+        ':method': 'POST',
+        ':path': '/3/device/' + deviceToken,
+        'authorization': 'bearer ' + jwt,
+        'apns-topic': APNS_BUNDLE_ID,
+        'apns-push-type': 'alert',
+        'apns-priority': '10',
+        'apns-expiration': String(Math.floor(Date.now() / 1000) + 300),
+      });
+    } catch (e) {
+      finish({ ok: false, status: 0, reason: 'apns-request-failed' });
+      return;
+    }
     req.setEncoding('utf8');
     let body = '';
+    let status = 0;
+    // The status arrives here, on the 'response' event argument —
+    // never on req.headers (which does not exist on this stream).
+    req.on('response', (headers) => { status = Number((headers && headers[':status']) || 0); });
     req.on('data', c => { body += c; });
-    const done = new Promise((resolve, reject) => {
-      req.on('end', () => resolve({ status: req.headers[':status'], body }));
-      req.on('error', reject);
+    req.on('end', () => {
+      if (!status) return finish({ ok: false, status: 0, reason: 'apns-no-status' });
+      if (status === 200) return finish({ ok: true, status: 200 });
+      let reason = 'apns-' + status;
+      try { const j = JSON.parse(body || '{}'); if (j.reason) reason = j.reason; } catch {}
+      finish({ ok: false, status, reason });
     });
-    req.end(JSON.stringify(payload));
-    const r = await done;
-    if (r.status === 200) return { ok: true, status: 200 };
-    let reason = 'apns-' + r.status;
-    try { const j = JSON.parse(r.body || '{}'); if (j.reason) reason = j.reason; } catch {}
-    return { ok: false, status: r.status, reason };
-  } finally {
-    client.close();
-  }
+    req.on('error', () => finish({ ok: false, status: 0, reason: 'apns-request-error' }));
+    timer = setTimeout(() => {
+      try { req.destroy(); } catch {}
+      finish({ ok: false, status: 0, reason: 'apns-timeout' });
+    }, 10000);
+    if (timer.unref) timer.unref();
+    try { req.end(JSON.stringify(payload)); } catch (e) { finish({ ok: false, status: 0, reason: 'apns-request-failed' }); }
+  });
+  try { client.close(); } catch {}
+  return result;
 }
 async function notifyChallengePush(challenger, target, challengeId) {
   // Gate order: real user → preference on → has a token → APNs
@@ -812,11 +881,19 @@ async function presenceCheckExit(game, user) {
   // (their touch above just ran), and a game with a recorded Leave
   // (leftBy) is already decided, so it is never re-ended here.
   if (!game || game.botType !== 'human' || game.status !== 'active' || !game.started || game.leftBy) return false;
-  if (presenceOpponentGoneMs(game, user) <= PRESENCE_GONE_MS) return false;
+  const goneMs = presenceOpponentGoneMs(game, user);
+  if (goneMs <= PRESENCE_GONE_MS) return false;
   const { isOpp, mySide } = gameSides(game, user);
   const leaverId = isOpp ? game.userId : game.opponentId;
   const leaver = (await q('SELECT first_name, username FROM users WHERE id=$1', [leaverId])).rows[0];
   const name = (leaver && leaver.first_name) || (leaver && leaver.username) || 'Your opponent';
+  // v193: log the exit (diagnostics only — the 30s rule itself is
+  // unchanged). Jeff's Nov 24 report was "games were not in sync"
+  // with challenges rarely landing; if a game ends here, the log
+  // says which game, who vanished, and for how long, so a flap
+  // (a phone briefly backgrounded) reads differently from a real
+  // exit.
+  console.log(`Presence exit: game ${game.id}, player ${leaverId} (${name}) unseen ${Math.round(goneMs / 1000)}s, ended by ${user.id}`);
   // The remaining player (mySide) wins; the absent player loses.
   await endGame(game, user, `${name} exited the game.`, mySide);
   presenceByGame.delete(game.id);
@@ -2753,7 +2830,20 @@ const server = http.createServer(async (req, res) => {
       // pending challenge instead of a 400, so a retry can never
       // surface as a failure or strand the challenger.
       if (existing) return sendJson(res, 200, { id: Number(existing.id), status: 'pending' });
-      const ins = await q('INSERT INTO challenges (from_user_id, to_user_id) VALUES ($1,$2) RETURNING id', [user.id, target.id]);
+      let ins;
+      try {
+        ins = await q('INSERT INTO challenges (from_user_id, to_user_id) VALUES ($1,$2) RETURNING id', [user.id, target.id]);
+      } catch (e) {
+        // v193: the race the index closes — two creates in the same
+        // instant both passed the SELECT above; the second insert
+        // fails 23505 on challenges_pending_pair_unique. Answer with
+        // the row that won, exactly like the SELECT-first path.
+        if (e && e.code === '23505') {
+          const raced = (await q("SELECT * FROM challenges WHERE ((from_user_id=$1 AND to_user_id=$2) OR (from_user_id=$2 AND to_user_id=$1)) AND status='pending'", [user.id, target.id])).rows[0];
+          if (raced) return sendJson(res, 200, { id: Number(raced.id), status: 'pending' });
+        }
+        throw e;
+      }
       // Push (v120): the recipient's phone gets "@<you> challenged
       // you to a match!" when the app is closed or backgrounded.
       // Fire and forget — the challenge response must not wait on
@@ -2873,6 +2963,12 @@ const server = http.createServer(async (req, res) => {
     // the profile's Past Games screen. The full game (final board +
     // moveLog for replay) comes from GET /api/games/:id. Only
     // finished games are listed — an active game is not a past game.
+    // v193: scope=active lists the user's ACTIVE human games instead
+    // (newest first) — the resume path. An accepted-but-unjoined
+    // challenge game was unreachable from the UI until now; the
+    // Past Games screen shows these above the finished list with a
+    // Resume tap. Bot games never need it (they resume locally from
+    // the device), so the scope is human-only.
     // Paging + filter (v128, items 4+5): limit/offset page 25 at a
     // time (limit capped at 50) and scope filters by opponent kind
     // (aggregate = all, vsHumans = personas + real players, vsBots =
@@ -2893,7 +2989,10 @@ const server = http.createServer(async (req, res) => {
       // the limit/offset paging exact. COALESCE guards a state with
       // no scores key at all: such a game is never excluded.
       const zeroZeroBotSql = " AND NOT (bot_type IN ('fishstick','competitive') AND COALESCE((state->'scores'->>'human')::int, -1) = 0 AND COALESCE((state->'scores'->>'bot')::int, -1) = 0)";
-      const r = await q("SELECT id, user_id, opponent_id, bot_type, state, created_at, updated_at FROM games WHERE (user_id=$1 OR opponent_id=$1) AND state->>'status'='finished'" + scopeSql + zeroZeroBotSql + " ORDER BY updated_at DESC LIMIT $2 OFFSET $3", [user.id, limit + 1, offset]);
+      const whereSql = scope === 'active'
+        ? " WHERE (user_id=$1 OR opponent_id=$1) AND state->>'status'='active' AND bot_type='human'"
+        : " WHERE (user_id=$1 OR opponent_id=$1) AND state->>'status'='finished'" + scopeSql + zeroZeroBotSql;
+      const r = await q("SELECT id, user_id, opponent_id, bot_type, state, created_at, updated_at FROM games" + whereSql + " ORDER BY updated_at DESC LIMIT $2 OFFSET $3", [user.id, limit + 1, offset]);
       const hasMore = r.rows.length > limit;
       const pageRows = hasMore ? r.rows.slice(0, limit) : r.rows;
       const games = pageRows.map((row) => {
@@ -2910,7 +3009,10 @@ const server = http.createServer(async (req, res) => {
         const opponentPhoto = g.botType === 'persona' && g.persona ? (g.persona.photoData || null) : g.botType === 'human' ? ((oppUser && oppUser.photoData) || null) : null;
         const opponentKind = g.botType === 'persona' ? 'persona' : g.botType === 'competitive' ? 'competitive' : g.botType === 'fishstick' ? 'fishstick' : 'human';
         const result = g.winner === 'draw' ? 'draw' : g.winner === mySide ? 'win' : g.winner === oppSide ? 'loss' : 'loss';
-        return { id: g.id, botType: g.botType, opponentName: oppName, opponentUsername, opponentPhoto, opponentKind, myScore: g.scores[mySide], oppScore: g.scores[oppSide], result, reason: g.reason || null, createdAt: row.created_at, finishedAt: row.updated_at };
+        // v193: the row carries its status + started flag so the
+        // client can tell an active game (Resume) from a finished
+        // one (review) without a second fetch.
+        return { id: g.id, botType: g.botType, opponentName: oppName, opponentUsername, opponentPhoto, opponentKind, myScore: g.scores[mySide], oppScore: g.scores[oppSide], result, reason: g.reason || null, createdAt: row.created_at, finishedAt: row.updated_at, status: g.status, started: !!g.started };
       });
       return sendJson(res, 200, { games, hasMore });
     }

@@ -73,3 +73,28 @@ CREATE TABLE IF NOT EXISTS personas (
   elo INTEGER NOT NULL, photo_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- v193: real-player challenges (one row per live challenge, pending
+-- until the recipient accepts/declines, the challenger cancels, or
+-- it times out). Mirrors the initDb definition — the table is created
+-- here for a fresh database and again (IF NOT EXISTS) in initDb.
+-- The partial unique index is the idempotency backstop: two creates
+-- racing through the same instant both pass the SELECT-first check,
+-- so the second insert must fail instead of writing a duplicate.
+-- The pair is UNORDERED (LEAST/GREATEST): the endpoint treats a
+-- reverse-direction create as the same challenge, so the index
+-- must too — a plain (from_user_id, to_user_id) index still lets
+-- a simultaneous reverse create through (proven live against the
+-- throwaway cluster: three concurrent creates made two rows).
+-- It sits AFTER the table in this file (the v106 lesson: an index
+-- must never run before the table/column it covers exists).
+CREATE TABLE IF NOT EXISTS challenges (
+  id SERIAL PRIMARY KEY,
+  from_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  to_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','declined','expired','cancelled')),
+  game_id INT REFERENCES games(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (from_user_id <> to_user_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS challenges_pending_pair_unique ON challenges (LEAST(from_user_id, to_user_id), GREATEST(from_user_id, to_user_id)) WHERE status='pending';

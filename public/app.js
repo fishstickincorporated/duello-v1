@@ -90,7 +90,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 192;
+const APP_VERSION = 193;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -2891,6 +2891,9 @@ function cancelSearch() {
   // pairs them after they walked away.
   if (searchingActive) api('/api/matchmaking/cancel', { method: 'POST' }).catch(() => {});
   searchingActive = false; challengePersona = null; searchMode = 'random';
+  // v193: a pending join retry dies with the search — the game id
+  // must never fire later from a stale button.
+  joinRetryGameId = null;
   // never sits stale on the recipient's Friends page — and an
   // accepted challenge can never strand them in a game alone.
   // (show() calls this on any navigation away, and the Cancel
@@ -3024,6 +3027,12 @@ async function startChallenge(r) {
 // fresh game. One retry on the load: the accept just created
 // the row, so a single blip must not strand the player on the
 // Friends page with the challenge already gone.
+// v193: if the load fails even after the retry, say so plainly
+// and offer a Retry — the recipient may already be sitting in
+// the game while the challenger stares at a stale "Waiting for
+// X to accept…" screen. joinRetryGameId carries the game id to
+// the Cancel button, which becomes Retry until the join lands.
+let joinRetryGameId = null;
 async function joinChallengeGame(gameId) {
   currentBot = 'human'; currentPersonaId = null; botTurnTapTime = Date.now();
   try {
@@ -3032,9 +3041,15 @@ async function joinChallengeGame(gameId) {
     try { await new Promise(r => setTimeout(r, 1000)); game = await api(`/api/games/${gameId}`); }
     catch (e2) {
       if (e2 && e2.message === 'Not signed in.') { token = ''; storeDel('duello_token'); me = null; setAuthMode('signin'); show('authScreen'); return; }
+      joinRetryGameId = gameId;
+      show('searchingScreen');
+      $('searchingText').textContent = `Couldn't open the game. Check your connection and tap Retry.`;
+      stopSearchingDots();
+      $('searchCancelBtn').textContent = 'Retry';
       return;
     }
   }
+  joinRetryGameId = null;
   enterGameScreen();
 }
 // The shared game start: clocks pinned during the countdown,
@@ -3051,6 +3066,10 @@ async function joinChallengeGame(gameId) {
 // on its own after 15 seconds rather than hanging forever. A game
 // that is already started (a late join) skips the countdown entirely.
 let waitingForSync = false, syncFallbackTimer = null;
+// v193: how long the shared countdown may take to arrive (stream or
+// poll) before this phone falls back to a local one. A module-level
+// let so the harness can shrink it — the production value is 15s.
+let SYNC_FALLBACK_MS = 15000;
 function enterGameScreen() {
   // A fetch from a previous game may still be in flight: invalidate
   // it, so its response cannot overwrite this game with old state.
@@ -3099,12 +3118,27 @@ function enterGameScreen() {
     num.textContent = `Waiting for ${opp}…`;
     $('countdownOverlay').classList.remove('hidden');
     if (syncFallbackTimer) clearTimeout(syncFallbackTimer);
-    syncFallbackTimer = setTimeout(() => {
+    const syncGameId = game.id;
+    syncFallbackTimer = setTimeout(async () => {
       syncFallbackTimer = null;
-      if (!waitingForSync) return;
+      if (!waitingForSync || !game || game.id !== syncGameId) return;
+      // v193: one last re-fetch before going local — the shared end
+      // may have been stamped while the stream/poll was down, and a
+      // local 5s countdown from here would put the two phones on
+      // different clocks. A failed re-fetch still falls back local.
+      try {
+        const fresh = await api(`/api/games/${syncGameId}`);
+        if (!waitingForSync || !game || game.id !== syncGameId) return;
+        if (fresh && fresh.countdownRemainingMs != null) {
+          waitingForSync = false;
+          startCountdown(Date.now() + fresh.countdownRemainingMs);
+          return;
+        }
+      } catch {}
+      if (!waitingForSync || !game || game.id !== syncGameId) return;
       waitingForSync = false;
       startCountdown(Date.now() + 5000);
-    }, 15000);
+    }, SYNC_FALLBACK_MS);
     return;
   }
   if (resumeSkipCountdown) {
@@ -3123,6 +3157,10 @@ function enterGameScreen() {
   startCountdown(Date.now() + 5000);
 }
 $('searchCancelBtn').onclick = () => {
+  // v193: a failed join turns this button into Retry (see
+  // joinChallengeGame) — tap it to try the same game again
+  // instead of leaving for Friends.
+  if (joinRetryGameId) { const gid = joinRetryGameId; joinRetryGameId = null; $('searchCancelBtn').textContent = 'Cancel'; $('searchingText').textContent = 'Opening the game…'; startSearchingDots(); joinChallengeGame(gid); return; }
   const wasChallenge = searchMode === 'challenge';
   cancelSearch();
   if (wasChallenge) { lbScope = 'friends'; $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active'); show('friendsScreen'); renderFriendsUI(); }
@@ -6782,10 +6820,62 @@ function pastGameRowEl(g) {
   row.onclick = () => openPastGameDetail(g.id);
   return row;
 }
+// One row per ACTIVE human game (v193): the opponent, the live
+// score, and a Resume label. Tapping joins the game in progress
+// (joinChallengeGame loads it and runs the countdown/late-join
+// start) instead of opening a finished-game review.
+function activeGameRowEl(g) {
+  const row = document.createElement('button');
+  row.className = 'past-game-row';
+  const picEl = document.createElement('span');
+  picEl.className = 'past-game-pic';
+  if (g.opponentPhoto) picEl.innerHTML = `<img src="${g.opponentPhoto}" alt="">`;
+  else picEl.innerHTML = silhouetteSVG(28);
+  const oppEl = document.createElement('span');
+  oppEl.className = 'past-game-opp';
+  oppEl.textContent = g.opponentUsername || g.opponentName || 'Opponent';
+  const scoreEl = document.createElement('span');
+  scoreEl.className = 'past-game-score num';
+  scoreEl.textContent = `${g.myScore}–${g.oppScore}`;
+  const resumeEl = document.createElement('span');
+  resumeEl.className = 'past-game-resume';
+  resumeEl.textContent = 'Resume ›';
+  row.append(picEl, oppEl, scoreEl, resumeEl);
+  row.onclick = () => joinChallengeGame(g.id);
+  return row;
+}
+// v193: the resume list — active human games for this account,
+// fetched when Game History opens. A failure is not an error:
+// the finished list still renders and the section simply stays
+// hidden until the next open.
+let activeGamesCache = null;
+async function fetchActiveGames() {
+  try {
+    const r = await api('/api/games?limit=25&offset=0&scope=active');
+    return (r && r.games) || [];
+  } catch { return []; }
+}
 function renderPastGamesList(games) {
   const list = $('pastGamesList');
-  if (!games.length) { list.innerHTML = '<div class="past-games-note">No finished games yet.</div>'; renderHistoryMore(); return; }
   list.innerHTML = '';
+  // v193: active human games sit above the finished list, so an
+  // accepted-but-unjoined game is one tap away instead of
+  // unreachable from the UI.
+  if (activeGamesCache && activeGamesCache.length) {
+    const head = document.createElement('div');
+    head.className = 'past-games-note';
+    head.textContent = 'In progress — tap to resume';
+    list.appendChild(head);
+    activeGamesCache.forEach((g) => list.appendChild(activeGameRowEl(g)));
+  }
+  if (!games.length) {
+    const note = document.createElement('div');
+    note.className = 'past-games-note';
+    note.textContent = 'No finished games yet.';
+    list.appendChild(note);
+    renderHistoryMore();
+    return;
+  }
   games.forEach((g) => list.appendChild(pastGameRowEl(g)));
   // v182: warm the full payloads for the first 10 rows (the same
   // prefetch as the v175 record words) — a tap on one opens its
@@ -6854,6 +6944,14 @@ async function openPastGames() {
   // Warm the other filters too (v133): Vs Humans / Vs Bots are
   // already cached by the time their tab is tapped.
   try { warmHistoryScopes(); } catch {}
+  // v193: active games load alongside the finished list — the
+  // resume section renders as soon as they land (or on the next
+  // render if they land first).
+  fetchActiveGames().then((games) => {
+    activeGamesCache = games;
+    const cur = historyScopeState();
+    if (cur.games) renderPastGamesList(cur.games);
+  }).catch(() => {});
   // The username under the heading (v124): whose history this is.
   const un = (me && me.username) || (profileData && profileData.user && profileData.user.username) || '';
   $('pastGamesUser').textContent = un ? '@' + un : '';

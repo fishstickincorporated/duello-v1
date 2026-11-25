@@ -148,7 +148,7 @@ name or a big score never reflows the board. Names never wrap. */
 .lastplay .pts{color:#03eaff;font-weight:700}
 .lastplay .bingo{color:#ffd166;font-weight:800;white-space:nowrap}
 .board{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;width:100%;aspect-ratio:1;background:#11131a;padding:3px;border-radius:10px}
-.cell{aspect-ratio:1;border-radius:8px;background:#262a33;display:flex;align-items:center;justify-content:center;font-size:11px;color:#b3b2b1;position:relative}
+.cell{aspect-ratio:1;border-radius:8px;background:#262a33;display:flex;align-items:center;justify-content:center;font-size:1em;color:#b3b2b1;position:relative}
 .cell.DL,.cell.TL,.cell.DW,.cell.TW{font-family:"Comfortaa",sans-serif}.cell.DL{background:#ff1303;color:#fff;-webkit-text-fill-color:#fff;font-size:15px;font-weight:800;text-shadow:-0.75px 0 0 #000,0.75px 0 0 #000,0 -0.75px 0 #000,0 0.75px 0 #000,-0.75px -0.75px 0 #000,-0.75px 0.75px 0 #000,0.75px -0.75px 0 #000,0.75px 0.75px 0 #000}.cell.TL{background:#1cff03;color:#fff;-webkit-text-fill-color:#fff;font-size:15px;font-weight:800;text-shadow:-0.75px 0 0 #000,0.75px 0 0 #000,0 -0.75px 0 #000,0 0.75px 0 #000,-0.75px -0.75px 0 #000,-0.75px 0.75px 0 #000,0.75px -0.75px 0 #000,0.75px 0.75px 0 #000}.cell.DW{background:#ff8d03;color:#fff;-webkit-text-fill-color:#fff;font-size:15px;font-weight:800;text-shadow:-0.75px 0 0 #000,0.75px 0 0 #000,0 -0.75px 0 #000,0 0.75px 0 #000,-0.75px -0.75px 0 #000,-0.75px 0.75px 0 #000,0.75px -0.75px 0 #000,0.75px 0.75px 0 #000}.cell.TW{background:#ff03ee;color:#fff;-webkit-text-fill-color:#fff;font-size:15px;font-weight:800;text-shadow:-0.75px 0 0 #000,0.75px 0 0 #000,0 -0.75px 0 #000,0 0.75px 0 #000,-0.75px -0.75px 0 #000,-0.75px 0.75px 0 #000,0.75px -0.75px 0 #000,0.75px 0.75px 0 #000}
 /* v178 (Jeff, Nov 23, 2026): during the 5-second game-start countdown the
    outer-ring premium tiles stay the regular black tile — no premium colour,
@@ -161,6 +161,14 @@ name or a big score never reflows the board. Names never wrap. */
    (#puzzleBoardScreen) has no countdown and is untouched, and the inner 6x6
    glow is a separate overlay, also untouched. */
 #gameScreen.counting .cell.DL,#gameScreen.counting .cell.TL,#gameScreen.counting .cell.DW,#gameScreen.counting .cell.TW{background:#262a33;color:transparent;-webkit-text-fill-color:transparent;text-shadow:none}
+/* v197 (Jeff, Nov 25, 2026): the daily puzzle gets the same 5-second
+   countdown as the game on first entry — the same pure-CSS hiding:
+   premiums stay black with no label, and the fixed board tiles
+   (the board layout) stay hidden until the countdown ends. The
+   rack hides separately in JS (blank slots, like renderGame).
+   Scoped to #puzzleBoardScreen only. */
+#puzzleBoardScreen.counting .cell.DL,#puzzleBoardScreen.counting .cell.TL,#puzzleBoardScreen.counting .cell.DW,#puzzleBoardScreen.counting .cell.TW{background:#262a33;color:transparent;-webkit-text-fill-color:transparent;text-shadow:none}
+#puzzleBoardScreen.counting .cell .tile{visibility:hidden}
 .inner-glow{position:absolute;left:calc(20% + 2.4px);top:calc(20% + 2.4px);width:calc(60% - 4.8px);height:calc(60% - 4.8px);display:grid;grid-template-columns:repeat(6,1fr);grid-template-rows:repeat(6,1fr);gap:3px;pointer-events:none;z-index:5;opacity:0;transition:opacity 200ms}
 .inner-glow.on{opacity:1}
 .inner-glow .glow-cell{border-radius:8px;aspect-ratio:1;animation:glow 3.2s ease-in-out infinite}
@@ -504,7 +512,7 @@ same 52px column, right-aligned, on every row including your own
    #rack). svh last so the height stays stable when Safari's toolbar
    hides; dvh/vh are the fallbacks. */
 #gameScreen{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
-#gameScreen #gameDim{flex:1;display:flex;flex-direction:column}
+#gameScreen #gameDim{flex:1;display:flex;flex-direction:column;min-height:0}
 #gameScreen #rack{margin-top:auto}
 /* The rack + buttons sit a little closer to the status line: the
    auto margin above the rack absorbs 40px less free space, so the
@@ -870,6 +878,10 @@ squares are the premium colours, spread out across the whole screen. */
    puzzle board sits within ~1.4px of the game board at both widths.
    Measured on the real layout — see measure-v196-layout.js. */
 .puzzle-board-title{font-size:22px;font-weight:800;margin-top:28.7px}
+/* v196: short-screen steps for the title margin (same 28.7px
+   midpoint logic, tighter on short/narrow screens). */
+@media (max-height:700px) and (max-width:380px){.puzzle-board-title{margin-top:26.7px}}
+@media (max-width:365px){.puzzle-board-title{margin-top:24.7px}}
 .puzzle-board-date{color:#b3b2b1;font-size:13px;margin-top:2px}
 #puzzleBoard .cell.fixed-tile{cursor:default}
 /* v154: the strength dial sits above the board (below the timer
@@ -894,21 +906,33 @@ squares are the premium colours, spread out across the whole screen. */
 #puzzleTimerPct{color:#03eaff}
 .puzzle-final-score{text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:28px;font-weight:800;color:#03eaff;font-variant-numeric:tabular-nums;line-height:1;margin:10px auto 0;padding:10px 0}
 /* v195: the past-puzzle log — one row per day (newest first, today
-   at the top): date left, recorded % right, chevron.
+   at the top): date left, recorded % right.
    v196: rows are twice as tall (~104px) and carry a mini
    pre-solution board right of the % (between the % and the
    chevron). The Load more button sits below the list, then Back —
-   the exact Game History design. */
+   the exact Game History design.
+   v197: no chevron — the mini is the rightmost element; the date
+   is two lines (full weekday bold on top, abbreviated date below
+   in regular weight; today is just "Today"); the minis have a
+   thin white rounded border; day/date and % are 18px. */
 .puzzle-log-list{display:flex;flex-direction:column;gap:8px;margin-top:16px}
-.puzzle-log-row{display:flex;align-items:center;gap:12px;width:100%;background:#262a33;border:0;border-radius:12px;padding:20px 16px;font-size:16px;color:#e8ecf1;text-align:left;cursor:pointer;font-family:inherit}
-.puzzle-log-date{flex:1}
-.puzzle-log-pct{font-family:Arial,Helvetica,sans-serif;font-weight:800;color:#03eaff;font-variant-numeric:tabular-nums}
-.puzzle-log-row .chev{color:#b3b2b1;font-size:18px}
+.puzzle-log-row{display:flex;align-items:center;gap:12px;width:100%;background:#262a33;border:0;border-radius:12px;padding:16px 16px;font-size:16px;color:#e8ecf1;text-align:left;cursor:pointer;font-family:inherit}
+.puzzle-log-date{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.puzzle-log-dow{font-size:18px;font-weight:800}
+.puzzle-log-day{font-size:18px;font-weight:400;color:#b3b2b1}
+.puzzle-log-pct{font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:800;color:#03eaff;font-variant-numeric:tabular-nums}
 /* v196: the mini board — 64px, 10 columns, 1px gaps. It reuses
    .cell/.tile at a tiny scale; the premium letters are unreadable
    at 5.5px a cell, so they are hidden (font-size:0) and the
-   premiums read as colour, like the board at a glance. */
-.puzzle-log-mini{display:grid;grid-template-columns:repeat(10,1fr);gap:1px;width:64px;height:64px;flex:0 0 auto}
+   premiums read as colour, like the board at a glance.
+   v197: the rounded white border used to clip the mini's corner
+   premium squares (the 8px radius cut across the corner cells),
+   so the border now sits on a 72px outer box with 3px of padding
+   around the 64px grid — the whole grid, corners included, fits
+   entirely inside the outline. The row padding drops 20px -> 16px
+   to match, so rows stay 104px (16 + 72 + 16). */
+.puzzle-log-mini{width:72px;height:72px;flex:0 0 auto;padding:3px;background:#11131a;border:1px solid #fff;border-radius:8px;overflow:hidden}
+.puzzle-log-mini-grid{display:grid;grid-template-columns:repeat(10,1fr);gap:1px;width:64px;height:64px}
 .puzzle-log-mini .cell{font-size:0;border-radius:1px}
 .puzzle-log-mini .cell.DL,.puzzle-log-mini .cell.DW,.puzzle-log-mini .cell.TL,.puzzle-log-mini .cell.TW{font-size:0;text-shadow:none}
 .puzzle-log-mini .tile{border-radius:1px;box-shadow:none;cursor:default}

@@ -90,7 +90,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 196;
+const APP_VERSION = 197;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -296,6 +296,53 @@ function puzzleStartTimerInterval() {
   puzzleClearTimerInterval();
   puzzleTimerInterval = setInterval(puzzleTickTimer, 1000);
 }
+// v197 (Jeff, Nov 25, 2026): the daily puzzle gets the same 5-second
+// countdown as the game — but only on FIRST entry of today's puzzle
+// (no valid word recorded for today yet). During the countdown the
+// board premiums, the board layout (fixed tiles) and the rack stay
+// hidden — premiums and tiles hide via the #puzzleBoardScreen.counting
+// CSS (the game's v178 rule, mirrored), the rack renders as blank
+// slots in renderPuzzleBoard — and the 2:00 timer starts only when
+// the board populates at the countdown's end. Resuming today (a word
+// already recorded) or opening any past puzzle from the log shows
+// the board at once, no countdown.
+let puzzleCounting = false, puzzleCountdownInterval = null;
+function puzzleClearEntryCountdown() {
+  if (puzzleCountdownInterval) { clearInterval(puzzleCountdownInterval); puzzleCountdownInterval = null; }
+  puzzleCounting = false;
+  try { $('puzzleBoardScreen').classList.remove('counting'); $('puzzleCountdownOverlay').classList.add('hidden'); } catch {}
+}
+function startPuzzleEntryCountdown() {
+  const st = puzzleBoardState; if (!st) return;
+  puzzleCounting = true;
+  $('puzzleBoardScreen').classList.add('counting');
+  // Re-render so the rack is blank slots (and Recall/Shuffle are
+  // disabled) during the wait, even if an earlier render drew
+  // letters before the flag set — the game's startCountdown does
+  // the same for its rack.
+  renderPuzzleBoard();
+  const ov = $('puzzleCountdownOverlay'); if (ov) ov.classList.remove('hidden');
+  const num = $('puzzleCountdownNum');
+  const targetMs = Date.now() + 5000;
+  let shown = null;
+  const tick = () => {
+    const n = Math.ceil((targetMs - Date.now()) / 1000);
+    if (n <= 0) { clearInterval(puzzleCountdownInterval); puzzleCountdownInterval = null; endPuzzleEntryCountdown(); return; }
+    if (n !== shown) { shown = n; if (num) num.textContent = String(n); }
+  };
+  if (num) { num.textContent = String(Math.max(1, Math.ceil((targetMs - Date.now()) / 1000))); shown = Number(num.textContent); }
+  puzzleCountdownInterval = setInterval(tick, 200);
+}
+function endPuzzleEntryCountdown() {
+  const st = puzzleBoardState;
+  puzzleClearEntryCountdown();
+  if (!st) return;
+  // The 2:00 window starts when the board populates, not during
+  // the countdown.
+  puzzleTimerStartMs(st.dateKey);
+  renderPuzzleBoard();
+  if (st.isToday && !st.timerDone) puzzleStartTimerInterval();
+}
 // v195: lock the day's score at the end of the timed window (or the
 // moment the optimal word lands). The best % within the window is
 // final — later play is practice and never moves it. The pill goes
@@ -499,7 +546,13 @@ function renderPuzzleBoard() {
   const rackEl = $('puzzleRack');
   if (rackEl) {
     rackEl.innerHTML = '';
+    // v197: during the first-entry countdown the rack is blank slots
+    // (no letters) — the same as renderGame during countdownActive.
+    if (puzzleCounting) {
+      for (let idx = 0; idx < 6; idx++) { const s = document.createElement('div'); s.className = 'tile empty'; rackEl.appendChild(s); }
+    }
     st.rack.forEach((t, i) => {
+      if (puzzleCounting) return;
       if (t.used) { const e = document.createElement('div'); e.className = 'tile empty'; rackEl.appendChild(e); return; }
       const d = document.createElement('div'); d.className = 'tile'; d.dataset.idx = i;
       d.innerHTML = tileSVG(t.ch);
@@ -529,8 +582,12 @@ function renderPuzzleBoard() {
   if (ctrls) ctrls.classList.remove('hidden');
   const exit = $('puzzleBoardExitBtn'), recall = $('puzzleBoardRecallBtn'), shuffle = $('puzzleBoardShuffleBtn'), share = $('puzzleBoardShareBtn');
   if (exit) exit.classList.remove('hidden');
-  if (recall) { recall.disabled = false; recall.classList.remove('hidden'); }
-  if (shuffle) { shuffle.disabled = false; shuffle.classList.remove('hidden'); }
+  // v197: Recall and Shuffle stay disabled (grey, no blue border)
+  // during the first-entry countdown, mirroring the game — Shuffle
+  // enables when the deck populates after the countdown ends. Exit
+  // stays enabled (the way out, like the game's Forfeit).
+  if (recall) { recall.disabled = puzzleCounting; recall.classList.remove('hidden'); }
+  if (shuffle) { shuffle.disabled = puzzleCounting; shuffle.classList.remove('hidden'); }
   // v195: Share exists ONLY on today's puzzle, and only once the
   // timed window is over or the optimal word has landed. Before
   // that the row is exactly Exit, Recall, Shuffle — no placeholder,
@@ -1183,19 +1240,59 @@ function puzzleBoardRecall() {
   renderPuzzleBoard();
   puzzleLiveValidate();
 }
+// v197 (Jeff, Nov 25, 2026): the puzzle Shuffle animates exactly
+// like the game's — fold in (tiles slide to the rack centre,
+// shrinking), then the new order folds out from the centre. The
+// game's shuffleBtn handler does this verbatim; the puzzle version
+// is local-only (no server shuffle), so the fold wraps the local
+// Fisher-Yates instead of the /shuffle round-trip.
+let puzzleShuffling = false;
 function puzzleBoardShuffle() {
-  const st = puzzleBoardState; if (!st) return;
-  // Shuffle the rack (local only — no server sync). Resolve each
-  // placed tile to its rack tile object BEFORE the shuffle, so
-  // rackIndex follows the tile even when letters repeat.
-  const placedTiles = st.placed.map(p => ({ p, tile: st.rack[p.rackIndex] }));
-  for (let i = st.rack.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [st.rack[i], st.rack[j]] = [st.rack[j], st.rack[i]];
-  }
-  for (const { p, tile } of placedTiles) p.rackIndex = st.rack.indexOf(tile);
-  st.selected = null;
-  renderPuzzleBoard();
+  const st = puzzleBoardState; if (!st || puzzleShuffling || puzzleCounting) return;
+  const rackEl = $('puzzleRack'); if (!rackEl) return;
+  // Fold in: every tile slides toward the rack centre, shrinking, so
+  // the tiles pass around one another instead of just popping in place.
+  const centre = rackEl.getBoundingClientRect().left + rackEl.getBoundingClientRect().width / 2;
+  [...rackEl.querySelectorAll('.tile')].forEach(t => {
+    const r = t.getBoundingClientRect();
+    const dx = centre - (r.left + r.width / 2);
+    t.style.transition = 'transform 50ms ease-in, opacity 50ms ease-in';
+    t.style.transform = `translateX(${dx}px) scale(0.6)`;
+    t.style.opacity = '0.6';
+  });
+  puzzleShuffling = true;
+  setTimeout(() => {
+    // Shuffle the rack (local only — no server sync). Resolve each
+    // placed tile to its rack tile object BEFORE the shuffle, so
+    // rackIndex follows the tile even when letters repeat.
+    const placedTiles = st.placed.map(p => ({ p, tile: st.rack[p.rackIndex] }));
+    for (let i = st.rack.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [st.rack[i], st.rack[j]] = [st.rack[j], st.rack[i]];
+    }
+    for (const { p, tile } of placedTiles) p.rackIndex = st.rack.indexOf(tile);
+    st.selected = null;
+    renderPuzzleBoard();
+    // Fold out: new tiles start collapsed at the centre and expand
+    // to their new slots, so the new order is revealed by the unfold.
+    const newTiles = [...$('puzzleRack').querySelectorAll('.tile')];
+    const centre2 = $('puzzleRack').getBoundingClientRect().left + $('puzzleRack').getBoundingClientRect().width / 2;
+    newTiles.forEach(t => {
+      const r = t.getBoundingClientRect();
+      const dx = centre2 - (r.left + r.width / 2);
+      t.style.transition = 'none';
+      t.style.transform = `translateX(${dx}px) scale(0.6)`;
+      t.style.opacity = '0.6';
+    });
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      newTiles.forEach(t => {
+        t.style.transition = 'transform 70ms ease-out, opacity 70ms ease-out';
+        t.style.transform = ''; t.style.opacity = '';
+      });
+      setTimeout(() => newTiles.forEach(t => { t.style.transition = ''; }), 90);
+    }));
+    puzzleShuffling = false;
+  }, 60);
 }
 // v153: a played puzzle reopens with the best word on the board.
 // The stored move ([{row, col, letter}]) is matched back onto the
@@ -1225,6 +1322,7 @@ function puzzleRestoreBestMove(st) {
   return sorted.map(p => [p.row, p.col]);
 }
 async function openDailyPuzzle(dateKey) {
+  puzzleClearEntryCountdown();
   show('puzzleBoardScreen');
   const status = $('puzzleBoardStatus');
   // v150: while loading, the status shows the start-of-game default
@@ -1259,8 +1357,15 @@ async function openDailyPuzzle(dateKey) {
   // first open (wall-clock — the start is persisted, so leaving or
   // closing never pauses it). A window that already ran out locks
   // the score the moment the puzzle opens.
+  // v197: on FIRST entry (no valid word recorded for today yet) the
+  // window starts when the board populates after the 5s countdown,
+  // not at open — so the start is recorded in endPuzzleEntryCountdown,
+  // not here. "First entry" means the entry IS today: when today
+  // has no puzzle the entry falls back to the latest past one, and
+  // that is a review, not a first entry — no countdown.
+  const firstEntry = isToday && !played && entry.dateKey === localDateKey(new Date());
   if (isToday) {
-    puzzleTimerStartMs(entry.dateKey);
+    if (!firstEntry) puzzleTimerStartMs(entry.dateKey);
     // v196: the day may already be 100% — the optimal was hit on
     // another device and merged — so the clock stops on open, not
     // just when this device's own window runs out.
@@ -1284,13 +1389,20 @@ async function openDailyPuzzle(dateKey) {
     puzzleBoardState.lastPct = puzzleBestPct(entry.dateKey, entry.puzzle.optimalScore);
     bestCells = puzzleRestoreBestMove(puzzleBoardState);
   }
+  // v197: first entry — hide the board before the first render so
+  // nothing flashes populated before the countdown blanks it.
+  if (firstEntry && !puzzleBoardState.timerDone) { puzzleCounting = true; $('puzzleBoardScreen').classList.add('counting'); }
   renderPuzzleBoard();
   if (bestCells) puzzleShowBubble(puzzleBoardState.bestScore, bestCells);
   // v195: start the 1s timer tick while today's window is running.
   // A past puzzle has no timer; an already-expired window locks on
-  // open (above) and needs no tick.
-  if (isToday && !puzzleBoardState.timerDone) puzzleStartTimerInterval();
+  // open (above) and needs no tick. v197: a first entry starts its
+  // tick when the board populates (endPuzzleEntryCountdown), not here.
+  if (isToday && !puzzleBoardState.timerDone && !firstEntry) puzzleStartTimerInterval();
   else puzzleClearTimerInterval();
+  // v197: first entry gets the game's 5s countdown — the board
+  // populates (and the 2:00 timer starts) when it ends.
+  if (firstEntry && !puzzleBoardState.timerDone) startPuzzleEntryCountdown();
   // The played-state sync runs in the background (v148): it was
   // already warmed by the preload, and blocking the board on a fresh
   // fetch is what made the first tap wait. If the sync finds the
@@ -1324,7 +1436,7 @@ async function openDailyPuzzle(dateKey) {
     if (puzzleBoardState.isToday && !puzzleBoardState.timerDone && puzzleBestPct(entry.dateKey, entry.puzzle.optimalScore) === 100) puzzleLockTimer();
   }).catch(() => {});
 }
-function closeDailyPuzzle() { puzzleClearTimerInterval(); show('homeScreen'); }
+function closeDailyPuzzle() { puzzleClearTimerInterval(); puzzleClearEntryCountdown(); show('homeScreen'); }
 // v195: the past-puzzle log. After today is solved, the Daily Puzzle
 // button opens this list instead of today's board: every puzzle in
 // the file up to today, newest first (today at the top), each with
@@ -1338,6 +1450,11 @@ let puzzleLogKeys = [];
 function puzzleMiniBoardEl(puzzle) {
   const wrap = document.createElement('div');
   wrap.className = 'puzzle-log-mini';
+  // v197: the 64px grid sits inside the 72px bordered box with 3px
+  // of padding — the rounded border no longer clips the corner
+  // premium squares (the grid is entirely inside the outline).
+  const grid = document.createElement('div');
+  grid.className = 'puzzle-log-mini-grid';
   const base = puzzleBoardBase({ puzzle });
   for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
     const cell = document.createElement('div');
@@ -1346,8 +1463,9 @@ function puzzleMiniBoardEl(puzzle) {
     cell.className = 'cell' + (prem ? ' ' + prem : '') + (fixed ? ' fixed-tile' : '');
     cell.textContent = fixed ? '' : (prem || '');
     if (fixed) { const t = document.createElement('div'); t.className = 'tile'; t.innerHTML = tileSVG(fixed); cell.appendChild(t); }
-    wrap.appendChild(cell);
+    grid.appendChild(cell);
   }
+  wrap.appendChild(grid);
   return wrap;
 }
 async function openPuzzleLog() {
@@ -1369,12 +1487,21 @@ async function renderPuzzleLog() {
     row.className = 'puzzle-log-row';
     const pct = puzzleBestPct(key, all[key].optimalScore);
     const [y, m, d] = key.split('-').map(Number);
-    const dateStr = new Date(y, m - 1, d, 12).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-    const label = document.createElement('span'); label.className = 'puzzle-log-date'; label.textContent = (key === today ? 'Today · ' : '') + dateStr;
+    // v197: two-line day/date — full weekday bold on top, abbreviated
+    // date below in regular weight. Today's row is just "Today", no
+    // date line. No chevron: the mini board is the rightmost element.
+    const label = document.createElement('span'); label.className = 'puzzle-log-date';
+    const dow = document.createElement('span'); dow.className = 'puzzle-log-dow';
+    dow.textContent = key === today ? 'Today' : new Date(y, m - 1, d, 12).toLocaleDateString(undefined, { weekday: 'long' });
+    label.appendChild(dow);
+    if (key !== today) {
+      const day = document.createElement('span'); day.className = 'puzzle-log-day';
+      day.textContent = new Date(y, m - 1, d, 12).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      label.appendChild(day);
+    }
     const score = document.createElement('span'); score.className = 'puzzle-log-pct'; score.textContent = (pct == null ? 0 : pct) + '%';
     const mini = puzzleMiniBoardEl(all[key]);
-    const chev = document.createElement('span'); chev.className = 'chev'; chev.textContent = '›';
-    row.appendChild(label); row.appendChild(score); row.appendChild(mini); row.appendChild(chev);
+    row.appendChild(label); row.appendChild(score); row.appendChild(mini);
     // Today is the top row and opens today's puzzle (timer + Share);
     // any other row opens that past puzzle as practice.
     row.onclick = key === today ? () => openDailyPuzzle() : () => openDailyPuzzle(key);
@@ -3967,7 +4094,10 @@ function renderGame() {
   // The click handler below does a local-only shuffle while a Play is
   // in flight (the rack has blank slots then, so a server shuffle
   // would be rejected), and a server shuffle otherwise.
-  $('shuffleBtn').disabled = false;
+  // v197 (Jeff, Nov 25, 2026): no blue border until the deck
+  // populates — during the 5s countdown the button stays disabled
+  // (grey, no blue border) and enables when the countdown ends.
+  $('shuffleBtn').disabled = countdownActive;
   // Forfeit is available at all times during an active game, including
   // the 5s countdown (v107 — it used to be disabled until the countdown
   // ended, so a mistap left no way out but to wait). The game is

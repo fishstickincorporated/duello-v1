@@ -2748,7 +2748,11 @@ const server = http.createServer(async (req, res) => {
       if (!fr) return sendJson(res, 400, { error: 'You can only challenge friends.' });
       await expireStaleChallenges();
       const existing = (await q("SELECT * FROM challenges WHERE ((from_user_id=$1 AND to_user_id=$2) OR (from_user_id=$2 AND to_user_id=$1)) AND status='pending'", [user.id, target.id])).rows[0];
-      if (existing) return sendJson(res, 400, { error: 'A challenge is already waiting between you.' });
+      // v192: idempotent — a retried create (the client retries a
+      // POST whose response was lost in a blip) returns the same
+      // pending challenge instead of a 400, so a retry can never
+      // surface as a failure or strand the challenger.
+      if (existing) return sendJson(res, 200, { id: Number(existing.id), status: 'pending' });
       const ins = await q('INSERT INTO challenges (from_user_id, to_user_id) VALUES ($1,$2) RETURNING id', [user.id, target.id]);
       // Push (v120): the recipient's phone gets "@<you> challenged
       // you to a match!" when the app is closed or backgrounded.

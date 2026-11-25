@@ -90,15 +90,51 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 191;
+const APP_VERSION = 192;
+// v192: transient failures are retried, not surfaced. On iOS a
+// dead connection throws TypeError('Load failed') (WebKit) —
+// Jeff saw that literal text on sign-in and on the challenge
+// screen whenever the Render service blipped (a 502 hit the
+// users-sheet sync at 18:20 the same evening he tested). Retry
+// network errors and 502/503/504 up to 3 attempts with backoff;
+// a failure that survives still throws a friendly message, never
+// the raw browser text. 'Not signed in.' and server validation
+// errors pass through untouched. No retry for account creation /
+// code sending (not safe to repeat blindly) — that includes the
+// delete-account code send, whose 503 used to be retried, which
+// delayed its error past the confirm step (harness D3c caught it).
+// A surviving 502/503/504 throws the server's own message when it
+// has one ('Could not send the code. Try again.', 'No online
+// players are available yet.') and the friendly message only when
+// the gateway answered bare — either way, never the raw browser
+// text.
+const API_NO_RETRY = ['/api/signup', '/api/auth/request-code', '/api/auth/request-reset', '/api/me/delete/request-code'];
 async function api(path, opts = {}) {
-  const r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(j.error || 'Request failed'); e.status = r.status; if (j.invalidWords) e.invalidWords = j.invalidWords; throw e; }
-  // A successful call means we are online: if finished offline games are
-  // waiting, drain them in the background (see scheduleDrain/drainOutbox).
-  scheduleDrain();
-  return j;
+  const base = String(path).split('?')[0];
+  const retryable = !API_NO_RETRY.includes(base);
+  const delays = [300, 900];
+  for (let attempt = 0; ; attempt++) {
+    let r, j;
+    try {
+      r = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
+      j = await r.json().catch(() => ({}));
+    } catch (e) {
+      // fetch threw: the network failed before any response.
+      const network = e instanceof TypeError || /load failed|failed to fetch|network/i.test((e && e.message) || '');
+      if (network && retryable && attempt < delays.length) { await new Promise(res => setTimeout(res, delays[attempt])); continue; }
+      if (network) throw new Error("Couldn't reach Duello. Check your connection and try again.");
+      throw e;
+    }
+    if (r.ok) {
+      // A successful call means we are online: if finished offline games are
+      // waiting, drain them in the background (see scheduleDrain/drainOutbox).
+      scheduleDrain();
+      return j;
+    }
+    if (retryable && (r.status === 502 || r.status === 503 || r.status === 504) && attempt < delays.length) { await new Promise(res => setTimeout(res, delays[attempt])); continue; }
+    if (r.status === 502 || r.status === 503 || r.status === 504) throw new Error(j.error || "Couldn't reach Duello. Check your connection and try again.");
+    const e = new Error(j.error || 'Request failed'); e.status = r.status; if (j.invalidWords) e.invalidWords = j.invalidWords; throw e;
+  }
 }
 // Play Online and Play Friends need the server, so they are greyed
 // out when there is no connection (Jeff, Nov 16, 2026). Bot games
@@ -686,11 +722,12 @@ function puzzleConfetti() {
 // puzzle was played, a grey flame for a missed one.
 // v191: between the flame and the weekday letter, each played day
 // shows its best percentage (best score / that day's optimal) —
-// the puzzle is a high-score chase now, not a 100% gate. A day
-// with no play shows no %; a pre-v191 solve reads 100% (see
-// puzzleBestPct). The % needs the day's puzzle entry; the cache is
-// warm whenever the strip renders from the puzzle screen, and a
-// cold cache re-renders once the file lands.
+// the puzzle is a high-score chase now, not a 100% gate. A pre-v191
+// solve reads 100% (see puzzleBestPct). The % needs the day's
+// puzzle entry; the cache is warm whenever the strip renders from
+// the puzzle screen, and a cold cache re-renders once the file lands.
+// v192: an unplayed day reads 0% (flame grey via .missed) —
+// every day shows a number now, never a blank.
 function renderPuzzleWeekStrip() {
   const strip = $('puzzleWeekStrip'); if (!strip) return;
   const solved = puzzleSolvedDates();
@@ -710,8 +747,8 @@ function renderPuzzleWeekStrip() {
     const letter = document.createElement('span'); letter.className = 'letter'; letter.textContent = letters[d.getDay()];
     const flame = document.createElement('span'); flame.className = 'flame'; flame.innerHTML = flameSvg;
     day.appendChild(flame);
-    const pct = all && all[key] ? puzzleBestPct(key, all[key].optimalScore) : null;
-    if (pct != null) { const p = document.createElement('span'); p.className = 'pct'; p.textContent = pct + '%'; day.appendChild(p); }
+    const pct = solved.has(key) ? (puzzleBestPct(key, all && all[key] ? all[key].optimalScore : null) ?? 100) : 0;
+    const p = document.createElement('span'); p.className = 'pct'; p.textContent = pct + '%'; day.appendChild(p);
     day.appendChild(letter); strip.appendChild(day);
   }
   if (!all) loadDailyPuzzles().then(() => { if ($('puzzleWeekStrip')) renderPuzzleWeekStrip(); }).catch(() => {});
@@ -1188,11 +1225,14 @@ function closeDailyPuzzle() { show('homeScreen'); }
 // same number the week strip shows for the day. Share is only
 // enabled once a valid word has been made (the button is greyed
 // before that), so the guard here is belt-and-braces.
+// v192: the message text is exactly the sentence; the puzzle link
+// rides on its own line below it, still tappable — the deep link
+// is not dropped.
 function puzzleBoardShare() {
   const st = puzzleBoardState; if (!st || !st.played) return;
   const pct = puzzleBestPct(st.dateKey, st.puzzle.optimalScore);
   if (pct == null) return;
-  const msg = 'I scored ' + pct + '% on the Duello Daily Puzzle! https://duellogame.com/?puzzle=today';
+  const msg = 'I scored ' + pct + '% on the Duello Daily Puzzle!\nhttps://duellogame.com/?puzzle=today';
   window.location.href = 'sms:?&body=' + encodeURIComponent(msg);
 }
 // v187: the profile share card — the image behind a ?friend= link.
@@ -1296,7 +1336,7 @@ async function uploadShareCard() {
 async function shareProfileCard() {
   if (!me) return;
   await uploadShareCard();
-  const msg = 'Add me as a friend on Duello. https://duellogame.com/?friend=' + encodeURIComponent(me.username);
+  const msg = 'Add me as a friend on Duello⚔️ https://duellogame.com/?friend=' + encodeURIComponent(me.username);
   window.location.href = 'sms:?&body=' + encodeURIComponent(msg);
 }
 $('profileShareBtn').onclick = shareProfileCard;
@@ -2164,8 +2204,12 @@ async function renderFriendsUI() {
 // One fetch serves both the Friends-page rows and the challenge
 // window, so the poll does not hit the server twice per cycle.
 async function fetchIncomingChallenges() {
+  // v192: a failed fetch is UNKNOWN, not empty — it used to
+  // return [], so one blip during the 5s poll cleared the rows
+  // and closed an open challenge window. Null keeps the last
+  // known list on screen; the poll retries on its next tick.
   try { const d = await api('/api/challenges/incoming'); return d.challenges || []; }
-  catch (err) { if (deadSession(err)) return null; return []; }
+  catch (err) { if (deadSession(err)) return null; return null; }
 }
 async function renderIncomingChallenges(list) {
   const el = $('challengeRequests');
@@ -2291,6 +2335,9 @@ async function checkIncomingChallenges() {
   // v190: a friend request accepted elsewhere lands on this
   // screen within one poll cycle — no tap needed.
   try { maybeRefreshFriendsList(); } catch {}
+  // v192: a push tap stashed before the session was ready lands
+  // here, within one poll cycle.
+  try { maybeOpenPushChallenge(); } catch {}
 }
 startChallengePoll();
 
@@ -2468,21 +2515,43 @@ async function setPushEnabled(on) {
   setPushNote('');
   refreshPushToggle();
 }
+// v192: a push tap that arrives before the session is ready, or
+// whose fetch blips, is stashed — not dropped. The tap used to
+// silently do nothing when the fetch failed (the app merely
+// opened), because the listener only attached at the end of boot
+// and openChallengeFromPush returned on the first null list.
+// The stash is re-checked by the 5s poll (checkIncomingChallenges)
+// and after sign-in, so the window lands within one cycle.
 async function openChallengeFromPush(challengeId) {
   // A push tap opens the accept/decline window for that challenge.
   // The challenge may already be gone (declined, cancelled, timed
   // out) — then the Friends page is the right landing spot, where
   // the row sits if it is still waiting.
-  if (!token || challengeId == null) return;
+  if (challengeId == null) return;
+  if (!token) { try { localStorage.setItem('duello-pending-push-challenge', String(challengeId)); } catch {} return; }
   let list = null;
-  try { list = await fetchIncomingChallenges(); } catch { list = null; }
-  if (!list) return;
+  for (let attempt = 0; attempt < 3 && !list; attempt++) {
+    try { list = await fetchIncomingChallenges(); } catch { list = null; }
+    if (!list && token && attempt < 2) await new Promise(r => setTimeout(r, 700));
+  }
+  if (!list) { if (token) { try { localStorage.setItem('duello-pending-push-challenge', String(challengeId)); } catch {} } return; }
   const c = list.find(x => Number(x.id) === Number(challengeId));
   if (!c) { show('friendsScreen'); return; }
+  try { localStorage.removeItem('duello-pending-push-challenge'); } catch {}
   maybeShowChallengeModal([c]);
   // maybeShowChallengeModal holds the window while a game is active;
   // the tap still lands on the Friends page, where the row is.
   if (!challengeModalChallenge) show('friendsScreen');
+}
+function maybeOpenPushChallenge() {
+  try {
+    const raw = localStorage.getItem('duello-pending-push-challenge'); if (!raw) return;
+    if (!token) return;
+    if (game && game.status === 'active') return;
+    if (challengeModalChallenge) return;
+    localStorage.removeItem('duello-pending-push-challenge');
+    openChallengeFromPush(Number(raw));
+  } catch {}
 }
 function initPushNotifications() {
   // Runs once, after sign-in: registers the plugin listeners and,
@@ -2654,7 +2723,7 @@ $('lbGlobalTab').onclick = () => { lbScope = 'global'; deleteMode = false; $('lb
 $('challengeTextBtn').onclick = async () => {
   if (!me) await loadMe();
   if (!me) return;
-  const msg = 'Join Duello! https://duellogame.com/?invite=' + encodeURIComponent(me.username);
+  const msg = 'Join Duello!⚔️ https://duellogame.com/?invite=' + encodeURIComponent(me.username);
   window.location.href = 'sms:?&body=' + encodeURIComponent(msg);
 };
 $('friendsPencil').onclick = () => { if (lbScope !== 'friends') return; deleteMode = !deleteMode; friendsStale = true; renderFriendsUI(); };
@@ -6307,6 +6376,14 @@ function enablePlacedDrag(el, pend) {
   // under Capacitor and needs no network, so it loads during the
   // intro instead of on the first bot tap. Fire and forget.
   try { ensureLocalWords(); } catch {}
+  // v192: attach the push + URL listeners FIRST, before the
+  // /api/me wait — a challenge push tap that launches the app is
+  // delivered to the action listener, and the listener used to
+  // attach only at the end of boot (after the up-to-10s login
+  // wait), so the tap was lost and the app merely opened. The
+  // listeners are token-independent; a tap that lands before the
+  // session is ready is stashed (see openChallengeFromPush).
+  try { initPushNotifications(); initAppUrlOpenListener(); } catch {}
   // v190: an invite link lands on the SIGN-UP screen, not
   // sign-in — a tap on ?invite= is a new player joining, and
   // creating their account makes them the inviter's friend.
@@ -6346,11 +6423,12 @@ function enablePlacedDrag(el, pend) {
   try { await refreshOfflineTotals(); } catch {}
   let resumed = false;
   try { resumed = await maybeResumeOfflineGame(); } catch {}
-  if (!resumed) { show('homeScreen'); try { maybeOpenPuzzleDeepLink(); maybeOpenFriendDeepLink(); maybeOpenChallengeDeepLink(); maybeOpenInviteDeepLink(); } catch {} }
+  if (!resumed) { show('homeScreen'); try { maybeOpenPuzzleDeepLink(); maybeOpenFriendDeepLink(); maybeOpenChallengeDeepLink(); maybeOpenInviteDeepLink(); maybeOpenPushChallenge(); } catch {} }
   // Push notifications (v120): register the listeners and, when the
   // preference is on and iOS permission is already granted,
   // (re-)register the device token. Fire and forget — a push setup
-  // failure must never stall boot.
+  // failure must never stall boot. (v192: the listeners already
+  // attached at the top of boot; this call is a guarded no-op.)
   try { initPushNotifications(); initAppUrlOpenListener(); } catch {}
 })();
 
@@ -7403,7 +7481,7 @@ $('authForm').onsubmit = async e => {
     const d = await api('/api/signin', { method: 'POST', body: JSON.stringify({ email, password }) });
     token = d.token; storeSet('duello_token', token); me = d.user; persistMe(); profileData = null;
     show('homeScreen');
-    try { initPushNotifications(); initAppUrlOpenListener(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); maybeOpenFriendDeepLink(); maybeOpenChallengeDeepLink(); maybeOpenInviteDeepLink(); } catch {}
+    try { initPushNotifications(); initAppUrlOpenListener(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); maybeOpenFriendDeepLink(); maybeOpenChallengeDeepLink(); maybeOpenInviteDeepLink(); maybeOpenPushChallenge(); } catch {}
   } catch (err) { $('authError').textContent = err.message || 'Something went wrong.'; }
 };
 $('suSendBtn').onclick = async () => {
@@ -7442,7 +7520,7 @@ $('suCreateBtn').onclick = async () => {
     const d = await api('/api/signup', { method: 'POST', body: JSON.stringify({ firstName, lastName, username, email: suEmail, password, verifiedToken: suVerifiedToken }) });
     token = d.token; storeSet('duello_token', token); me = d.user; persistMe(); profileData = null;
     show('homeScreen');
-    try { initPushNotifications(); initAppUrlOpenListener(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); maybeOpenFriendDeepLink(); maybeOpenChallengeDeepLink(); maybeOpenInviteDeepLink(); } catch {}
+    try { initPushNotifications(); initAppUrlOpenListener(); maybeRequestPushAtSetup(); maybeOpenPuzzleDeepLink(); maybeOpenFriendDeepLink(); maybeOpenChallengeDeepLink(); maybeOpenInviteDeepLink(); maybeOpenPushChallenge(); } catch {}
   } catch (err) { $('suError3').textContent = err.message || 'Something went wrong.'; }
 };
 let rpEmail = '', rpVerifiedToken = '';

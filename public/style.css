@@ -719,11 +719,17 @@ squares are the premium colours, spread out across the whole screen. */
    continuously around and behind the button. The mask covers the
    whole dead zone from above the button to the tab bar top
    (121px = 16 fade band + 12 gap + 69 button + 24 gap), full
-   width, so no leaderboard row is visible anywhere below its top
-   edge — rows are hidden by the edge instead of fading out. The
-   screen's bottom padding stays 186px + safe-area (65 tab + 24
-   gap + 69 button + 12 gap + 16) so the last row can scroll clear
-   of the mask's top edge. */
+   width. v192: the rows DISSOLVE into the gap above the button
+   instead of ending at a hard edge (Jeff, from his phone: the
+   last row was sliced clean across) — the mask's top 28px is a
+   gradient from transparent to solid #1a1d24, so a scrolling row
+   fades out over the gap above the button, and the dot grid is
+   painted OVER the gradient (first background layer), so the
+   texture stays fully visible through the whole dissolve — the
+   dots never fade. Below the 28px band the mask is solid, so no
+   row is visible anywhere below the dissolve. The screen's bottom
+   padding stays 186px + safe-area (65 tab + 24 gap + 69 button +
+   12 gap + 16) so the last row can scroll clear of the mask's top edge. */
 .challenge-text-btn{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(65px + env(safe-area-inset-bottom) + 24px);width:calc(100% - 32px);max-width:358px;height:69px;font-size:22px;z-index:41;background:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(180deg,rgba(50,227,30,.8) 0%,rgba(40,168,28,.8) 100%);background-size:22px 22px,22px 22px,100% 100%}
 .challenge-text-btn .sym svg{width:48px;height:48px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35));transform:translateY(3px)}
 /* v190: the bubble GLYPH is centred, not just its box. The path
@@ -736,7 +742,7 @@ squares are the premium colours, spread out across the whole screen. */
 .challenge-text-btn .label-col{flex:1;text-align:left;display:flex;flex-direction:column;justify-content:center;min-width:0}
 .challenge-text-btn .label-col .label{flex:none;font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45);white-space:nowrap}
 .challenge-text-btn .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
-.ct-mask{position:fixed;left:0;right:0;bottom:calc(65px + env(safe-area-inset-bottom));height:121px;background-color:#1a1d24;background-image:radial-gradient(rgba(3,234,255,.07) 1px,transparent 1.4px);background-size:16px 16px;background-position:0 calc(-100vh + 186px + env(safe-area-inset-bottom));pointer-events:none;z-index:40}
+.ct-mask{position:fixed;left:0;right:0;bottom:calc(65px + env(safe-area-inset-bottom));height:121px;background-color:transparent;background-image:radial-gradient(rgba(3,234,255,.07) 1px,transparent 1.4px),linear-gradient(to bottom,rgba(26,29,36,0) 0,#1a1d24 28px);background-size:16px 16px,100% 100%;background-position:0 calc(-100vh + 186px + env(safe-area-inset-bottom)),0 0;pointer-events:none;z-index:40}
 #friendsScreen.ct-visible{padding-bottom:calc(186px + env(safe-area-inset-bottom))}
 .mode-bots{background:radial-gradient(rgba(255,255,255,.07) 1.5px,transparent 1.5px),linear-gradient(180deg,rgba(227,138,30,.8) 0%,rgba(197,118,28,.8) 100%);background-size:16px 16px,100% 100%;border-color:#ac661c;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #88541c}
 .mode-puzzle{background:repeating-linear-gradient(45deg,rgba(255,255,255,.06) 0 10px,transparent 10px 20px),linear-gradient(180deg,rgba(227,30,214,.8) 0%,rgba(178,28,167,.8) 100%);border-color:#971c8d;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 0 #761c6f}

@@ -92,7 +92,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 199;
+const APP_VERSION = 200;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -360,9 +360,11 @@ function puzzleLockTimer() {
   if (fin) { fin.textContent = st.lockedPct + '%'; fin.classList.remove('hidden'); }
   // v198: "Final score." sits under the finalized score (grey,
   // small, centered) — only once the score is final, never while
-  // the timed pill is showing.
+  // the timed pill is showing. v200: the label keeps its space
+  // (label-hidden = invisible, not display:none), so revealing it
+  // never shifts the board down.
   const finLabel = $('puzzleFinalScoreLabel');
-  if (finLabel) finLabel.classList.remove('hidden');
+  if (finLabel) finLabel.classList.remove('label-hidden');
   renderPuzzleBoard();
 }
 let puzzleServerSynced = false;
@@ -613,16 +615,18 @@ function renderPuzzleBoard() {
   const pill = $('puzzleTimerPill'), fin = $('puzzleFinalScore');
   // v198: the "Final score." label rides with the final score —
   // shown exactly when the score is, hidden exactly when it is.
+  // v200: hidden means label-hidden (visibility, space reserved),
+  // not display:none — the board never shifts when it appears.
   const finLabel = $('puzzleFinalScoreLabel');
   if (st.isToday && !st.timerDone) {
     if (pill) pill.classList.remove('hidden');
     if (fin) fin.classList.add('hidden');
-    if (finLabel) finLabel.classList.add('hidden');
+    if (finLabel) finLabel.classList.add('label-hidden');
     puzzleUpdateTimerPill();
   } else {
     if (pill) pill.classList.add('hidden');
     if (fin) { fin.textContent = puzzlePostedPct(st) + '%'; fin.classList.remove('hidden'); }
-    if (finLabel) finLabel.classList.remove('hidden');
+    if (finLabel) finLabel.classList.remove('label-hidden');
   }
   // v196: the puzzle board uses the shared .board sizing, exactly
   // like the game board — no fitted override, no resize listener.
@@ -1756,16 +1760,18 @@ document.addEventListener('error', (e) => {
 // A remote photo that stalls never fires 'error', so the circle
 // sits empty forever. Personas are embedded data URLs since v5 and
 // load instantly, but a slow network can still stall a photo: arm
-// a 3s timer on every leaderboard/search photo: if it still
-// hasn't loaded, swap it for the silhouette, exactly as the error
-// handler does. Photos that loaded (data URLs) are
+// a 3s timer on every leaderboard/search photo — and on the
+// Settings Photo row (v200: the row had no stall cover, only the
+// error handler, so a stalled decode sat as an empty dark circle):
+// if it still hasn't loaded, swap it for the silhouette, exactly
+// as the error handler does. Photos that loaded (data URLs) are
 // complete long before the timer fires and are left alone.
 function armPfpTimeouts() {
-  document.querySelectorAll('.lb-pfp img').forEach(img => {
+  document.querySelectorAll('.lb-pfp img, .settings-pfp img').forEach(img => {
     setTimeout(() => {
       if (!img.isConnected) return;
       if (img.complete && img.naturalWidth > 0) return;
-      const host = img.closest('.lb-pfp');
+      const host = img.closest('.lb-pfp, .settings-pfp');
       if (host) host.classList.add('no-photo');
       img.outerHTML = silhouetteSVG(32);
     }, 3000);
@@ -3097,7 +3103,11 @@ $('challengeTextBtn').onclick = async () => {
   if (!me) await loadMe();
   if (!me) return;
   const msg = 'Join Duello!⚔️ https://duellogame.com/?invite=' + encodeURIComponent(me.username);
-  window.location.href = 'sms:?&body=' + encodeURIComponent(msg);
+  // v200: the sms: jump backgrounds the app at once, which can
+  // swallow the haptic bridge call before the buzz plays — the
+  // buzz was wired here since v199 but Jeff never felt it.
+  // Give the buzz a beat (80ms, imperceptible) before leaving.
+  setTimeout(() => { window.location.href = 'sms:?&body=' + encodeURIComponent(msg); }, 80);
 };
 $('friendsPencil').onclick = () => { if (lbScope !== 'friends') return; deleteMode = !deleteMode; friendsStale = true; renderFriendsUI(); };
 async function runFriendSearch() {
@@ -4808,7 +4818,17 @@ const solverPending = new Map();
 // offline play knows the id, name, and Elo without a round-trip.
 function persistMe() {
   if (!me) return;
-  try { storeSet('duello_me', JSON.stringify({ id: me.id, username: me.username, firstName: me.firstName, elo: me.elo })); } catch {}
+  // v200: the photo rides with the persisted user. persistMe used to
+  // save only id/username/firstName/elo, so a boot whose /api/me
+  // failed (offline, or a transient blip) fell back to a photo-less
+  // user — and the Settings Photo row (renderEditList) showed the
+  // silhouette until a later /api/me succeeded, which is the
+  // "profile pic sometimes doesn't load on the settings page"
+  // Jeff reported. The photo is a ≤750KB data URL (server cap) and
+  // the profile cache already stores a copy, so ~1.5MB total sits
+  // well under localStorage's 5MB; a quota throw is swallowed here
+  // exactly as before, and the photo is simply not persisted.
+  try { storeSet('duello_me', JSON.stringify({ id: me.id, username: me.username, firstName: me.firstName, elo: me.elo, photoData: me.photoData || null })); } catch {}
 }
 function loadPersistedMe() {
   try {
@@ -7562,6 +7582,9 @@ function renderEditList() {
   // Names, username and tier still come from u above.
   const photoSrc = (u && u.photoData) || (me && me.photoData) || null;
   $('editRowPfp').innerHTML = (photoSrc && !photoSrc.includes('picsum.photos')) ? `<img src="${photoSrc}" alt="">` : silhouetteSVG(32);
+  // v200: arm the stall swap for the row's photo too — a stalled
+  // decode sat as an empty dark circle until the next render.
+  armPfpTimeouts();
   // v180: repaint the Push row's status whenever Settings renders.
   refreshPushStatusRow();
 }

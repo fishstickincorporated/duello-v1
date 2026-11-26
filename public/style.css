@@ -70,6 +70,28 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
    Greyed (disabled) buttons never depress. */
 .mode,.bot-opt{transition:transform 150ms ease-out,box-shadow 150ms ease-out,filter 150ms ease-out}
 .mode:not(.greyed).pressed,.bot-opt.pressed{transform:translateY(6px);box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 2px 0 #005a6e;filter:brightness(.92);transition:transform 60ms ease-in,box-shadow 60ms ease-in,filter 60ms ease-in}
+/* v200: the pressed bottom edge is each button's OWN bottom colour,
+   not the default #005a6e — the generic rule above made every
+   button's compressed edge read blueish, including the green
+   Friends button, the orange Bots button and the purple Puzzle
+   button. Same 2px compression, same inset highlight, just the
+   colour each button already uses unpressed (Online #1c6270,
+   Friends #22741c, Bots #88541c, Puzzle #761c6f). These sit after
+   the generic rule and win on source order (equal specificity).
+   Invite Friends is .mode-friends, so it takes the green edge. */
+.mode-online:not(.greyed).pressed{box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 2px 0 #1c6270}
+.mode-friends:not(.greyed).pressed{box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 2px 0 #22741c}
+.mode-bots:not(.greyed).pressed{box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 2px 0 #88541c}
+.mode-puzzle:not(.greyed).pressed{box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 2px 0 #761c6f}
+/* v200 (caught by the render check, same defect): the two bot
+   buttons carry ID-level colours (#competitiveBtn #88541c orange,
+   #fishstickBtn #671410 dark red), which outrank the generic
+   .bot-opt.pressed class rule — so in v199 their 8px shadow never
+   compressed at all (the button sank 6px into its own thick
+   edge). ID-level pressed rules, same 2px compression, each
+   button's own colour. */
+#competitiveBtn.pressed{box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 2px 0 #88541c}
+#fishstickBtn.pressed{box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 2px 0 #671410}
 .back-pill{display:block;background:#6b7280;color:#fff;padding:8px 18px;border-radius:20px;margin:22px auto 0;font-size:14px}
 .scoreboard{display:flex;flex-direction:row;gap:6px;margin-top:4px;margin-bottom:0;width:auto;margin-left:0;margin-right:0}
 /* Each player's panel is three columns with NO visible separation
@@ -919,13 +941,21 @@ squares are the premium colours, spread out across the whole screen. */
 .puzzle-timer-pill span{font-family:Arial,Helvetica,sans-serif;font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1}
 #puzzleTimerClock{color:#e8ecf1}
 #puzzleTimerPct{color:#03eaff}
-.puzzle-final-score{text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:28px;font-weight:800;color:#03eaff;font-variant-numeric:tabular-nums;line-height:1;margin:10px auto 0;padding:10px 0}
+.puzzle-final-score{text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:28px;font-weight:800;color:#03eaff;font-variant-numeric:tabular-nums;line-height:1;margin:10px auto 0;padding:13px 0 7px}
 /* v199 item 11: "Final score." under the finalized score — small,
    centered, grey (#b3b2b1, the same grey as the puzzle log's
    month/date text). The score itself stays blue; only this label
    is grey. Shown exactly when the final score is, never while the
-   timed pill is showing. */
-.puzzle-final-score-label{text-align:center;font-size:13px;color:#b3b2b1;line-height:1;margin:2px auto 0}
+   timed pill is showing.
+   v200: the score's padding is asymmetric now (13 top / 7 bottom,
+   still 48px total, so the pill↔score swap stays jump-free) to
+   pull the label closer — the gap is 7px (bottom padding) + 0
+   (label margin), was 12px. And the label keeps its space at all
+   times: .label-hidden is visibility, not display:none, so the
+   board never shifts when the label appears. Below the label the
+   strength bar's 12px top margin is the breathing room. */
+.puzzle-final-score-label{text-align:center;font-size:13px;color:#b3b2b1;line-height:1;margin:0 auto}
+.puzzle-final-score-label.label-hidden{visibility:hidden}
 /* v195: the past-puzzle log — one row per day (newest first, today
    at the top): date left, recorded % right.
    v196: rows are twice as tall (~104px) and carry a mini
@@ -960,7 +990,11 @@ squares are the premium colours, spread out across the whole screen. */
 .puzzle-log-mini .cell{font-size:0;border-radius:1px}
 .puzzle-log-mini .cell.DL,.puzzle-log-mini .cell.DW,.puzzle-log-mini .cell.TL,.puzzle-log-mini .cell.TW{font-size:0;text-shadow:none}
 .puzzle-log-mini .tile{border-radius:1px;box-shadow:none;cursor:default}
-#puzzleLogScreen .menu-btn{margin-top:0}
+#puzzleLogScreen .menu-btn{margin-top:22px}
+/* v200: the gap after the last puzzle row, before Load more, is
+   22px — the same as Load more → Back (the .back-pill's 22px top
+   margin). It was 0, so the button sat flush against the last row
+   while Back floated 22px below it. */
 /* v191: the old #puzzleBoardShareBtn blue rule is gone — Share is
    grey while disabled (.controls button:disabled) and solid blue
    only once played (.controls button.share-ready, above). The old

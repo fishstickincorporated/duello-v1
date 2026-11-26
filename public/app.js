@@ -25,11 +25,13 @@ let replayIndex = null, reviewMode = false;
 // list) or 'profile' (a longest/best word on the Profile tab).
 // Exit routes back to the same place instead of always the log.
 let reviewOrigin = 'gamelog';
-// Declared up here, not with the auth block below: the boot code calls
-// setAuthMode, which assigns authMode, so this declaration must already
-// have run or the page dies before any screen shows (ReferenceError:
-// Cannot access 'authMode' before initialization).
-let authMode = 'signin';
+// v199 (ADD-ON 4): the auth screen defaults to SIGN-UP while the
+// userbase is growing (growth-phase default — flip back to
+// 'signin' when the base is established). The boot code calls
+// setAuthMode, which assigns authMode, so this declaration must
+// already have run or the page dies before any screen shows
+// (ReferenceError: Cannot access 'authMode' before initialization).
+let authMode = 'signup';
 let pending = []; // {row,col,letter,rackIndex}
 let selectedRack = null, armed = {}, currentBot = 'competitive';
 // Global drag state: only one drag can be live, and a stuck drag must be
@@ -90,7 +92,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 198;
+const APP_VERSION = 199;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -108,7 +110,7 @@ const APP_VERSION = 198;
 // players are available yet.') and the friendly message only when
 // the gateway answered bare — either way, never the raw browser
 // text.
-const API_NO_RETRY = ['/api/signup', '/api/auth/request-code', '/api/auth/request-reset', '/api/me/delete/request-code'];
+const API_NO_RETRY = ['/api/signup', '/api/auth/request-code', '/api/auth/request-reset', '/api/me/delete/request-code', '/api/me/email-change/request-code'];
 async function api(path, opts = {}) {
   const base = String(path).split('?')[0];
   const retryable = !API_NO_RETRY.includes(base);
@@ -1056,6 +1058,7 @@ function enablePuzzleRackDrag(el, idx) {
     const t = st.rack[idx]; if (!t || t.used) return;
     cleanupStuckDrag();
     dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null; captureId = e.pointerId;
+    hapticLight(); // pickup buzz
     puzzleDragLive = true;
     registerDragCleanup(cleanup);
     try { el.setPointerCapture(e.pointerId); } catch {}
@@ -1101,6 +1104,7 @@ function enablePuzzleRackDrag(el, idx) {
     if (!dragging) return;
     const myDrop = drop, wasMoved = moved;
     cleanup();
+    if (wasMoved) hapticLight(); // release buzz (a real drag ended)
     // Backstop: the click that follows a drag is suppressed by
     // suppressNextClick, but if it never fires (the drop re-rendered
     // the tile away) the flag must not stick and eat the next tap.
@@ -1146,6 +1150,7 @@ function enablePuzzlePlacedDrag(el, p) {
     const st = puzzleBoardState; if (!st) return;
     cleanupStuckDrag();
     dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null; captureId = e.pointerId;
+    hapticLight(); // pickup buzz
     puzzleDragLive = true;
     registerDragCleanup(cleanup);
     try { el.setPointerCapture(e.pointerId); } catch {}
@@ -1200,6 +1205,7 @@ function enablePuzzlePlacedDrag(el, p) {
     if (!dragging) return;
     const myDrop = drop, wasMoved = moved;
     cleanup();
+    if (wasMoved) hapticLight(); // release buzz (a real drag ended)
     setTimeout(() => { suppressNextClick = false; }, 150);
     const st = puzzleBoardState; if (!st) return;
     if (!wasMoved) { puzzleRecallPlaced(p); return; }
@@ -1879,7 +1885,7 @@ function initIntro() {
 }
 initIntro();
 function goTab(id) { show(id); }
-$('tabHome').onclick = () => show('homeScreen');
+$('tabHome').onclick = () => { hapticLight(); show('homeScreen'); };
 
 // Profile + Leaderboard load in the background once Home first
 // renders, so both tabs are instant when tapped. Idle-scheduled so
@@ -2319,6 +2325,7 @@ $('personCloseBtn').onclick = closePersonModal;
 $('personModal').addEventListener('click', e => { if (e.target === $('personModal')) closePersonModal(); });
 $('personAddBtn').onclick = async () => {
   if (!modalPerson || $('personAddBtn').disabled) return;
+  hapticLight();
   if (isModalFriend()) {
     const p = modalPerson;
     closePersonModal();
@@ -2680,6 +2687,47 @@ function pushPlugin() {
     return (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.Plugins) ? (window.Capacitor.Plugins.PushNotifications || null) : null;
   } catch { return null; }
 }
+// ---------- Light haptics on taps (v199) ----------
+// One shared helper for every tap that should feel like a tap:
+// the Capacitor Haptics plugin when the native shell has it
+// (@capacitor/haptics, added in v199), else navigator.vibrate(10)
+// on the web, else nothing. Never throws — a haptic must never
+// break the tap it decorates. One uniform light buzz everywhere:
+// no varied patterns, strengths, or notification-style haptics
+// (Jeff: "just a small vibration when you click the button").
+function hapticsPlugin() {
+  try {
+    return (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.Plugins) ? (window.Capacitor.Plugins.Haptics || null) : null;
+  } catch { return null; }
+}
+function hapticLight() {
+  try {
+    const p = hapticsPlugin();
+    if (p && typeof p.impact === 'function') {
+      try { const r = p.impact({ style: 'light' }); if (r && typeof r.catch === 'function') r.catch(() => {}); } catch {}
+      return;
+    }
+    // Plain navigator.vibrate does nothing on iOS — the plugin
+    // above is what makes the buzz happen on Jeff's iPhone. On
+    // the web (and Android) vibrate is the fallback.
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') { try { navigator.vibrate(10); } catch {} }
+  } catch {}
+}
+// ---------- Press/depress effect (v199, ADD-ON 6) ----------
+// The big buttons (4 home, 2 bot, Invite Friends) visibly sink
+// while held: pointerdown adds .pressed, pointerup /
+// pointercancel / pointerleave removes it. JS-driven, not
+// :active — iOS :active is flaky in the Capacitor WebView, and
+// the hold state must be deterministic. Greyed (disabled)
+// buttons never depress.
+function enablePress(el) {
+  if (!el) return;
+  el.addEventListener('pointerdown', () => { if (el.disabled || el.classList.contains('greyed')) return; el.classList.add('pressed'); });
+  const release = () => el.classList.remove('pressed');
+  el.addEventListener('pointerup', release);
+  el.addEventListener('pointercancel', release);
+  el.addEventListener('pointerleave', release);
+}
 let pushDeviceToken = null; // this device's APNs token, once registered
 let pushInitDone = false;
 // ---------- Push-registration diagnostics (v180) ----------
@@ -3036,7 +3084,7 @@ function showFriendsTab() {
   $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active');
   show('friendsScreen'); renderFriendsUI();
 }
-$('tabFriends').onclick = showFriendsTab;
+$('tabFriends').onclick = () => { hapticLight(); showFriendsTab(); };
 $('lbFriendsTab').onclick = () => { lbScope = 'friends'; $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active'); renderFriendsUI(); };
 $('lbGlobalTab').onclick = () => { lbScope = 'global'; deleteMode = false; $('lbGlobalTab').classList.add('active'); $('lbFriendsTab').classList.remove('active'); renderFriendsUI(); };
 // v190: Invite Friends to Duello — the button no longer starts
@@ -3045,6 +3093,7 @@ $('lbGlobalTab').onclick = () => { lbScope = 'global'; deleteMode = false; $('lb
 // automatically (POST /api/friends/invite-accept). The old
 // ?challenge= links keep working — only the button changed.
 $('challengeTextBtn').onclick = async () => {
+  hapticLight();
   if (!me) await loadMe();
   if (!me) return;
   const msg = 'Join Duello!⚔️ https://duellogame.com/?invite=' + encodeURIComponent(me.username);
@@ -3161,21 +3210,26 @@ async function loadMe() {
     return !!token;
   }
 }
-$('playBotsBtn').onclick = () => show('botScreen');
-$('playFriendsBtn').onclick = showFriendsTab;
+$('playBotsBtn').onclick = () => { hapticLight(); show('botScreen'); };
+$('playFriendsBtn').onclick = () => { hapticLight(); showFriendsTab(); };
 // v195: after today is solved, the button opens the past-puzzle log
 // instead of today's board (today is the top row of the log).
 $('dailyPuzzleBtn').onclick = () => {
+  hapticLight();
   if (puzzleSolvedDates().has(localDateKey(new Date()))) openPuzzleLog();
   else openDailyPuzzle();
 };
+// v199 (ADD-ON 6): the 7 big buttons depress while held —
+// the 4 home buttons, the 2 bot buttons, Invite Friends.
+// (enablePress is defined near hapticLight, above.)
+['playOnlineBtn', 'playFriendsBtn', 'playBotsBtn', 'dailyPuzzleBtn', 'competitiveBtn', 'fishstickBtn', 'challengeTextBtn'].forEach((id) => enablePress($(id)));
 $('puzzleLogBackBtn').onclick = () => show('homeScreen');
 // v196: Load more appends the next 7 log rows (the count resets
 // every time the log opens — see openPuzzleLog).
 $('puzzleLogMoreBtn').onclick = () => { puzzleLogShown += 7; renderPuzzleLog(); };
 // v149: on Free the Pro badge is replaced by this pill, which opens
 // the Duello Pro settings page.
-$('homeUpgradePill').onclick = () => openProScreen();
+$('homeUpgradePill').onclick = () => { hapticLight(); openProScreen(); };
 $('puzzleBoardExitBtn').onclick = closeDailyPuzzle;
 $('puzzleBoardRecallBtn').onclick = puzzleBoardRecall;
 $('puzzleBoardShuffleBtn').onclick = puzzleBoardShuffle;
@@ -3557,7 +3611,7 @@ $('searchCancelBtn').onclick = () => {
   if (wasChallenge) { lbScope = 'friends'; $('lbFriendsTab').classList.add('active'); $('lbGlobalTab').classList.remove('active'); show('friendsScreen'); renderFriendsUI(); }
   else show('homeScreen');
 };
-$('playOnlineBtn').onclick = () => startSearching();
+$('playOnlineBtn').onclick = () => { hapticLight(); startSearching(); };
 // Rematch requests, persona games only: Play Again sends the
 // opponent a request instead of starting at once. The request
 // screen waits a random 5-7 seconds, then the persona accepts
@@ -3586,8 +3640,8 @@ function requestRematch() {
 $('rematchHomeBtn').onclick = () => { cancelRematch(); show('homeScreen'); };
 $('rematchNewBtn').onclick = () => { cancelRematch(); startSearching(); };
 $('botBackBtn').onclick = () => show('homeScreen');
-$('competitiveBtn').onclick = () => startGame('competitive');
-$('fishstickBtn').onclick = () => startGame('fishstick');
+$('competitiveBtn').onclick = () => { hapticLight(); startGame('competitive'); };
+$('fishstickBtn').onclick = () => { hapticLight(); startGame('fishstick'); };
 let currentPersonaId = null;
 async function startGame(bot, personaId) {
   currentBot = bot; currentPersonaId = personaId || null; botTurnTapTime = Date.now();
@@ -5135,8 +5189,11 @@ function endLocalGame(reason, winnerSide) {
   const actual = winnerSide === 'human' ? 1 : winnerSide === 'bot' ? 0 : 0.5;
   // The delta is computed from the Elo at game start (playerEloAtStart),
   // never recomputed from a later Elo — same rule the sync endpoint
-  // enforces server-side.
-  const delta = localEngine.eloDelta(offlineMeta.playerEloAtStart, game.botElo, actual);
+  // enforces server-side. v199: Fishstick moves nobody's Elo, so
+  // its delta is 0 whatever the result (a draw at 3000 used to
+  // gain ~16). The game still syncs (history/stats), it just
+  // carries no Elo.
+  const delta = offlineMeta.botType === 'fishstick' ? 0 : localEngine.eloDelta(offlineMeta.playerEloAtStart, game.botElo, actual);
   game.eloDeltaHuman = delta; game.eloDeltaBot = -delta;
   game.eloAfterHuman = offlineMeta.playerEloAtStart + delta;
   game.eloAfterBot = game.botElo - delta;
@@ -5646,7 +5703,12 @@ async function drainOutbox() {
       if (res && res.freeExit) {
         // Nothing to fold: the server refused the game as a free exit.
       } else if (me) {
-        me.elo = newElo != null ? newElo : (typeof me.elo === 'number' ? me.elo + (rec.eloDelta || 0) : me.elo);
+        // v199: a duplicate re-submit carries no eloAfter, so the
+        // delta is added to the persisted copy — except for
+        // Fishstick, whose delta is always 0 (an older client's
+        // pre-freeze record must not move the local Elo here when
+        // the server applied 0).
+        me.elo = newElo != null ? newElo : (typeof me.elo === 'number' ? me.elo + (rec.botType === 'fishstick' ? 0 : (rec.eloDelta || 0)) : me.elo);
         persistMe();
       } else if (newElo != null) {
         const stored = loadPersistedMe();
@@ -5982,6 +6044,9 @@ function armButton(btn, label, fn, penalty) {
   };
 }
 $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => {
+  // The confirmation tap (armButton only runs this on the second
+  // tap, when SURE? is showing).
+  hapticLight();
   // Offline games pass locally: -30s, no server round-trip.
   if (game && game.offline) { await doLocalPass(); return; }
   // Same tap-time clock switch as Play: freeze human, start bot now.
@@ -5996,6 +6061,9 @@ $('passBtn').onclick = armButton($('passBtn'), 'Pass', async () => {
   catch { game.clocks.turn = 'human'; game.clocks.human = prevHuman; gameFetchAt = prevFetchAt; renderGame(); }
 }, '-30s');
 $('forfeitBtn').onclick = armButton($('forfeitBtn'), () => forfeitLabel(), async () => {
+  // The confirmation tap (armButton only runs this on the second
+  // tap, when SURE? is showing).
+  hapticLight();
   // Forfeiting during the countdown stops it outright (v107): the
   // countdown must never fire endCountdown on a finished game.
   cancelCountdown();
@@ -6071,6 +6139,9 @@ async function doPlay() {
   // validation round-trip to show any feedback.
   cleanupStuckDrag(); suppressNextClick = false;
   if (!game || game.clocks.turn !== 'human' || !pending.length || playInFlight) return;
+  // A real Play — the guard above already filtered out taps that do
+  // nothing (not your turn, no tiles placed, already in flight).
+  hapticLight();
   // Offline games play locally: authoritative local validation, no POST.
   if (game.offline) { await doLocalPlay(); return; }
   // A Play tap with no valid word does nothing: when the verdict for
@@ -6639,6 +6710,7 @@ function enableRackDrag(el, idx) {
   el.addEventListener('pointerdown', e => {
     cleanupStuckDrag();
     dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null; captureId = e.pointerId;
+    hapticLight(); // pickup buzz
     registerDragCleanup(cleanup);
     try { el.setPointerCapture(e.pointerId); } catch {}
   });
@@ -6679,6 +6751,7 @@ function enableRackDrag(el, idx) {
     if (!dragging) return;
     const myDrop = drop, wasMoved = moved;
     cleanup();
+    if (wasMoved) hapticLight(); // release buzz (a real drag ended)
     if (!wasMoved) {
       if (!canPlaceTiles()) return;
       // Tap (not a drag): click-to-place selection. No re-render here — the
@@ -6734,6 +6807,7 @@ function enablePlacedDrag(el, pend) {
   el.addEventListener('pointerdown', e => {
     cleanupStuckDrag();
     dragging = true; moved = false; startX = e.clientX; startY = e.clientY; drop = null; captureId = e.pointerId;
+    hapticLight(); // pickup buzz
     registerDragCleanup(cleanup);
     try { el.setPointerCapture(e.pointerId); } catch {}
   });
@@ -6783,6 +6857,7 @@ function enablePlacedDrag(el, pend) {
     if (!dragging) return;
     const myDrop = drop, wasMoved = moved;
     cleanup();
+    if (wasMoved) hapticLight(); // release buzz (a real drag ended)
     if (playInFlight) return;
     if (!wasMoved) { recallTile(pend); return; }
     if (myDrop && myDrop.kind === 'rack') {
@@ -6844,10 +6919,11 @@ function enablePlacedDrag(el, pend) {
   // listeners are token-independent; a tap that lands before the
   // session is ready is stashed (see openChallengeFromPush).
   try { initPushNotifications(); initAppUrlOpenListener(); } catch {}
-  // v190: an invite link lands on the SIGN-UP screen, not
-  // sign-in — a tap on ?invite= is a new player joining, and
-  // creating their account makes them the inviter's friend.
-  if (!token) { if (deepLinkParam('invite')) setAuthMode('signup'); else setAuthMode('signin'); show('authScreen'); return; }
+  // v199 (ADD-ON 4): a fresh open with no token lands on SIGN-UP,
+  // not sign-in — sign-up is the obvious path while the userbase
+  // is growing. Invite links land here too (they were already
+  // signup; now every no-token boot is).
+  if (!token) { setAuthMode('signup'); show('authScreen'); return; }
   // A login check that never answers must not leave the page black: if
   // /api/me takes over 10s, show Home anyway (the transient-error path).
   // The dummy catch keeps a late rejection from surfacing as unhandled.
@@ -6914,7 +6990,9 @@ function blankProfileUI() {
 }
 async function renderProfileUI(prefetched) {
   // Sign-in is required: no token, or a rejected session, goes to auth.
-  if (!token) { setAuthMode('signin'); show('authScreen'); return; }
+  // v199 (ADD-ON 4): no token here means no account state, so the
+  // growth-phase default applies — sign-up, same as a fresh boot.
+  if (!token) { setAuthMode('signup'); show('authScreen'); return; }
   blankProfileUI();
   // Paint the photo at once from me (v118 fix, Nov 17, 2026): me
   // already carries photoData from the boot /api/me, and the image is
@@ -7172,10 +7250,10 @@ function drawEloChart() {
 // v195: draw synchronously from the cached profile, so the chart is
 // there the moment the tab opens — no blank frame, no fetch wait.
 // (When profileData is null the fetch-then-render path runs instead.)
-$('tabProfile').onclick = () => { show('profileScreen'); if (!profileData) renderProfileUI(); else drawEloChart(); };
+$('tabProfile').onclick = () => { hapticLight(); show('profileScreen'); if (!profileData) renderProfileUI(); else drawEloChart(); };
 // Tapping your own pfp on the home screen opens the profile tab
 // (v133): exactly what the profile tab does.
-$('homePfp').onclick = () => { show('profileScreen'); if (!profileData) renderProfileUI(); else drawEloChart(); };
+$('homePfp').onclick = () => { hapticLight(); show('profileScreen'); if (!profileData) renderProfileUI(); else drawEloChart(); };
 $('homePfp').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('homePfp').onclick(); } });
 // Game History (v123, item 6; renamed v124): the finished games list, from the
 // server (GET /api/games). Each row shows the opponent's pic and
@@ -7552,6 +7630,7 @@ $('proBackBtn').onclick = () => show('profileEditScreen');
 // the untouched ones are sent back unchanged; email is only sent
 // when the email itself is edited, otherwise it stays as it is).
 let editFieldKind = null;
+let pendingEmailChange = ''; // v199: the new address awaiting its verification code
 function openFieldEditor(kind) {
   editFieldKind = kind;
   const u = (profileData && profileData.user) || me; if (!u) return;
@@ -7578,6 +7657,9 @@ function openFieldEditor(kind) {
   input.autocorrect = kind === 'username' ? 'off' : 'on';
   input.spellcheck = kind !== 'username';
   $('fieldError').textContent = '';
+  // v199: a previous email-code attempt never leaks into the next open.
+  pendingEmailChange = '';
+  showFieldEmailStep();
   show('profileFieldScreen');
   input.focus();
   // v156: the v154 fix only reset the scroll at open and +60ms —
@@ -7590,6 +7672,23 @@ function openFieldEditor(kind) {
   try { input.scrollLeft = 0; } catch {}
   setTimeout(() => { try { input.scrollLeft = 0; } catch {} }, 60);
   setTimeout(() => { try { input.setSelectionRange(0, 0); } catch {} try { input.scrollLeft = 0; } catch {} }, 400);
+}
+// v199: the email field editor has two steps — the address, then
+// the verification code sent to the new address (mirrors the
+// delete-account code flow's shapes).
+function showFieldEmailStep() {
+  $('fieldInputGroup').classList.remove('hidden');
+  $('fieldSaveActions').classList.remove('hidden');
+  $('fieldEmailCode').classList.add('hidden');
+}
+function showFieldEmailCodeStep(note) {
+  $('fieldInputGroup').classList.add('hidden');
+  $('fieldSaveActions').classList.add('hidden');
+  $('fieldEmailCode').classList.remove('hidden');
+  $('fieldEmailCodeMsg').textContent = note || ('A code was sent to ' + pendingEmailChange + '.');
+  $('fieldEmailCodeError').textContent = '';
+  $('fieldEmailCodeInput').value = '';
+  $('fieldEmailCodeInput').focus();
 }
 $('fieldInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('fieldSaveBtn').click(); } });
 $('fieldInput').addEventListener('input', () => { if (editFieldKind === 'username') { const el = $('fieldInput'); if (el.value !== el.value.toLowerCase()) el.value = el.value.toLowerCase(); } });
@@ -7609,7 +7708,26 @@ $('fieldSaveBtn').onclick = async () => {
   if (editFieldKind === 'firstName') { if (!v) { $('fieldError').textContent = 'Add a first name.'; return; } body.firstName = v; }
   if (editFieldKind === 'lastName') body.lastName = v;
   if (editFieldKind === 'username') { const un = v.toLowerCase(); if (!/^[a-z0-9_]{3,}$/.test(un)) { $('fieldError').textContent = 'Usernames are 3+ lowercase letters, numbers, or underscores.'; return; } body.username = un; }
-  if (editFieldKind === 'email') { if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { $('fieldError').textContent = 'Enter a valid email.'; return; } if (v) body.email = v.toLowerCase(); }
+  if (editFieldKind === 'email') {
+    if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { $('fieldError').textContent = 'Enter a valid email.'; return; }
+    const newEmail = v ? v.toLowerCase() : '';
+    // v199: a changed email needs a code sent to the NEW address
+    // first — the swap happens only after the code is verified
+    // (a typo can never lock the account). Unchanged needs no code.
+    if (newEmail && newEmail !== (u.email || '').toLowerCase()) {
+      pendingEmailChange = newEmail;
+      try { await api('/api/me/email-change/request-code', { method: 'POST', body: JSON.stringify({ email: newEmail }) }); }
+      catch (err) {
+        // A code requested a moment ago is still valid: open the
+        // code step instead of blocking on the cooldown.
+        if (err.message && err.message.indexOf('just sent') !== -1) { showFieldEmailCodeStep('A code was already sent to ' + newEmail + ' — it is still valid.'); return; }
+        $('fieldError').textContent = err.message || 'Could not send the code.'; return;
+      }
+      showFieldEmailCodeStep();
+      return;
+    }
+    if (newEmail) body.email = newEmail;
+  }
   try {
     const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify(body) });
     me = d.user; persistMe(); profileData = null;
@@ -7617,6 +7735,29 @@ $('fieldSaveBtn').onclick = async () => {
     show('profileEditScreen');
   } catch (err) { $('fieldError').textContent = err.message || 'Could not save.'; }
 };
+// v199: email-change code step handlers — verify the code, then
+// save with the verified token (the swap itself lives in
+// /api/me/update). Resend/back mirror the delete-account flow.
+$('fieldEmailCodeResendBtn').onclick = async () => {
+  $('fieldEmailCodeError').textContent = '';
+  if (!pendingEmailChange) return;
+  try { await api('/api/me/email-change/request-code', { method: 'POST', body: JSON.stringify({ email: pendingEmailChange }) }); $('fieldEmailCodeMsg').textContent = 'A new code was sent to ' + pendingEmailChange + '.'; } catch (err) { $('fieldEmailCodeError').textContent = err.message || 'Could not send the code.'; }
+};
+$('fieldEmailCodeBackBtn').onclick = () => { pendingEmailChange = ''; showFieldEmailStep(); };
+$('fieldEmailCodeVerifyBtn').onclick = async () => {
+  $('fieldEmailCodeError').textContent = '';
+  const code = $('fieldEmailCodeInput').value.trim();
+  const u = (profileData && profileData.user) || me; if (!u || !pendingEmailChange) return;
+  try {
+    const d = await api('/api/me/email-change/verify-code', { method: 'POST', body: JSON.stringify({ email: pendingEmailChange, code }) });
+    const d2 = await api('/api/me/update', { method: 'POST', body: JSON.stringify({ firstName: u.firstName, lastName: u.lastName, username: u.username, email: pendingEmailChange, verifiedToken: d.verifiedToken }) });
+    me = d2.user; persistMe(); profileData = null;
+    renderEditList(); renderHomeHeader(); rewarmProfile();
+    pendingEmailChange = '';
+    show('profileEditScreen');
+  } catch (err) { $('fieldEmailCodeError').textContent = err.message || 'Could not save.'; }
+};
+$('fieldEmailCodeInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('fieldEmailCodeVerifyBtn').click(); } });
 // v147: the photo lives on its own screen — Choose opens the picker,
 // and the cropped photo saves at once (no staged form submit any
 // more); Remove clears it the same way.
@@ -7878,7 +8019,9 @@ $('signOutConfirmBtn').onclick = async () => {
   try { await api('/api/signout', { method: 'POST' }); } catch {}
   token = ''; storeDel('duello_token'); me = null; profileData = null;
   wipeAccountScreens();
-  setAuthMode('signin'); show('authScreen');
+  // v199 (ADD-ON 4): sign-out returns to the growth-phase default
+  // (sign-up); the full-size "Sign in" button below it is one tap.
+  setAuthMode('signup'); show('authScreen');
 };
 // v152: delete confirmation is a modal window like sign-out (same
 // .person-modal/.person-card), not a page. Backdrop tap closes it.
@@ -7933,7 +8076,9 @@ $('editDeleteCodeVerifyBtn').onclick = async () => {
   token = ''; storeDel('duello_token'); me = null; profileData = null; game = null;
   wipeAccountScreens();
   $('deleteModal').classList.add('hidden');
-  setAuthMode('signin'); show('authScreen');
+  // v199 (ADD-ON 4): the account is gone, so there is nothing to
+  // sign back into — the auth screen defaults to sign-up.
+  setAuthMode('signup'); show('authScreen');
 };
 let suEmail = '', suVerifiedToken = '';
 function setAuthMode(mode) {
@@ -7942,7 +8087,11 @@ function setAuthMode(mode) {
   $('authForm').classList.toggle('hidden', mode !== 'signin');
   $('signupSteps').classList.toggle('hidden', mode !== 'signup');
   $('resetSteps').classList.toggle('hidden', mode !== 'reset');
-  $('authToggleBtn').textContent = mode === 'signup' ? 'Already have an account? Sign in' : mode === 'reset' ? 'Back to sign in' : 'Need an account? Sign up';
+  // v199 (ADD-ON 4): the toggle is a full-size secondary button,
+  // the same size as the primary submit — "Sign up" on the sign-in
+  // screen, "Sign in" on the sign-up screen. The primary stays
+  // prominent (blue); the toggle is the dark secondary.
+  $('authToggleBtn').textContent = mode === 'signup' ? 'Sign in' : mode === 'reset' ? 'Back to sign in' : 'Sign up';
   $('authError').textContent = ''; $('authSuccess').textContent = '';
   if (mode === 'signup') showSignupStep('email');
   if (mode === 'reset') showResetStep('email');

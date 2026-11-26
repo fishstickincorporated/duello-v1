@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Duello</title><meta property="og:title" content="Duello"><meta property="og:description" content="The 1v1 word game. Challenge a friend, outscore them, and climb the ranks."><meta property="og:image" content="/assets/app-icon.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=198"></head>
+<title>Duello</title><meta property="og:title" content="Duello"><meta property="og:description" content="The 1v1 word game. Challenge a friend, outscore them, and climb the ranks."><meta property="og:image" content="/assets/app-icon.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=199"></head>
 <body><div id="introOverlay"><div id="introFlicker"></div><div id="introInner"><div id="introLogoZoom"><img id="introLogo" src="/assets/logo.png?v=2" alt="DUELLO"></div></div></div><div id="bootError" style="display:none;position:fixed;top:12px;left:12px;right:12px;z-index:9999;background:#ffd166;color:#1a1d24;padding:12px;border-radius:10px;font-size:14px;line-height:1.4" onclick="this.style.display='none'"></div><div id="app">
   <noscript><p style="color:#e8ecf1;text-align:center;padding:40px 20px">Duello needs JavaScript enabled to run. Turn JavaScript on in your browser settings and reload.</p></noscript>
 
@@ -195,11 +195,12 @@
 
   <section id="profileFieldScreen" class="screen hidden">
     <h1 class="auth-heading" id="fieldTitle">First name</h1>
-    <div class="settings-group"><div class="settings-row"><input id="fieldInput" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></div></div>
+    <div class="settings-group" id="fieldInputGroup"><div class="settings-row"><input id="fieldInput" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></div></div>
     <p id="fieldError" class="error"></p>
-    <div class="edit-actions stacked">
+    <div class="edit-actions stacked" id="fieldSaveActions">
       <button class="btn primary" type="button" id="fieldSaveBtn">Save</button>
     </div>
+    <div id="fieldEmailCode" class="hidden"><p class="small" id="fieldEmailCodeMsg"></p><div class="edit-field"><label for="fieldEmailCodeInput">Code</label><input id="fieldEmailCodeInput" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="one-time-code"></div><p id="fieldEmailCodeError" class="error"></p><div class="edit-actions stacked"><button class="btn primary" type="button" id="fieldEmailCodeVerifyBtn">Verify and save</button><button class="btn cancel" type="button" id="fieldEmailCodeBackBtn">Back</button></div><button class="link" id="fieldEmailCodeResendBtn" type="button">Send a new code</button></div>
     <button class="back-pill" id="fieldBackBtn" type="button">&larr; Back</button>
   </section>
 
@@ -266,7 +267,7 @@
   </section>
 
   <section id="authScreen" class="screen hidden">
-    <h1 class="auth-heading" id="authHeading">Sign in</h1>
+    <h1 class="auth-heading" id="authHeading">Sign up</h1>
     <form id="authForm" autocomplete="off">
       <input id="authEmail" type="email" placeholder="Email" autocomplete="off">
       <div class="pw-wrap"><input id="authPassword" type="password" placeholder="Password" autocomplete="off"><button class="pw-eye" type="button" data-target="authPassword" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#b3b2b1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12S6 5 12 5s10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
@@ -323,7 +324,10 @@
         <button class="btn primary" id="rpResetBtn" type="button">Set new password</button>
       </div>
     </div>
-    <button class="link" id="authToggleBtn">Need an account? Sign up</button>
+    <!-- v199 (ADD-ON 4): the mode switch is a full-size secondary
+         button, the same size as the primary auth submit — "Sign up"
+         on the sign-in screen, "Sign in" on the sign-up screen. -->
+    <button class="btn secondary" id="authToggleBtn" type="button">Sign in</button>
     <p class="small privacy-link"><a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a></p>
   </section>
 
@@ -465,4 +469,4 @@
 })();
 </script>
 <script src="/engine.js?v=197" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
-<script src="/app.js?v=198" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>
+<script src="/app.js?v=199" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>

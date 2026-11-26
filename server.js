@@ -586,11 +586,15 @@ async function profileStatsFor(userId) {
   }
   // Personas and real players both count as humans everywhere stats
   // split by opponent: vsHumans is persona + real-player games,
-  // vsBots excludes both, and aggregate counts them like any other
-  // non-Fishstick game.
+  // vsBots is Doppelgänger only, and aggregate counts every
+  // non-Fishstick game. Fishstick games count toward NO stats
+  // (Jeff, Nov 25, 2026): they are skipped in every scope, so they
+  // move nothing — not games played / W-L, not highest game score,
+  // not any per-move stat, not the average game score. Elo is
+  // untouched by this (it still moves on Fishstick games).
   function scope(mode) {
     const isHumanGame = (g) => g.botType === 'persona' || g.botType === 'human';
-    const skip = (g) => (mode === 'vsHumans' && !isHumanGame(g)) || (mode === 'vsBots' && isHumanGame(g));
+    const skip = (g) => g.botType === 'fishstick' || (mode === 'vsHumans' && !isHumanGame(g)) || (mode === 'vsBots' && isHumanGame(g));
     const st = empty(); let wordScoreSum = 0, wordCount = 0; const uniq = new Set(); const tenLetter = new Map();
     const gs = [];
     for (const r of rows) {
@@ -616,13 +620,12 @@ async function profileStatsFor(userId) {
       // reads from that side, so both players' profiles agree.
       const mySide = (g.userId === userId) ? 'human' : 'bot';
       const oppSide = mySide === 'human' ? 'bot' : 'human';
-      // Fishstick matches never count toward the record or games played.
-      const isFish = g.botType === 'fishstick';
-      if (!isFish) {
-        st.gamesPlayed++;
-        if (g.winner === mySide) st.wins++; else if (g.winner === oppSide) st.losses++; else if (g.winner === 'draw') st.draws++;
-        else if (g.reason === 'By forfeit') st.losses++; else if (g.scores[mySide] > g.scores[oppSide]) st.wins++; else if (g.scores[oppSide] > g.scores[mySide]) st.losses++; else st.draws++;
-      }
+      // Fishstick games never reach here (skip() above drops them
+      // in every scope), so every game counted below is a real,
+      // persona, or Doppelgänger game.
+      st.gamesPlayed++;
+      if (g.winner === mySide) st.wins++; else if (g.winner === oppSide) st.losses++; else if (g.winner === 'draw') st.draws++;
+      else if (g.reason === 'By forfeit') st.losses++; else if (g.scores[mySide] > g.scores[oppSide]) st.wins++; else if (g.scores[oppSide] > g.scores[mySide]) st.losses++; else st.draws++;
       st.highestGameScore = Math.max(st.highestGameScore, (g.scores && g.scores[mySide]) || 0);
       const moves = (g.moves && g.moves[mySide]) || [];
       for (const m of moves) {
@@ -1076,11 +1079,12 @@ async function endGame(game, user, reason, winnerSide) {
   const actual = winnerSide === 'human' ? 1 : winnerSide === 'bot' ? 0 : 0.5;
   // Standard Elo, K=32 on a 400-point scale, zero-sum: the opponent
   // always moves the opposite way, and a draw uses actual 0.5, so a
-  // draw against a stronger opponent gains (a draw against Fishstick
-  // at 3000 gains ~16) while a draw against an equal opponent moves
-  // nobody. Doppelgänger is no exception: its next game re-syncs
-  // to the player's current Elo at creation, so storing the opposite
-  // move here does not break its always-equal matching.
+  // draw against a stronger opponent gains while a draw against an
+  // equal opponent moves nobody. Doppelgänger is no exception: its
+  // next game re-syncs to the player's current Elo at creation, so
+  // storing the opposite move here does not break its always-equal
+  // matching. Fishstick IS the exception (v199): it moves nobody's
+  // Elo — see the freeze below.
   // A real-player game moves BOTH ratings: the delta is computed
   // from the challenger's fresh Elo against the opponent's Elo at
   // creation (the same asymmetry as the bot path, where the bot's
@@ -1109,6 +1113,18 @@ async function endGame(game, user, reason, winnerSide) {
     game.eloDeltaHuman = 0; game.eloDeltaBot = 0;
     game.eloAfterHuman = challenger ? challenger.elo : null;
     game.eloAfterBot = opponent ? opponent.elo : game.botElo;
+    await saveGameRow(game);
+    return game;
+  }
+  // v199: Fishstick moves nobody's Elo — a win, draw, or loss
+  // against Fishstick leaves both ratings exactly where they were
+  // (a draw at 3000 used to gain ~16). No users UPDATE, no
+  // elo_history row; the game result itself still saves, with
+  // zero deltas recorded on it.
+  if (game.botType === 'fishstick') {
+    game.eloDeltaHuman = 0; game.eloDeltaBot = 0;
+    game.eloAfterHuman = user.elo;
+    game.eloAfterBot = game.botElo;
     await saveGameRow(game);
     return game;
   }
@@ -1639,8 +1655,14 @@ function replayOfflineSync(eng, payload) {
     if (state.winner !== expectedWinner) return fail('Winner does not match the scores.');
   }
   const actual = state.winner === 'human' ? 1 : state.winner === 'bot' ? 0 : 0.5;
-  const expectedDelta = eng.eloDelta(playerEloAtStart, botElo, actual);
-  if (delta !== expectedDelta) return fail(`eloDelta ${delta} does not match the expected ${expectedDelta}.`);
+  // v199: Fishstick moves nobody's Elo — the submitted delta is
+  // ignored (older clients still send the pre-freeze delta) and
+  // the endpoint applies 0. Only competitive games are checked
+  // against the expected delta.
+  if (botType !== 'fishstick') {
+    const expectedDelta = eng.eloDelta(playerEloAtStart, botElo, actual);
+    if (delta !== expectedDelta) return fail(`eloDelta ${delta} does not match the expected ${expectedDelta}.`);
+  }
   return { ok: true };
 }
 const DEF_PLACEHOLDER = 'a valid word in the Duello word list';
@@ -2365,6 +2387,64 @@ const server = http.createServer(async (req, res) => {
       console.log('Push diag ' + user.username + ': ' + JSON.stringify(diag));
       return sendJson(res, 200, { ok: true });
     }
+    // Email-change verification (v199): the profile update used to
+    // swap the email instantly when well-formed and untaken, so a
+    // typo locked the account. Now a new address needs a 6-digit
+    // code sent to THAT address first (same 10-minute code /
+    // 5-attempt / 1-minute-cooldown shape as the signup, reset, and
+    // delete codes, reusing the verification_codes table), and the
+    // swap itself needs the verified token the code produces.
+    // The taken check runs here too, before any code is sent.
+    if (pathname === '/api/me/email-change/request-code' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const newEmail = String(b.email || '').trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) return sendJson(res, 400, { error: 'Enter a valid email.' });
+      if (newEmail === user.email) return sendJson(res, 400, { error: 'That is already your email.' });
+      const byEmail = await getUserByEmail(newEmail);
+      if (byEmail && byEmail.id !== user.id) return sendJson(res, 400, { error: 'That email is already registered.' });
+      const existing = (await q('SELECT * FROM verification_codes WHERE email=$1', [newEmail])).rows[0];
+      if (existing && existing.requested_at && Date.now() - new Date(existing.requested_at).getTime() < CODE_COOLDOWN_MS) {
+        return sendJson(res, 400, { error: 'A code was just sent. Wait a minute before requesting another.' });
+      }
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = hashPassword(code, salt);
+      const expires = new Date(Date.now() + CODE_TTL_MS);
+      await q('INSERT INTO verification_codes (email, code_salt, code_hash, attempts, expires_at, requested_at, verified_token, verified_expires_at) VALUES ($1,$2,$3,0,$4,now(),NULL,NULL) ON CONFLICT (email) DO UPDATE SET code_salt=$2, code_hash=$3, attempts=0, expires_at=$4, requested_at=now(), verified_token=NULL, verified_expires_at=NULL', [newEmail, salt, hash, expires]);
+      try {
+        await sendResendEmail(newEmail, 'Your Duello email change code', 'Your Duello email change code is ' + code + '. It expires in 10 minutes.');
+      } catch (e) {
+        await q('DELETE FROM verification_codes WHERE email=$1', [newEmail]);
+        return sendJson(res, 503, { error: 'Could not send the code. Try again.' });
+      }
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/me/email-change/verify-code' && req.method === 'POST') {
+      const user = await authUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
+      const b = await readBody(req);
+      const newEmail = String(b.email || '').trim().toLowerCase();
+      const code = String(b.code || '').trim();
+      const row = (await q('SELECT * FROM verification_codes WHERE email=$1', [newEmail])).rows[0];
+      if (!row || !row.code_hash) return sendJson(res, 400, { error: 'No code was requested for this email.' });
+      if (new Date(row.expires_at).getTime() < Date.now()) {
+        await q('DELETE FROM verification_codes WHERE email=$1', [newEmail]);
+        return sendJson(res, 400, { error: 'That code expired. Request a new one.' });
+      }
+      if (row.attempts >= CODE_MAX_ATTEMPTS) {
+        await q('DELETE FROM verification_codes WHERE email=$1', [newEmail]);
+        return sendJson(res, 400, { error: 'Too many wrong tries. Request a new code.' });
+      }
+      if (hashPassword(code, row.code_salt) !== row.code_hash) {
+        await q('UPDATE verification_codes SET attempts=attempts+1 WHERE email=$1', [newEmail]);
+        return sendJson(res, 400, { error: 'That code is not right.' });
+      }
+      const verifiedToken = crypto.randomBytes(32).toString('hex');
+      await q('UPDATE verification_codes SET code_salt=NULL, code_hash=NULL, attempts=0, verified_token=$2, verified_expires_at=$3 WHERE email=$1', [newEmail, verifiedToken, new Date(Date.now() + VERIFIED_TTL_MS)]);
+      return sendJson(res, 200, { verifiedToken });
+    }
     if (pathname === '/api/me/update' && req.method === 'POST') {
       const user = await authUser(req);
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
@@ -2390,6 +2470,15 @@ const server = http.createServer(async (req, res) => {
         else {
           const byEmail = await getUserByEmail(newEmail);
           if (byEmail && byEmail.id !== user.id) return sendJson(res, 400, { error: 'That email is already registered.' });
+          // v199: a changed email needs the verified token from the
+          // emailed code (POST /api/me/email-change/verify-code).
+          // Without it, or with an expired one, the address does
+          // not change — a typo can never lock the account.
+          const verifiedToken = String(b.verifiedToken || '');
+          const vrow = (await q('SELECT * FROM verification_codes WHERE email=$1', [newEmail])).rows[0];
+          if (!verifiedToken || !vrow || vrow.verified_token !== verifiedToken || !vrow.verified_expires_at || new Date(vrow.verified_expires_at).getTime() < Date.now()) {
+            return sendJson(res, 400, { error: 'Verify the new email first. Request a code.' });
+          }
         }
       }
       // photoData is optional: absent means unchanged, null clears the
@@ -2408,7 +2497,21 @@ const server = http.createServer(async (req, res) => {
       else if (hasPhoto) { sets.push('photo_data=NULL'); }
       if (newEmail) { params.push(newEmail); sets.push(`email=$${params.length}`); }
       params.push(user.id);
+      // v199: capture the old address BEFORE the UPDATE — the
+      // change notice below must go to it, and the user object may
+      // already carry the new address by then (a live row reference
+      // in some runtimes, and the harness FakePool mutates it).
+      const oldEmail = newEmail ? user.email : null;
       await q(`UPDATE users SET ${sets.join(', ')} WHERE id=$${params.length}`, params);
+      if (newEmail) {
+        // Single-use token, and the old address is told the email
+        // changed. The notice is best-effort: the swap already
+        // happened, so a send failure is logged, never surfaced.
+        await q('DELETE FROM verification_codes WHERE email=$1', [newEmail]);
+        try {
+          await sendResendEmail(oldEmail, 'Your Duello email was changed', 'Your Duello account email was changed to ' + newEmail + '. If you did not make this change, contact support.');
+        } catch (e) { console.error('email-change notice failed for', oldEmail, e.message); }
+      }
       const updated = await getUserById(user.id);
       return sendJson(res, 200, { user: publicUser(updated) });
     }
@@ -3138,7 +3241,11 @@ const server = http.createServer(async (req, res) => {
       if (dup.rows[0]) return sendJson(res, 200, { synced: true, gameId: Number(dup.rows[0].id), duplicate: true });
       const check = validateOfflineSync(engine, b);
       if (!check.ok) return sendJson(res, 422, { error: check.error });
-      const delta = b.eloDelta;
+      // v199: Fishstick moves nobody's Elo — the applied delta is 0
+      // whatever the client submitted (older clients still send the
+      // pre-freeze delta; it is ignored, not rejected, so their
+      // pending syncs still land). No elo_history row for it either.
+      const delta = b.botType === 'fishstick' ? 0 : b.eloDelta;
       // The stored state is the client's serializeGame shape plus the
       // fields a normal stored row carries: userId/botType (profile
       // stats read the state to tell which side the row owner played)
@@ -3173,7 +3280,7 @@ const server = http.createServer(async (req, res) => {
       storedState.eloAfterBot = b.botElo - delta;
       storedState.botElo = b.botElo - delta;
       await q('UPDATE games SET state=$1::jsonb WHERE id=$2', [JSON.stringify(storedState), gameId]);
-      await q('INSERT INTO elo_history (user_id, game_id, elo_after, delta) VALUES ($1,$2,$3,$4)', [user.id, gameId, newElo, delta]);
+      if (b.botType !== 'fishstick') await q('INSERT INTO elo_history (user_id, game_id, elo_after, delta) VALUES ($1,$2,$3,$4)', [user.id, gameId, newElo, delta]);
       return sendJson(res, 200, { synced: true, gameId, eloAfter: newElo, delta });
     }
     // Live updates for real-player games (SSE): EventSource cannot send

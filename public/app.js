@@ -90,7 +90,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 197;
+const APP_VERSION = 198;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -356,6 +356,11 @@ function puzzleLockTimer() {
   const pill = $('puzzleTimerPill'); if (pill) pill.classList.add('hidden');
   const fin = $('puzzleFinalScore');
   if (fin) { fin.textContent = st.lockedPct + '%'; fin.classList.remove('hidden'); }
+  // v198: "Final score." sits under the finalized score (grey,
+  // small, centered) — only once the score is final, never while
+  // the timed pill is showing.
+  const finLabel = $('puzzleFinalScoreLabel');
+  if (finLabel) finLabel.classList.remove('hidden');
   renderPuzzleBoard();
 }
 let puzzleServerSynced = false;
@@ -587,7 +592,11 @@ function renderPuzzleBoard() {
   // enables when the deck populates after the countdown ends. Exit
   // stays enabled (the way out, like the game's Forfeit).
   if (recall) { recall.disabled = puzzleCounting; recall.classList.remove('hidden'); }
-  if (shuffle) { shuffle.disabled = puzzleCounting; shuffle.classList.remove('hidden'); }
+  // v198: Shuffle is also disabled when every rack tile is placed
+  // (nothing left to shuffle); it comes back when tiles return to
+  // the rack (Recall) or the rack refills after a word is played.
+  const puzzleRackEmpty = st.rack.every(t => t.used);
+  if (shuffle) { shuffle.disabled = puzzleCounting || puzzleRackEmpty; shuffle.classList.remove('hidden'); }
   // v195: Share exists ONLY on today's puzzle, and only once the
   // timed window is over or the optimal word has landed. Before
   // that the row is exactly Exit, Recall, Shuffle — no placeholder,
@@ -600,13 +609,18 @@ function renderPuzzleBoard() {
   // over). The pill shows the live clock + the best % so far; the
   // final score is the posted % centered at the top.
   const pill = $('puzzleTimerPill'), fin = $('puzzleFinalScore');
+  // v198: the "Final score." label rides with the final score —
+  // shown exactly when the score is, hidden exactly when it is.
+  const finLabel = $('puzzleFinalScoreLabel');
   if (st.isToday && !st.timerDone) {
     if (pill) pill.classList.remove('hidden');
     if (fin) fin.classList.add('hidden');
+    if (finLabel) finLabel.classList.add('hidden');
     puzzleUpdateTimerPill();
   } else {
     if (pill) pill.classList.add('hidden');
     if (fin) { fin.textContent = puzzlePostedPct(st) + '%'; fin.classList.remove('hidden'); }
+    if (finLabel) finLabel.classList.remove('hidden');
   }
   // v196: the puzzle board uses the shared .board sizing, exactly
   // like the game board — no fitted override, no resize listener.
@@ -1249,6 +1263,9 @@ function puzzleBoardRecall() {
 let puzzleShuffling = false;
 function puzzleBoardShuffle() {
   const st = puzzleBoardState; if (!st || puzzleShuffling || puzzleCounting) return;
+  // v198: no shuffling an empty rack (all tiles placed) — the
+  // button is disabled then, so this is belt-and-braces.
+  if (st.rack.every(t => t.used)) return;
   const rackEl = $('puzzleRack'); if (!rackEl) return;
   // Fold in: every tile slides toward the rack centre, shrinking, so
   // the tiles pass around one another instead of just popping in place.
@@ -1481,7 +1498,17 @@ async function renderPuzzleLog() {
   if (moreBtn) moreBtn.classList.add('hidden');
   if (!all) { list.textContent = 'No puzzles loaded yet — check your connection and try again.'; return; }
   const today = localDateKey(new Date());
-  puzzleLogKeys = Object.keys(all).filter(k => k <= today).sort().reverse();
+  // v198: never show a puzzle from before the user had an account —
+  // the log starts on the account-creation date (me.createdAt, from
+  // /api/me via publicUser). Puzzle keys are LOCAL dates, so the
+  // creation day is the user's local date at signup: a UTC slice
+  // would hide a valid evening-signup day west of UTC (signed up
+  // Nov 21 7pm EST reads as Nov 22 UTC) and show a pre-account day
+  // east of it. No me/createdAt (shouldn't happen — the log needs a
+  // sign-in) falls back to showing everything.
+  const createdRaw = (me && me.createdAt) ? String(me.createdAt) : null;
+  const createdKey = createdRaw ? localDateKey(new Date(createdRaw)) : null;
+  puzzleLogKeys = Object.keys(all).filter(k => k <= today && (!createdKey || k >= createdKey)).sort().reverse();
   for (const key of puzzleLogKeys.slice(0, puzzleLogShown)) {
     const row = document.createElement('button');
     row.className = 'puzzle-log-row';
@@ -1500,6 +1527,9 @@ async function renderPuzzleLog() {
       label.appendChild(day);
     }
     const score = document.createElement('span'); score.className = 'puzzle-log-pct'; score.textContent = (pct == null ? 0 : pct) + '%';
+    // v198: an unplayed day reads 0% in the same grey as the
+    // month/date line, not the blue of a played score.
+    if (pct == null) score.classList.add('unplayed');
     const mini = puzzleMiniBoardEl(all[key]);
     row.appendChild(label); row.appendChild(score); row.appendChild(mini);
     // Today is the top row and opens today's puzzle (timer + Share);
@@ -4097,7 +4127,12 @@ function renderGame() {
   // v197 (Jeff, Nov 25, 2026): no blue border until the deck
   // populates — during the 5s countdown the button stays disabled
   // (grey, no blue border) and enables when the countdown ends.
-  $('shuffleBtn').disabled = countdownActive;
+  // v198: also disabled when every tile is placed (the rack is
+  // empty — nothing to shuffle); it comes back when the rack
+  // refills after Play. A null slot counts as empty too (it holds
+  // no letter), so the check is "no letter left unplaced".
+  const rackEmpty = game.humanRack.every((letter, idx) => !letter || pending.some(p => p.rackIndex === idx));
+  $('shuffleBtn').disabled = countdownActive || rackEmpty;
   // Forfeit is available at all times during an active game, including
   // the 5s countdown (v107 — it used to be disabled until the countdown
   // ended, so a mistap left no way out but to wait). The game is
@@ -5866,6 +5901,9 @@ let shuffling = false;
 $('shuffleBtn').onclick = async () => {
   cleanupStuckDrag();
   if (!game || shuffling) return;
+  // v198: no shuffling an empty rack (all tiles placed) — the
+  // button is disabled then, so this is belt-and-braces.
+  if (game.humanRack.every((letter, idx) => !letter || pending.some(p => p.rackIndex === idx))) return;
   // Works on the player's turn AND on the opponent's turn, and when
   // out of time: the rack is the player's own rack, the shuffle
   // endpoint does not require it to be your turn, and the greyed

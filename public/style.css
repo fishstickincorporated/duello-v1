@@ -1,4 +1,67 @@
 *{box-sizing:border-box} body{margin:0;background:#1a1d24;color:#e8ecf1;font-family:"Comfortaa",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+/* v198: proportional scaling from the iPhone 16 reference (393x852).
+   --cw is the game content width (370 at the reference: the 390px
+   column minus 10px side gaps). --bw/--pbw are the game/puzzle
+   board widths: the board is min(content width, height cap), so it
+   grows with the screen but never overflows it. The height caps
+   keep the board + fixed chrome fitting with at least 16px of
+   centering slack on each side (32px total). Three things scale
+   with the board, so the divisor is 1 + their per-px rates:
+   - the game logo (0.72 x the board width, aspect 3.866):
+     0.72/3.866 = 0.186 per board px (game only; the puzzle has a
+     fixed 24px title instead, and no logo);
+   - the status-to-rack gap (85.7px game / 87.1px puzzle at the
+     reference): 85.7/370 = 0.232 (game), 87.1/370 = 0.235 (puzzle);
+   - the rack: its tiles are flex:1 squares, so the rack is
+     (board - 30px gaps)/6 = board/6 - 5, i.e. 0.167 per board px,
+     floored at 57px (min-height:57px) — the floor binds below a
+     ~372px board, which is every short screen.
+   So the game divisor is 1 + 0.186 + 0.232 + 0.167 = 1.585 (logo
+   shown) and 1 + 0.232 = 1.232 (logo hidden, rack floored); the
+   puzzle divisor is 1 + 0.235 + 0.167 = 1.402 (title shown) and
+   1 + 0.235 = 1.235 (title hidden, rack floored). The constants
+   are the fixed chrome + the 32px slack, measured from the live
+   layout: game 257 (logo shown) / 307 (logo hidden), puzzle 333
+   (title shown) / 342 (title hidden). --gs/--ps are the board
+   scale lengths (1px at the reference) for board-relative sizes
+   (premium letters, countdown number); --hs is the home scale
+   length (1px at the reference: home content 358px wide, buttons
+   92px tall). Above 394px wide the 390px column cap lifts and the
+   content stretches with 10px side gaps. Below 720px tall the
+   game logo / puzzle title hide (item 10) and the caps use the
+   logo-less chrome. The env() terms are 0 in the Capacitor
+   webview (it reports no safe-area insets); they keep the board
+   fitting if insets ever appear. */
+:root{
+  --cw:calc(min(100vw, 390px) - 20px);
+  --bw:min(var(--cw), calc((100svh - 257px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) / 1.585));
+  --pbw:min(var(--cw), calc((100svh - 333px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) / 1.402));
+  --gs:calc(var(--bw) / 370);
+  --ps:calc(var(--pbw) / 370);
+  --hs:calc((min(100vw, 390px) - 32px) / 358);
+}
+@media (min-width:394px){
+  :root{
+    --cw:calc(100vw - 20px);
+    --hs:calc((100vw - 20px) / 370);
+  }
+  /* v198 item 8: above the reference width the 390px column cap
+     lifts — every page stretches with fixed side gaps (10px on the
+     game/puzzle screens, 10px on home too). */
+  .screen{max-width:none}
+  .tab-bar{max-width:none}
+  #homeScreen{padding-left:10px;padding-right:10px}
+}
+@media (max-height:719px){
+  :root{
+    --bw:min(var(--cw), calc((100svh - 307px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) / 1.232));
+    --pbw:min(var(--cw), calc((100svh - 342px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) / 1.235));
+  }
+  /* v198 item 10: on short screens the game logo and the puzzle
+     title hide so the board group fits comfortably. */
+  #gameLogo{display:none}
+  #puzzleBoardScreen .puzzle-board-title{display:none}
+}
 /* v135: the dot texture is a FIXED layer so content scrolls over it.
    The fixed-attachment trick is unreliable on iOS Safari, so the
    dots live on body::before (position:fixed, inset:0, same 16px
@@ -30,11 +93,11 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .pw-wrap{position:relative}.pw-wrap input{padding-right:44px}.pw-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:1;touch-action:manipulation}.pw-eye svg{display:block}.pw-eye.on svg{stroke:#03eaff}
 .pw-reqs{list-style:none;margin:2px 0 8px;padding:0;text-align:left}.pw-reqs li{color:#b3b2b1;font-size:12px;line-height:1.6}.pw-reqs li::before{content:"○ "}.pw-reqs li.met{color:#03eaff}.pw-reqs li.met::before{content:"✓ "}
 .modes{display:flex;flex-direction:column;gap:24px;margin-top:24px}
-.mode{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#fff;height:64px;padding:0 8px 0 14px;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;font-size:18px;border:2px solid #03eaff;border-radius:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 8px 0 #005a6e}
+.mode{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#fff;height:calc(var(--hs) * 64);min-height:48px;padding:0 8px 0 14px;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;font-size:calc(var(--hs) * 18);border:2px solid #03eaff;border-radius:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 8px 0 #005a6e}
 .mode.greyed{background:linear-gradient(180deg,#404552 0%,#2b303c 100%);color:#b3b2b1;border:2px solid #3c424e;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 0 #1e222b;cursor:not-allowed;opacity:.55}
 .mode .label{flex:1;text-align:left}
 .mode .sym{flex:0 0 auto}
-.mode .chev{font-size:30px;line-height:1;color:#03eaff}
+.mode .chev{font-size:calc(var(--hs) * 30);line-height:1;color:#03eaff}
 .mode.greyed .chev{color:#b3b2b1}
 .mode .soon{background:#23262e;color:#b3b2b1;border-radius:20px;padding:4px 10px;font-size:11px;letter-spacing:1px;white-space:nowrap}
 /* v148: the Daily Puzzle countdown pill is a FIXED width, the same
@@ -57,9 +120,9 @@ input{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #
 .bot-opt .label{flex:1;text-align:left}
 .bot-opt .label-col{flex:1;text-align:left;display:flex;flex-direction:column;gap:2px;min-width:0}
 .bot-opt .label-col .label{flex:none}
-.bot-opt .sub{font-size:12px;color:#b3b2b1;font-weight:400}
+.bot-opt .sub{font-size:calc(var(--hs) * 12);color:#b3b2b1;font-weight:400}
 .bot-opt .sym{flex:0 0 auto}
-.bot-opt .chev{font-size:30px;line-height:1;color:#03eaff}
+.bot-opt .chev{font-size:calc(var(--hs) * 30);line-height:1;color:#03eaff}
 .back-pill{display:block;background:#6b7280;color:#fff;padding:8px 18px;border-radius:20px;margin:22px auto 0;font-size:14px}
 .scoreboard{display:flex;flex-direction:row;gap:6px;margin-top:4px;margin-bottom:0;width:auto;margin-left:0;margin-right:0}
 /* Each player's panel is three columns with NO visible separation
@@ -149,7 +212,9 @@ name or a big score never reflows the board. Names never wrap. */
 .lastplay .bingo{color:#ffd166;font-weight:800;white-space:nowrap}
 .board{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;width:100%;aspect-ratio:1;background:#11131a;padding:3px;border-radius:10px}
 .cell{aspect-ratio:1;border-radius:8px;background:#262a33;display:flex;align-items:center;justify-content:center;font-size:1em;color:#b3b2b1;position:relative}
-.cell.DL,.cell.TL,.cell.DW,.cell.TW{font-family:"Comfortaa",sans-serif}.cell.DL{background:#ff1303;color:#fff;-webkit-text-fill-color:#fff;font-size:15px;font-weight:800;text-shadow:-0.75px 0 0 #000,0.75px 0 0 #000,0 -0.75px 0 #000,0 0.75px 0 #000,-0.75px -0.75px 0 #000,-0.75px 0.75px 0 #000,0.75px -0.75px 0 #000,0.75px 0.75px 0 #000}.cell.TL{background:#1cff03;color:#fff;-webkit-text-fill-color:#fff;font-size:15px;font-weight:800;text-shadow:-0.75px 0 0 #000,0.75px 0 0 #000,0 -0.75px 0 #000,0 0.75px 0 #000,-0.75px -0.75px 0 #000,-0.75px 0.75px 0 #000,0.75px -0.75px 0 #000,0.75px 0.75px 0 #000}.cell.DW{background:#ff8d03;color:#fff;-webkit-text-fill-color:#fff;font-size:15px;font-weight:800;text-shadow:-0.75px 0 0 #000,0.75px 0 0 #000,0 -0.75px 0 #000,0 0.75px 0 #000,-0.75px -0.75px 0 #000,-0.75px 0.75px 0 #000,0.75px -0.75px 0 #000,0.75px 0.75px 0 #000}.cell.TW{background:#ff03ee;color:#fff;-webkit-text-fill-color:#fff;font-size:15px;font-weight:800;text-shadow:-0.75px 0 0 #000,0.75px 0 0 #000,0 -0.75px 0 #000,0 0.75px 0 #000,-0.75px -0.75px 0 #000,-0.75px 0.75px 0 #000,0.75px -0.75px 0 #000,0.75px 0.75px 0 #000}
+.cell.DL,.cell.TL,.cell.DW,.cell.TW{font-family:"Comfortaa",sans-serif}.cell.DL{background:#ff1303;color:#fff;-webkit-text-fill-color:#fff;font-size:calc(var(--gs) * 15);font-weight:800;text-shadow:-0.75px 0 0 #000,0.75px 0 0 #000,0 -0.75px 0 #000,0 0.75px 0 #000,-0.75px -0.75px 0 #000,-0.75px 0.75px 0 #000,0.75px -0.75px 0 #000,0.75px 0.75px 0 #000}.cell.TL{background:#1cff03;color:#fff;-webkit-text-fill-color:#fff;font-size:calc(var(--gs) * 15);font-weight:800;text-shadow:-0.75px 0 0 #000,0.75px 0 0 #000,0 -0.75px 0 #000,0 0.75px 0 #000,-0.75px -0.75px 0 #000,-0.75px 0.75px 0 #000,0.75px -0.75px 0 #000,0.75px 0.75px 0 #000}.cell.DW{background:#ff8d03;color:#fff;-webkit-text-fill-color:#fff;font-size:calc(var(--gs) * 15);font-weight:800;text-shadow:-0.75px 0 0 #000,0.75px 0 0 #000,0 -0.75px 0 #000,0 0.75px 0 #000,-0.75px -0.75px 0 #000,-0.75px 0.75px 0 #000,0.75px -0.75px 0 #000,0.75px 0.75px 0 #000}.cell.TW{background:#ff03ee;color:#fff;-webkit-text-fill-color:#fff;font-size:calc(var(--gs) * 15);font-weight:800;text-shadow:-0.75px 0 0 #000,0.75px 0 0 #000,0 -0.75px 0 #000,0 0.75px 0 #000,-0.75px -0.75px 0 #000,-0.75px 0.75px 0 #000,0.75px -0.75px 0 #000,0.75px 0.75px 0 #000}
+/* v198: the puzzle board scales with --ps, not --gs. */
+#puzzleBoard .cell.DL,#puzzleBoard .cell.TL,#puzzleBoard .cell.DW,#puzzleBoard .cell.TW{font-size:calc(var(--ps) * 15)}
 /* v178 (Jeff, Nov 23, 2026): during the 5-second game-start countdown the
    outer-ring premium tiles stay the regular black tile — no premium colour,
    no premium label — so the special locations only appear when the countdown
@@ -510,15 +575,26 @@ same 52px column, right-aligned, on every row including your own
    clears the island at the top and the home indicator at the bottom,
    and the rack sits at the bottom of the screen (margin-top:auto on
    #rack). svh last so the height stays stable when Safari's toolbar
-   hides; dvh/vh are the fallbacks. */
+   hides; dvh/vh are the fallbacks.
+   (v198 item 7: the margin-top:auto is gone — the group is now
+   centered by the .game-spacer divs above and below it, and the
+   status-to-rack gap is a fixed, board-scaled margin on .status.) */
 #gameScreen{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
-#gameScreen #gameDim{flex:1;display:flex;flex-direction:column;min-height:0}
-#gameScreen #rack{margin-top:auto}
-/* The rack + buttons sit a little closer to the status line: the
-   auto margin above the rack absorbs 40px less free space, so the
-   whole deck-and-buttons block shifts up 40px and the space below
-   the buttons grows by the same amount. */
-#gameScreen #gameDim>.controls{margin-bottom:40px}
+#gameScreen #gameDim{flex:1;display:flex;flex-direction:column;min-height:0;width:var(--bw);margin:0 auto}
+#gameScreen #gameDim > :not(.game-spacer){flex-shrink:0}
+/* v198 item 7: centering spacers — the scoreboard→buttons group
+   is centered between the logo and the bottom of the screen. The
+   spacers split the free space equally; the board (and the whole
+   group) is width-capped by --bw, so on a wide screen the board
+   grows and the group stays centered. */
+.game-spacer{flex:1 1 0;min-height:0}
+/* v198 item 7: the rack no longer rides margin-top:auto; the
+   spacers center the group, and the status-to-rack gap is a fixed,
+   board-scaled margin on .status instead. */
+#gameScreen .status{margin-bottom:calc(var(--gs) * 85.7)}
+/* v198 item 7: the controls no longer need margin-bottom:40 (that
+   was the v109 shift); the bottom spacer holds the group off the
+   bottom, so the scoreboard→buttons group is truly centered. */
 #gameScreen .board,#gameScreen .rack,#gameScreen .controls,#gameScreen #endButtons{width:100%}
 
 html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
@@ -534,6 +610,11 @@ html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-
 .countdown-overlay{position:absolute;inset:0;background:rgba(5,7,10,.55);display:flex;align-items:center;justify-content:center;z-index:15}
 .countdown-num{font-size:96px;font-weight:900;color:#fff}
 .countdown-num.waiting{font-size:22px;font-weight:700;line-height:1.4;text-align:center;max-width:320px}
+/* v198: the 5s countdown number scales with the board. */
+#gameScreen .countdown-num{font-size:calc(var(--gs) * 96)}
+#puzzleBoardScreen .countdown-num{font-size:calc(var(--ps) * 96)}
+#gameScreen .countdown-num.waiting{font-size:calc(var(--gs) * 22)}
+#puzzleBoardScreen .countdown-num.waiting{font-size:calc(var(--ps) * 22)}
 /* During the countdown the rack and buttons stay visible: the rack
    is rendered as empty slots (see .tile.empty), so nothing jumps
    when the letters appear after the wait. */
@@ -623,7 +704,7 @@ squares are the premium colours, spread out across the whole screen. */
 #introLogo{display:block;width:min(88vw,340px);height:auto}
 
 /* ---------- v131: home redesign (faint blue texture + daily hook) ---------- */
-#homeScreen{position:relative;display:flex;flex-direction:column;min-height:100dvh;min-height:100svh;padding-bottom:calc(65px + env(safe-area-inset-bottom))}
+#homeScreen{position:relative;display:flex;flex-direction:column;height:100vh;height:100dvh;height:100svh;padding-bottom:calc(65px + env(safe-area-inset-bottom))}
 #homeScreen .logo-img.home-logo{width:72%;margin-bottom:0;position:relative;z-index:1}
 #homeScreen .home-head,#homeScreen .modes{position:relative;z-index:1}
 /* v154: the pfp sits centred between the logo and the Play Online
@@ -639,8 +720,8 @@ squares are the premium colours, spread out across the whole screen. */
    too. The logo's bottom margin is zeroed above so the top spacer
    is the whole logo→pfp gap. */
 .home-head{display:flex;align-items:center;gap:12px;margin:0;text-align:left}
-.home-spacer{flex:1 1 0;min-height:8px}
-.home-pfp{width:52px;height:52px;flex:0 0 52px;border-radius:50%;overflow:hidden;background:#3a3f4b;display:flex;align-items:center;justify-content:center;font-size:26px;cursor:pointer}
+.home-spacer{flex:1 1 0;min-height:8px;max-height:70px}
+.home-pfp{width:calc(var(--hs) * 52);height:calc(var(--hs) * 52);flex:0 0 calc(var(--hs) * 52);border-radius:50%;overflow:hidden;background:#3a3f4b;display:flex;align-items:center;justify-content:center;font-size:calc(var(--hs) * 26);cursor:pointer}
 .home-pfp img{width:100%;height:100%;object-fit:cover;display:block}
 .home-pfp svg{width:52px;height:52px;display:block}
 /* v142: the stats stack vertically — Elo on top, streak below it, so
@@ -663,13 +744,26 @@ squares are the premium colours, spread out across the whole screen. */
    the blue text stays legible (render-verified). Same right-justified
    spot as the badge; renderHomeHeader toggles which one shows. */
 .home-upgrade-pill{margin-left:auto;flex:0 0 auto;background:rgba(3,234,255,.14);border:1.5px solid #03eaff;color:#03eaff;border-radius:999px;padding:8px 13px;font-size:12px;font-weight:700;font-family:Comfortaa, sans-serif;white-space:nowrap;cursor:pointer}
-.home-stat-value{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
-.home-stat-label{color:#b3b2b1;font-size:12px}
+.home-stat-value{font-size:calc(var(--hs) * 20);font-weight:800;font-variant-numeric:tabular-nums}
+.home-stat-label{color:#b3b2b1;font-size:calc(var(--hs) * 12)}
 /* v146: home buttons are a fixed 100px (was flex:1, ~126px at 390x844)
    with 24px gaps, centered in the available space. v148: a bit
    shorter with a bit more space between them — 92px with 28px gaps
-   (4×92 + 3×28 = 452px, down from 472px, so the stack still fits). */
-#homeScreen .modes{flex:none;display:flex;flex-direction:column;gap:28px;margin-top:0}
+   (4×92 + 3×28 = 452px, down from 472px, so the stack still fits).
+   v198 item 6: the top/bottom gaps stay fixed (the .home-spacer
+   divs, capped at 70px each, as at the reference) and the stack
+   itself flexes with the screen height — the min-height below is
+   the full height between the spacers (viewport minus logo, head,
+   spacers and tab-bar space), so on a taller screen the extra
+   space lands between the buttons (justify-content:space-between,
+   gap 28px minimum), and on a short screen the buttons shrink
+   (flex-shrink on .mode, floored at 48px) instead of scrolling.
+   The shrink only engages because #homeScreen is height:100svh,
+   not min-height — a min-height container grows with its content
+   and never creates the negative space flex-shrink needs, so on
+   the closed Duo the width-scaled buttons (111px) overflowed the
+   viewport instead of shrinking. */
+#homeScreen .modes{flex:0 1 auto;display:flex;flex-direction:column;gap:28px;justify-content:space-between;margin-top:0;min-height:calc(100svh - 331px - var(--cw) * 0.72 / 3.866 - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
 /* v139: icons even bigger and slightly further right, at Jeff's
    request ("getting greedy"). Icons 44px→48px and left padding
    8px→14px on both home and bot buttons (right padding stays 8px,
@@ -681,8 +775,8 @@ squares are the premium colours, spread out across the whole screen. */
    12.25px would fit by only 0.5px, too tight to trust). Title
    stays 22px. The title/subtitle keep white-space:nowrap so they
    can never wrap. */
-#homeScreen .mode{flex:0 1 92px;height:auto;font-size:22px}
-#homeScreen .mode .sym svg{width:48px;height:48px}
+#homeScreen .mode{flex:0 1 calc(var(--hs) * 92);height:auto;min-height:48px;font-size:calc(var(--hs) * 22)}
+#homeScreen .mode .sym svg{width:calc(var(--hs) * 48);height:calc(var(--hs) * 48)}
 /* v132: home buttons are big glossy gradient cards (Jeff's screenshot).
    v133: darkened so the white text pops way more — each gradient runs
    from its brand base color at the top to a darker shade of that same
@@ -762,7 +856,7 @@ squares are the premium colours, spread out across the whole screen. */
    subtitle, both with a dark shadow; white chevron with a shadow too. */
 #homeScreen .mode .label-col{flex:1;text-align:left;display:flex;flex-direction:column;gap:2px;min-width:0;justify-content:center}
 #homeScreen .mode .label-col .label{flex:none;font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45);white-space:nowrap}
-#homeScreen .mode .label-col .sub{font-size:12px;color:rgba(255,255,255,.95);font-weight:400;text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}
+#homeScreen .mode .label-col .sub{font-size:calc(var(--hs) * 12);color:rgba(255,255,255,.95);font-weight:400;text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}
 #homeScreen .mode .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
 #homeScreen .mode .sym svg{filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
 /* Subtle background texture (v133–v134): the letter tiles are gone —
@@ -790,9 +884,9 @@ squares are the premium colours, spread out across the whole screen. */
    collapsed to the 88px min-height until v139 gave #botScreen a definite
    height:100svh — a percentage flex-basis needs a definite parent height
    to resolve. Keep that height on #botScreen.) */
-#botScreen .bot-opt .sym svg{width:48px;height:48px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
+#botScreen .bot-opt .sym svg{width:calc(var(--hs) * 48);height:calc(var(--hs) * 48);filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
 #botScreen .bot-opt .label-col .label{font-weight:700;text-shadow:0 2px 3px rgba(0,0,0,.45);white-space:nowrap}
-#botScreen .bot-opt .label-col .sub{font-size:12px;color:rgba(255,255,255,.95);text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}
+#botScreen .bot-opt .label-col .sub{font-size:calc(var(--hs) * 12);color:rgba(255,255,255,.95);text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}
 #botScreen .bot-opt .chev{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
 /* Bot buttons in the Home Screen style: colorful gradients, muted
    like the home buttons (v134, ~22% toward grey). Doppelgänger gets
@@ -849,6 +943,11 @@ squares are the premium colours, spread out across the whole screen. */
    (and puzzleFitBoard) is gone with the week strip; the board sits
    in flow at the game's position and size. */
 #puzzleBoardScreen{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
+/* v198 item 7: #puzzleDim mirrors the game's #gameDim — the board
+   group is width-capped to the board width and centered between
+   the header and the bottom by the .game-spacer divs. */
+#puzzleDim{flex:1;display:flex;flex-direction:column;min-height:0;width:var(--pbw);margin:0 auto}
+#puzzleDim > :not(.game-spacer){flex-shrink:0}
 /* v154: the board sits in flow exactly like the game's — no flex
    centring, no container-query shrink. The v150 shrink kept the
    buttons on screen on short viewports, but it moved the board off
@@ -859,11 +958,17 @@ squares are the premium colours, spread out across the whole screen. */
    margin-top:auto below is what anchors the deck + buttons to the
    bottom, like #gameScreen #rack. (v196: the v195 flex:1 centring
    is gone with the week strip — the wrap is a plain flow element
-   again, so the board lands at the game board's Y.) */
+   again, so the board lands at the game board's Y.) (v198 item 7:
+   the margin-top:auto is gone — #puzzleDim's .game-spacer divs
+   center the board group, like the game screen.) */
 #puzzleBoardScreen .board-wrap{position:relative;width:100%}
 #puzzleBoard{width:100%;aspect-ratio:1}
-#puzzleBoardScreen #puzzleRack{margin-top:auto}
-#puzzleBoardScreen>.controls{margin-bottom:40px}
+/* v198 item 7: the rack no longer rides margin-top:auto; the
+   spacers center the group, and the status-to-rack gap is a fixed,
+   board-scaled margin on .status instead. The controls no longer
+   need margin-bottom:40 (the v109 shift); the bottom spacer holds
+   the group off the bottom. */
+#puzzleBoardScreen .status{margin-bottom:calc(var(--ps) * 87.1)}
 /* v152: confetti that rains on a puzzle solve — the container covers
    the puzzle screen and ignores taps; pieces fall from the top and
    are removed once the animation ends. */
@@ -905,6 +1010,12 @@ squares are the premium colours, spread out across the whole screen. */
 #puzzleTimerClock{color:#e8ecf1}
 #puzzleTimerPct{color:#03eaff}
 .puzzle-final-score{text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:28px;font-weight:800;color:#03eaff;font-variant-numeric:tabular-nums;line-height:1;margin:10px auto 0;padding:10px 0}
+/* v198 item 11: "Final score." under the finalized score — small,
+   centered, grey (#b3b2b1, the same grey as the puzzle log's
+   month/date text). The score itself stays blue; only this label
+   is grey. Shown exactly when the final score is, never while the
+   timed pill is showing. */
+.puzzle-final-score-label{text-align:center;font-size:13px;color:#b3b2b1;line-height:1;margin:2px auto 0}
 /* v195: the past-puzzle log — one row per day (newest first, today
    at the top): date left, recorded % right.
    v196: rows are twice as tall (~104px) and carry a mini
@@ -915,12 +1026,15 @@ squares are the premium colours, spread out across the whole screen. */
    is two lines (full weekday bold on top, abbreviated date below
    in regular weight; today is just "Today"); the minis have a
    thin white rounded border; day/date and % are 18px. */
-.puzzle-log-list{display:flex;flex-direction:column;gap:8px;margin-top:16px}
-.puzzle-log-row{display:flex;align-items:center;gap:12px;width:100%;background:#262a33;border:0;border-radius:12px;padding:16px 16px;font-size:16px;color:#e8ecf1;text-align:left;cursor:pointer;font-family:inherit}
+.puzzle-log-list{display:flex;flex-direction:column;gap:12px;margin-top:16px}
+.puzzle-log-row{display:flex;align-items:center;gap:12px;width:100%;background:#262a33;border:0;border-radius:12px;padding:12px 16px;font-size:16px;color:#e8ecf1;text-align:left;cursor:pointer;font-family:inherit}
 .puzzle-log-date{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
-.puzzle-log-dow{font-size:18px;font-weight:800}
+.puzzle-log-dow{font-size:20px;font-weight:800}
 .puzzle-log-day{font-size:18px;font-weight:400;color:#b3b2b1}
-.puzzle-log-pct{font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:800;color:#03eaff;font-variant-numeric:tabular-nums}
+.puzzle-log-pct{font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:800;color:#03eaff;font-variant-numeric:tabular-nums}
+/* v198 item 4: an unplayed day reads 0% in the same grey as the
+   month/date line, not the blue of a played score. */
+.puzzle-log-pct.unplayed{color:#b3b2b1}
 /* v196: the mini board — 64px, 10 columns, 1px gaps. It reuses
    .cell/.tile at a tiny scale; the premium letters are unreadable
    at 5.5px a cell, so they are hidden (font-size:0) and the
@@ -1004,11 +1118,12 @@ squares are the premium colours, spread out across the whole screen. */
    (the strength dial went from 30px to 12px at 375x667), which
    moved the board off the game's position. The board, status, deck
    and buttons below it absorb the overflow instead, the same way the game screen does. */
-#puzzleBoardScreen > .puzzle-board-title,
-#puzzleBoardScreen > .puzzle-board-date,
-#puzzleBoardScreen > .puzzle-strength,
-#puzzleBoardScreen > .puzzle-timer-pill,
-#puzzleBoardScreen > .puzzle-final-score{flex-shrink:0}
+#puzzleDim > .puzzle-board-title,
+#puzzleDim > .puzzle-board-date,
+#puzzleDim > .puzzle-strength,
+#puzzleDim > .puzzle-timer-pill,
+#puzzleDim > .puzzle-final-score,
+#puzzleDim > .puzzle-final-score-label{flex-shrink:0}
 /* v161 (Nov 21, 2026) */
 /* (1) Logo up to the game position: the home and bot logos sat at
    32px (28px screen padding + 4px margin) while the game logo
@@ -1070,7 +1185,7 @@ squares are the premium colours, spread out across the whole screen. */
    padding, so 72% there rendered 8.6px narrower (257.8 vs 266.4)
    and Jeff saw it shrink when entering a game. This calc is the game
    logo's exact width at any viewport, so the logo never moves. */
-#homeScreen .logo-img.home-logo, #botScreen .logo-img.home-logo{width:calc((min(100vw, 390px) - 20px) * 0.72)}
+#homeScreen .logo-img.home-logo, #botScreen .logo-img.home-logo{width:calc(var(--cw) * 0.72)}
 /* v162 (2): the byoyomi status line is 14px now (was 15px) so the
    full line fits at 375px — the new text is 335.8px at 14px against
    a 355px content width; at 15px it was 359.8px and still clipped. */

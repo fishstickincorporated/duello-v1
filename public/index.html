@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Duello</title><meta property="og:title" content="Duello"><meta property="og:description" content="The 1v1 word game. Challenge a friend, outscore them, and climb the ranks."><meta property="og:image" content="/assets/app-icon.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=197"></head>
+<title>Duello</title><meta property="og:title" content="Duello"><meta property="og:description" content="The 1v1 word game. Challenge a friend, outscore them, and climb the ranks."><meta property="og:image" content="/assets/app-icon.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css?v=198"></head>
 <body><div id="introOverlay"><div id="introFlicker"></div><div id="introInner"><div id="introLogoZoom"><img id="introLogo" src="/assets/logo.png?v=2" alt="DUELLO"></div></div></div><div id="bootError" style="display:none;position:fixed;top:12px;left:12px;right:12px;z-index:9999;background:#ffd166;color:#1a1d24;padding:12px;border-radius:10px;font-size:14px;line-height:1.4" onclick="this.style.display='none'"></div><div id="app">
   <noscript><p style="color:#e8ecf1;text-align:center;padding:40px 20px">Duello needs JavaScript enabled to run. Turn JavaScript on in your browser settings and reload.</p></noscript>
 
@@ -29,6 +29,10 @@
   </section>
 
   <section id="puzzleBoardScreen" class="screen hidden">
+    <!-- v198: #puzzleDim mirrors the game's #gameDim — the board
+         group is width-capped to the board width and centered, like
+         the game screen. -->
+    <div id="puzzleDim">
     <div class="puzzle-board-title">Daily Puzzle</div>
     <div class="puzzle-board-date" id="puzzleBoardDate"></div>
     <!-- v196: the week strip is gone — the puzzle page is the
@@ -39,13 +43,22 @@
          at the top in its place. -->
     <div id="puzzleTimerPill" class="puzzle-timer-pill hidden"><span id="puzzleTimerClock">2:00</span><span id="puzzleTimerPct">0%</span></div>
     <div id="puzzleFinalScore" class="puzzle-final-score hidden"></div>
+    <!-- v198: "Final score." under the finalized score (grey, small,
+         centered) — shown exactly when the score is, never while the
+         timed pill is showing. -->
+    <div id="puzzleFinalScoreLabel" class="puzzle-final-score-label hidden">Final score.</div>
     <div class="puzzle-strength" id="puzzleStrengthWrap">
       <div class="puzzle-strength-track"><div class="puzzle-strength-fill" id="puzzleStrengthFill"></div><div class="puzzle-strength-knob" id="puzzleStrengthPct">0%</div></div>
     </div>
+    <!-- v198: centering spacer — the board group centers between the
+         header (title/date/pill/strength) and the bottom (item 7). -->
+    <div class="game-spacer" aria-hidden="true"></div>
     <div class="board-wrap"><div id="puzzleBoard" class="board"></div><div id="puzzleCountdownOverlay" class="countdown-overlay hidden"><div class="countdown-num" id="puzzleCountdownNum">5</div></div></div>
     <div class="status puzzle-status" id="puzzleBoardStatus"></div>
     <div id="puzzleRack" class="rack"></div>
     <div class="controls"><button id="puzzleBoardExitBtn">Exit</button><button id="puzzleBoardRecallBtn">Recall</button><button id="puzzleBoardShuffleBtn">Shuffle</button><button id="puzzleBoardShareBtn" disabled>Share</button></div>
+    <div class="game-spacer" aria-hidden="true"></div>
+    </div>
     <div id="puzzleConfetti" class="puzzle-confetti hidden"></div>
   </section>
 
@@ -317,6 +330,10 @@
   <section id="gameScreen" class="screen hidden">
     <div id="gameDim">
       <img class="logo-img small-logo-img" id="gameLogo" src="/assets/logo.png?v=2" alt="DUELLO">
+      <!-- v198: centering spacers — the scoreboard→buttons group is
+           centered between the logo and the bottom of the screen
+           (item 7); the spacers split the free space equally. -->
+      <div class="game-spacer" aria-hidden="true"></div>
       <div class="scoreboard" id="scoreboard">
         <div class="panel player-panel" id="playerPanel">
           <div class="panel-top">
@@ -356,6 +373,7 @@
       <div id="reviewButtons" class="controls hidden">
         <button id="reviewExitBtn">Exit</button><button id="reviewStatsBtn">Game Stats</button>
       </div>
+      <div class="game-spacer" aria-hidden="true"></div>
     </div>
     <div id="statWindow" class="stat-window hidden">
       <div class="stat-winner" id="statWinner"></div>
@@ -447,4 +465,4 @@
 })();
 </script>
 <script src="/engine.js?v=197" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script>
-<script src="/app.js?v=197" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>
+<script src="/app.js?v=198" onerror="var b=document.getElementById('bootError');if(b){b.style.display='block';b.textContent='Duello code failed to load. Check your connection and reload.';}"></script></body></html>

@@ -92,7 +92,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 200;
+const APP_VERSION = 201;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -1603,7 +1603,13 @@ function drawShareCardStat(ctx, label, value, cx, y) {
 async function myGlobalRank() {
   try {
     if (typeof rankCache !== 'undefined' && rankCache && rankCache.get(me.username) != null) return rankCache.get(me.username);
-    const d = await api('/api/users/rank?username=' + encodeURIComponent(me.username));
+    // v201: the rank fetch is one leg of the share-card render —
+    // a hung request used to stall the whole share (api() has no
+    // timeout), so give it 3s and fall back to the cached rank / '—'.
+    const d = await Promise.race([
+      api('/api/users/rank?username=' + encodeURIComponent(me.username)),
+      new Promise((resolve) => setTimeout(() => resolve(null), 3000)),
+    ]);
     if (d && d.rank != null) { try { setRank(me.username, d.rank); } catch {} return d.rank; }
   } catch {}
   try { if (typeof persistedRankCache !== 'undefined' && persistedRankCache && persistedRankCache.get(me.username) != null) return persistedRankCache.get(me.username); } catch {}
@@ -1633,7 +1639,12 @@ async function drawShareCardCanvas() {
     ctx.lineWidth = 4; ctx.strokeStyle = '#e8ecf1'; ctx.stroke();
     const photo = usablePhoto(me) ? me.photoData : null;
     if (photo) {
-      const img = await new Promise((resolve) => { const im = new Image(); im.onload = () => resolve(im); im.onerror = () => resolve(null); im.src = photo; });
+      // v201: a stalled decode used to hang the whole share (no
+      // timeout on this promise) — 3s, then the silhouette.
+      const img = await Promise.race([
+        new Promise((resolve) => { const im = new Image(); im.onload = () => resolve(im); im.onerror = () => resolve(null); im.src = photo; }),
+        new Promise((resolve) => setTimeout(() => resolve(null), 3000)),
+      ]);
       if (img) {
         ctx.save();
         ctx.beginPath(); ctx.arc(600, 195, 85, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
@@ -1667,11 +1678,23 @@ async function uploadShareCard() {
 // v187: the share icon on the Profile tab. The card is rendered
 // and uploaded first so the preview in the message shows the
 // sender's current Elo and rank; the text goes out either way.
+// v201: the sheet opens AT ONCE and the upload runs in the
+// background — awaiting it first (rank fetch + canvas + ~400KB PNG
+// POST, no timeout anywhere) left the button dead for seconds on a
+// slow connection, with no haptic and no spinner, so it read as
+// broken; a hung fetch could block it entirely. The upload still
+// usually lands before the recipient's phone fetches the preview
+// (the sender has to pick a recipient and hit send first), and a
+// slow/failed upload falls back to the previous card or the app
+// icon, as the v187 comment already accepts.
 async function shareProfileCard() {
   if (!me) return;
-  await uploadShareCard();
+  hapticLight();
+  uploadShareCard();
   const msg = 'Add me as a friend on Duello⚔️ https://duellogame.com/?friend=' + encodeURIComponent(me.username);
-  window.location.href = 'sms:?&body=' + encodeURIComponent(msg);
+  // v200 pattern: the sms: jump backgrounds the app at once and can
+  // swallow the haptic bridge call — give the buzz a beat first.
+  setTimeout(() => { window.location.href = 'sms:?&body=' + encodeURIComponent(msg); }, 80);
 }
 $('profileShareBtn').onclick = shareProfileCard;
 function show(id) {

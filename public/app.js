@@ -92,7 +92,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 204;
+const APP_VERSION = 205;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -2513,9 +2513,12 @@ async function renderFriendsUI() {
         renderFriendsUI();
       };
     }
-    // Tapping the name opens their profile window.
-    const nameEl = row.querySelector('.lb-name');
-    if (nameEl) nameEl.onclick = () => openPersonModal(r);
+    // v205: the whole row is tappable — tapping anywhere (Elo, pfp,
+    // the rest of the row) opens their profile window, the same as
+    // the name did. A tap on a button (the delete × / "Remove?"
+    // confirm in delete mode) still runs the button, not the modal.
+    row.onclick = (e) => { if (e && e.target && e.target.closest && e.target.closest('button')) return; openPersonModal(r); };
+    row.style.cursor = 'pointer';
   });
   // "No friends yet" counts friends only — your own row is always
   // on the Friends list, so an empty friends list still has you.
@@ -3199,8 +3202,12 @@ async function runFriendSearch() {
     const row = document.createElement('div'); row.className = 'lb-row no-rank' + (r.isYou ? ' you' : '');
     row.innerHTML = lbRowHTML(r, youBadgeHTML(r), { hideRank: true });
     frag.appendChild(row);
-    const nameEl = row.querySelector('.lb-name');
-    if (nameEl) nameEl.onclick = () => openPersonModal(r);
+    // v205: the whole row is tappable — tapping anywhere (Elo, pfp,
+    // the rest of the row) opens their add/play card, the same as
+    // the name did. (No buttons live on search rows, so no guard
+    // is needed here — the leaderboard rows above have one.)
+    row.onclick = () => openPersonModal(r);
+    row.style.cursor = 'pointer';
   });
   el.innerHTML = '';
   el.appendChild(frag);
@@ -4255,6 +4262,16 @@ function renderGame() {
   // time expiry (Nov 5, 2026 — the old 3s final-board view is
   // gone). Tapping the backdrop still dismisses it to the board.
   if (finished && game.stats) showStatWindowDelayed(game.stats);
+  // v205: a live online game that just finished — the server already
+  // has the row, but profileData is frozen at the first profile
+  // visit of the session, so refresh it now: the next Profile tap
+  // shows the finished game with no restart. Once per game (the
+  // flag resets on any active render); reviews and offline games
+  // never trigger it (reviews are not new finishes; offline games
+  // are covered by the local merge).
+  if (finished && game && !game.offline && !reviewMode) {
+    if (lastFinishedProfileGameId !== game.id) { lastFinishedProfileGameId = game.id; try { refreshProfileStats(); } catch {} }
+  } else if (!finished) { lastFinishedProfileGameId = null; }
   tickClocks();
   if (countdownActive) { $('clockHuman').textContent = '4:00'; $('clockBot').textContent = '4:00'; }
   updateStatus();
@@ -4928,6 +4945,168 @@ function localElo() {
   return base + (pendingEloSum || 0);
 }
 
+// ---------- Local stats merge (v205) ----------
+// The profile stats come from the server (profileData.profileStats),
+// but the server only knows about SYNCED games — and profileData is
+// frozen at the first profile visit of the session (loadMe is
+// cached-only). So a game that just ended, or one still sitting in
+// the outbox, was invisible until the next app restart. The merge
+// below is computed from the local outbox records (finished +
+// retry-eligible rejected) and layered OVER the server stats at
+// display time only: it is never cached and never written back, so
+// when the game syncs and a server refresh lands, the server values
+// replace the merged ones — never add to them, never double-count.
+//
+// The merge mirrors the server's profileStatsFor scope rules exactly:
+// Fishstick contributes ONLY longest word and best word (v205, Jeff
+// Nov 27, 2026 — the same rule as the server); every other stat
+// stays excluded for Fishstick, and vsHumans stays persona +
+// real-player only (local games are bots, so it gets nothing).
+// Two fields can never be merged locally and keep the server value
+// until sync: avgGameScore (its denominator is "games where your own
+// clock expired, excluding forfeits" — a server-only count) and
+// uniqueWords (a server-side word set the client cannot union
+// against). avgWordScore merges approximately: the server stores it
+// rounded to 1 decimal, so the merged value can be off by <0.05 and
+// corrects itself on sync.
+let localProfileStats = null; // {aggregate, vsBots, vsHumans} | null
+
+function localScopeStats(records) {
+  function empty() {
+    return { gamesPlayed: 0, wins: 0, losses: 0, draws: 0, avgGameScore: 0, highestGameScore: 0, avgWordScore: 0, highestWordScore: 0, highestWord: '', highestWordGameId: null, highestWordMoveIndex: null, longestWord: '', longestWordLen: 0, longestWordGameId: null, longestWordMoveIndex: null, optimalMoves: 0, totalMoves: 0, optimalPct: 0, uniqueWords: 0, wordsOver50: 0, wordsOver100: 0, bingos: 0, tenLetterWords: [], tenLetterWordCount: 0, record: '0W-0L', wordScoreSum: 0 };
+  }
+  function scope(mode) {
+    const st = empty();
+    const tenLetter = new Map();
+    const uniq = new Set();
+    for (const rec of records) {
+      const g = rec && rec.game;
+      if (!g || g.status !== 'finished') continue;
+      const botType = rec.botType || g.botType;
+      const isFish = botType === 'fishstick';
+      if (mode === 'vsHumans') continue; // local games are bots only
+      if (mode === 'vsBots' && botType !== 'competitive') continue;
+      const mySide = 'human';
+      const oppSide = 'bot';
+      if (!isFish) {
+        st.gamesPlayed++;
+        if (g.winner === mySide) st.wins++;
+        else if (g.winner === oppSide) st.losses++;
+        else if (g.winner === 'draw') st.draws++;
+        else if (g.reason === 'By forfeit') st.losses++;
+        else if (((g.scores && g.scores[mySide]) || 0) > ((g.scores && g.scores[oppSide]) || 0)) st.wins++;
+        else if (((g.scores && g.scores[oppSide]) || 0) > ((g.scores && g.scores[mySide]) || 0)) st.losses++;
+        else st.draws++;
+        st.highestGameScore = Math.max(st.highestGameScore, (g.scores && g.scores[mySide]) || 0);
+      }
+      const moves = (g.moves && g.moves[mySide]) || [];
+      for (const m of moves) {
+        const ms = m.score || 0;
+        if (!isFish) {
+          st.totalMoves++;
+          if (m.isOptimal) st.optimalMoves++;
+          if (m.bingo) st.bingos++;
+          st.wordScoreSum += ms;
+          if (ms >= 50) st.wordsOver50++;
+          if (ms >= 100) st.wordsOver100++;
+        }
+        // Longest + best word: every game counts, Fishstick included
+        // (v205). A locally-finished Fishstick game merges ONLY these
+        // two — its gameId is null (not loadable), so the record rows
+        // render as plain text, never a dead tap.
+        if (ms > st.highestWordScore) { st.highestWordScore = ms; st.highestWord = m.mainWord || ''; st.highestWordGameId = null; st.highestWordMoveIndex = null; }
+        for (const w of (m.words || [])) {
+          if (w.word && w.word.length > st.longestWordLen) { st.longestWord = w.word; st.longestWordLen = w.word.length; st.longestWordGameId = null; st.longestWordMoveIndex = null; }
+          if (!isFish) {
+            if (w.word && w.word.length === 10 && !tenLetter.has(w.word)) tenLetter.set(w.word, { word: w.word, gameId: null, moveIndex: null });
+            uniq.add(w.word);
+          }
+        }
+      }
+    }
+    st.avgWordScore = st.totalMoves ? Math.round(st.wordScoreSum / st.totalMoves * 10) / 10 : 0;
+    st.optimalPct = st.totalMoves ? Math.round(st.optimalMoves / st.totalMoves * 1000) / 10 : 0;
+    st.uniqueWords = uniq.size;
+    st.tenLetterWords = [...tenLetter.values()].sort((a, b) => a.word.localeCompare(b.word));
+    st.tenLetterWordCount = tenLetter.size;
+    st.record = `${st.wins}W-${st.losses}L` + (st.draws ? `-${st.draws}D` : '');
+    return st;
+  }
+  const agg = scope('aggregate'), bots = scope('vsBots'), humans = scope('vsHumans');
+  const hasAny = (s) => s.gamesPlayed > 0 || !!s.longestWord || !!s.highestWord;
+  if (!hasAny(agg) && !hasAny(bots) && !hasAny(humans)) return null;
+  return { aggregate: agg, vsBots: bots, vsHumans: humans };
+}
+
+// Display-only merge of server stats with the local outbox stats.
+// Returns the server object unchanged when there is nothing local to
+// add, and NEVER mutates the server object (profileData is cached).
+function mergeProfileStats(server, local) {
+  if (!server) return server;
+  if (!local || (local.gamesPlayed === 0 && !local.longestWord && !local.highestWord)) return server;
+  const st = { ...server };
+  st.gamesPlayed = (server.gamesPlayed || 0) + (local.gamesPlayed || 0);
+  st.wins = (server.wins || 0) + (local.wins || 0);
+  st.losses = (server.losses || 0) + (local.losses || 0);
+  st.draws = (server.draws || 0) + (local.draws || 0);
+  st.highestGameScore = Math.max(server.highestGameScore || 0, local.highestGameScore || 0);
+  st.totalMoves = (server.totalMoves || 0) + (local.totalMoves || 0);
+  st.optimalMoves = (server.optimalMoves || 0) + (local.optimalMoves || 0);
+  st.bingos = (server.bingos || 0) + (local.bingos || 0);
+  st.wordsOver50 = (server.wordsOver50 || 0) + (local.wordsOver50 || 0);
+  st.wordsOver100 = (server.wordsOver100 || 0) + (local.wordsOver100 || 0);
+  if ((local.highestWordScore || 0) > (server.highestWordScore || 0)) { st.highestWordScore = local.highestWordScore; st.highestWord = local.highestWord; st.highestWordGameId = local.highestWordGameId; st.highestWordMoveIndex = local.highestWordMoveIndex; }
+  if ((local.longestWordLen || 0) > (server.longestWordLen || 0)) { st.longestWord = local.longestWord; st.longestWordLen = local.longestWordLen; st.longestWordGameId = local.longestWordGameId; st.longestWordMoveIndex = local.longestWordMoveIndex; }
+  // Ten-letter words union by word; the server entry wins on a
+  // duplicate (it carries the loadable game id).
+  const ten = new Map();
+  for (const w of (server.tenLetterWords || [])) ten.set(w.word, w);
+  for (const w of (local.tenLetterWords || [])) if (!ten.has(w.word)) ten.set(w.word, w);
+  st.tenLetterWords = [...ten.values()].sort((a, b) => a.word.localeCompare(b.word));
+  st.tenLetterWordCount = ten.size;
+  st.optimalPct = st.totalMoves ? Math.round(st.optimalMoves / st.totalMoves * 1000) / 10 : 0;
+  // avgWordScore: approximate — the server value is rounded to 1
+  // decimal, so the merged value can be off by <0.05; it corrects
+  // itself when the game syncs and the server refresh lands.
+  if (local.totalMoves > 0) {
+    const sCount = server.totalMoves || 0;
+    st.avgWordScore = Math.round(((server.avgWordScore || 0) * sCount + (local.wordScoreSum || 0)) / (sCount + local.totalMoves) * 10) / 10;
+  }
+  // avgGameScore and uniqueWords keep the server value: their
+  // denominators/sets live server-side only (see the header note).
+  st.record = `${st.wins}W-${st.losses}L` + (st.draws ? `-${st.draws}D` : '');
+  return st;
+}
+
+// ---------- Guarded retry for server-rejected offline games (v205) ----------
+// A game the server 422s used to stay 'rejected' forever (the v168
+// one-time flip already ran). Some rejections are stale-client
+// artefacts — a word the server's dictionary did not know yet, a
+// replay check the client has since fixed — so a genuinely valid
+// game (Jeff's Nov 25 99-point Doppelgänger game, which never
+// appeared in History and never moved Elo) could sit rejected
+// forever. The retry is guarded: at most 2 attempts ever, and a
+// retry only happens when something may have changed — the client
+// version advanced, or the reason was transient and a day has
+// passed. A deterministic rejection under the current version never
+// retries. The strict server replay is untouched: a game that is
+// genuinely invalid fails again and stays rejected.
+const REJECT_RETRY_MAX = 2;
+const REJECT_RETRY_TRANSIENT_MS = 24 * 60 * 60 * 1000;
+function isTransientRejectReason(reason) {
+  const r = String(reason || '');
+  return /not in the legal move list|no legal move|not the best move|Invalid .* play|Replay failed/i.test(r);
+}
+function isRejectRetryEligible(rec) {
+  if (!rec || rec.status !== 'rejected') return false;
+  const count = rec.rejectCount || 0;
+  if (count >= REJECT_RETRY_MAX) return false;
+  if (rec.rejectAppVersion == null) return true; // rejected before v205 (no metadata): one guarded retry
+  if (rec.rejectAppVersion < APP_VERSION) return true;
+  if (isTransientRejectReason(rec.rejectReason) && rec.rejectedAt && (Date.now() - new Date(rec.rejectedAt).getTime() > REJECT_RETRY_TRANSIENT_MS)) return true;
+  return false;
+}
+
 // ---------- IndexedDB outbox (localStorage fallback) ----------
 // Database 'duello-offline', one store 'games' keyed by offlineId.
 // Value: {offlineId, status:'active'|'finished'|'rejected', game, plays,
@@ -5017,13 +5196,36 @@ async function refreshOfflineTotals() {
       flippedAny = rejected.length > 0;
     }
   } catch {}
+  // v205: guarded retry of games the server rejected (see
+  // isRejectRetryEligible above). The flip stamps the current
+  // version so the same version never flips the same record twice;
+  // the drain stamps rejectCount/rejectedAt if it 422s again.
+  let flipped205 = false;
+  try {
+    const rejected = recs.filter((r) => r.status === 'rejected' && isRejectRetryEligible(r));
+    for (const r of rejected) {
+      r.status = 'finished';
+      r.rejectAppVersion = APP_VERSION;
+      try { await offlineStorePut(r); } catch {}
+      flipped205 = true;
+    }
+  } catch {}
   const finished = recs.filter((r) => r.status === 'finished');
   pendingGamesCount = finished.length;
   pendingEloSum = finished.reduce((s, r) => s + (r.eloDelta || 0), 0);
   outboxMayBeNonEmpty = finished.length > 0;
   // The flip above runs before the flag is set here, so schedule the
   // retry drain now that the outbox is known non-empty.
-  if (flippedAny) { try { scheduleDrain(); } catch {} }
+  if (flippedAny || flipped205) { try { scheduleDrain(); } catch {} }
+  // v205: recompute the local stats merge from the finished records
+  // plus any rejected records still eligible for a guarded retry —
+  // those games happened, and the profile must show them while their
+  // sync is pending. Ineligible rejected games (genuinely invalid)
+  // are excluded: their stats must not be invented.
+  try {
+    const mergeable = recs.filter((r) => r.status === 'finished' || (r.status === 'rejected' && isRejectRetryEligible(r)));
+    localProfileStats = localScopeStats(mergeable);
+  } catch { localProfileStats = null; }
   // The profile count line updates with the totals (renderStatsList
   // no-ops when no profile is loaded).
   try { renderStatsList(); } catch {}
@@ -5791,9 +5993,19 @@ async function drainOutbox() {
         res = await api('/api/games/sync', { method: 'POST', body: JSON.stringify(buildSyncPayload(rec)) });
       } catch (e) {
         // 422: the server replay rejected this game — mark it rejected
-        // and roll its delta out of the local Elo. Never retry it.
+        // and roll its delta out of the local Elo. The rejection is
+        // recorded (reason, count, version, time) so the v205 guarded
+        // retry can tell a stale-client rejection from a genuinely
+        // invalid game; it is never retried unconditionally.
         if (e && e.status === 422) {
-          try { rec.status = 'rejected'; await offlineStorePut(rec); } catch {}
+          try {
+            rec.status = 'rejected';
+            rec.rejectReason = (e && e.message) || '';
+            rec.rejectCount = (rec.rejectCount || 0) + 1;
+            rec.rejectAppVersion = APP_VERSION;
+            rec.rejectedAt = new Date().toISOString();
+            await offlineStorePut(rec);
+          } catch {}
           pendingEloSum -= (rec.eloDelta || 0);
           if (game && game.offline && game.id === 'offline-' + rec.offlineId) game.offlinePending = false;
           continue;
@@ -7097,6 +7309,7 @@ function enablePlacedDrag(el, pend) {
 // their guest profile plus a sign-in button; signing up upgrades the guest
 // row in place, so Elo and game history carry over.
 let profileData = null, statsScope = 'aggregate', chartRange = '1m';
+let lastFinishedProfileGameId = null; // v205: the last live online game whose finish already refreshed the profile (renderGame hook above)
 // Numbers render Arial/Helvetica while words stay Comfortaa: wrap digit
 // runs in .num spans (the .num rule already covers profile numbers).
 function numify(s) { return String(s).replace(/\d+/g, d => `<span class="num">${d}</span>`); }
@@ -7208,10 +7421,32 @@ async function renderProfileUI(prefetched) {
 function rewarmProfile() {
   try { renderProfileUI().catch(() => {}); } catch {}
 }
+// v205: light profile refresh after a live online game ends (see the
+// renderGame hook). Re-fetches /api/me and replaces the frozen
+// profileData, then re-renders the stats list and chart. On ANY
+// failure (offline, dead session) it does nothing at all — no
+// redirect, no cache fallback: the local merge still shows the game
+// if it is a local one, and the next profile open fetches fresh.
+async function refreshProfileStats() {
+  if (!token || !profileData) return;
+  let d = null;
+  try { d = await api('/api/me'); } catch { return; }
+  if (!d || !d.user) return;
+  profileData = d; me = d.user; persistMe(); cacheProfileData(d);
+  try { renderStatsList(); } catch {}
+  try { drawEloChart(); } catch {}
+}
 function fmt1(v) { return (Number(v) || 0).toFixed(1); }
 function renderStatsList() {
   if (!profileData || !profileData.profileStats) return;
-  const st = profileData.profileStats[statsScope] || profileData.profileStats.aggregate;
+  const server = profileData.profileStats[statsScope] || profileData.profileStats.aggregate;
+  // v205: layer the local outbox stats (finished + retry-eligible
+  // rejected games) over the server stats at display time only.
+  // The merge is never cached or written back, so a server refresh
+  // after sync replaces it — never adds to it, never double-counts.
+  // Offline it works from local data alone (no fetch here at all).
+  const st = mergeProfileStats(server, localProfileStats ? localProfileStats[statsScope] : null);
+  if (!st) return;
   // Once you have played a 10-letter word (the longest a word can
   // be on a 10-wide board), the longest-word stat becomes a count
   // of your 10-letter words. Tapping the row lists them; it looks

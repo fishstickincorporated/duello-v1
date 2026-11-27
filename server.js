@@ -587,14 +587,17 @@ async function profileStatsFor(userId) {
   // Personas and real players both count as humans everywhere stats
   // split by opponent: vsHumans is persona + real-player games,
   // vsBots is Doppelgänger only, and aggregate counts every
-  // non-Fishstick game. Fishstick games count toward NO stats
-  // (Jeff, Nov 25, 2026): they are skipped in every scope, so they
-  // move nothing — not games played / W-L, not highest game score,
-  // not any per-move stat, not the average game score. Elo is
-  // untouched by this (it still moves on Fishstick games).
+  // non-Fishstick game except for the two record words below.
+  // Fishstick (v205, Jeff Nov 27, 2026): a Fishstick game counts
+  // toward ONLY longest word and best word — the v199 freeze was
+  // total, and it removed words like REENACTING from profiles
+  // entirely. Games played, W-L, averages, words over 50/100,
+  // optimal moves, unique words, bingos, and ten-letter words all
+  // stay excluded for Fishstick, in aggregate and vsBots. Elo is
+  // untouched by this (it still never moves on Fishstick games).
   function scope(mode) {
     const isHumanGame = (g) => g.botType === 'persona' || g.botType === 'human';
-    const skip = (g) => g.botType === 'fishstick' || (mode === 'vsHumans' && !isHumanGame(g)) || (mode === 'vsBots' && isHumanGame(g));
+    const skip = (g) => (mode === 'vsHumans' && !isHumanGame(g)) || (mode === 'vsBots' && isHumanGame(g));
     const st = empty(); let wordScoreSum = 0, wordCount = 0; const uniq = new Set(); const tenLetter = new Map();
     const gs = [];
     for (const r of rows) {
@@ -615,32 +618,39 @@ async function profileStatsFor(userId) {
     }
     for (const g of gs) {
       if (skip(g)) continue;
+      // v205: Fishstick games reach here now, but only for the two
+      // record words below — every other counter stays gated behind
+      // !isFish, so a Fishstick game still moves nothing else.
+      const isFish = g.botType === 'fishstick';
       // Which side this player was: the row owner is 'human', the
       // recipient of a real-player game is 'bot'. Every stat below
       // reads from that side, so both players' profiles agree.
       const mySide = (g.userId === userId) ? 'human' : 'bot';
       const oppSide = mySide === 'human' ? 'bot' : 'human';
-      // Fishstick games never reach here (skip() above drops them
-      // in every scope), so every game counted below is a real,
-      // persona, or Doppelgänger game.
-      st.gamesPlayed++;
-      if (g.winner === mySide) st.wins++; else if (g.winner === oppSide) st.losses++; else if (g.winner === 'draw') st.draws++;
-      else if (g.reason === 'By forfeit') st.losses++; else if (g.scores[mySide] > g.scores[oppSide]) st.wins++; else if (g.scores[oppSide] > g.scores[mySide]) st.losses++; else st.draws++;
-      st.highestGameScore = Math.max(st.highestGameScore, (g.scores && g.scores[mySide]) || 0);
+      if (!isFish) {
+        st.gamesPlayed++;
+        if (g.winner === mySide) st.wins++; else if (g.winner === oppSide) st.losses++; else if (g.winner === 'draw') st.draws++;
+        else if (g.reason === 'By forfeit') st.losses++; else if (g.scores[mySide] > g.scores[oppSide]) st.wins++; else if (g.scores[oppSide] > g.scores[mySide]) st.losses++; else st.draws++;
+        st.highestGameScore = Math.max(st.highestGameScore, (g.scores && g.scores[mySide]) || 0);
+      }
       const moves = (g.moves && g.moves[mySide]) || [];
       for (const m of moves) {
-        st.totalMoves++;
-        if (m.isOptimal) st.optimalMoves++;
-        if (m.bingo) st.bingos++;
         // Word-score stats measure the PLAY's total, not one word
         // inside it: a play's points are its words plus any bonuses,
         // so a per-word max missed big plays entirely (an 83-point
         // play whose best single word was 40 never showed, and its
         // 50+ count never moved).
         const ms = m.score || 0;
-        wordScoreSum += ms; wordCount++;
-        if (ms >= 50) st.wordsOver50++;
-        if (ms >= 100) st.wordsOver100++;
+        if (!isFish) {
+          st.totalMoves++;
+          if (m.isOptimal) st.optimalMoves++;
+          if (m.bingo) st.bingos++;
+          wordScoreSum += ms; wordCount++;
+          if (ms >= 50) st.wordsOver50++;
+          if (ms >= 100) st.wordsOver100++;
+        }
+        // Longest + best word: every game counts, Fishstick included
+        // (v205). These are the only two stats a Fishstick game moves.
         if (ms > st.highestWordScore) {
           st.highestWordScore = ms; st.highestWord = m.mainWord || '';
           const idx = findMoveIndex(g, mySide, (e) => e.mainWord === m.mainWord && (e.score || 0) === ms);
@@ -654,11 +664,13 @@ async function profileStatsFor(userId) {
             st.longestWordGameId = idx ? g.id : null;
             st.longestWordMoveIndex = idx;
           }
-          if (w.word && w.word.length === 10 && !tenLetter.has(w.word)) {
-            const idx = findMoveIndex(g, mySide, (e) => (e.words || []).some((x) => x.word === w.word));
-            tenLetter.set(w.word, { gameId: idx ? g.id : null, moveIndex: idx });
+          if (!isFish) {
+            if (w.word && w.word.length === 10 && !tenLetter.has(w.word)) {
+              const idx = findMoveIndex(g, mySide, (e) => (e.words || []).some((x) => x.word === w.word));
+              tenLetter.set(w.word, { gameId: idx ? g.id : null, moveIndex: idx });
+            }
+            uniq.add(w.word);
           }
-          uniq.add(w.word);
         }
       }
     }
@@ -667,7 +679,9 @@ async function profileStatsFor(userId) {
     // fully expired — games ended early (forfeit, stalls) are excluded.
     // A forfeit is excluded even when the clock had already expired:
     // it counts as a game played, but never toward the average.
-    for (const g of gs) { if (skip(g)) continue; if (g.reason === 'By forfeit') continue; const mySide = (g.userId === userId) ? 'human' : 'bot'; if (!(g.clocks && g.clocks[mySide] <= 0)) continue; totalScore += (g.scores && g.scores[mySide]) || 0; played++; }
+    // Fishstick games are excluded here too (v205): their clocks do
+    // expire, but their scores never count toward any average.
+    for (const g of gs) { if (skip(g)) continue; if (g.botType === 'fishstick') continue; if (g.reason === 'By forfeit') continue; const mySide = (g.userId === userId) ? 'human' : 'bot'; if (!(g.clocks && g.clocks[mySide] <= 0)) continue; totalScore += (g.scores && g.scores[mySide]) || 0; played++; }
     st.avgGameScore = played ? Math.round(totalScore / played) : 0;
     st.avgWordScore = wordCount ? Math.round(wordScoreSum / wordCount * 10) / 10 : 0;
     st.optimalPct = st.totalMoves ? Math.round(st.optimalMoves / st.totalMoves * 1000) / 10 : 0;

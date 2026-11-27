@@ -618,9 +618,10 @@ async function profileStatsFor(userId) {
     }
     for (const g of gs) {
       if (skip(g)) continue;
-      // v205: Fishstick games reach here now, but only for the two
-      // record words below — every other counter stays gated behind
-      // !isFish, so a Fishstick game still moves nothing else.
+      // v205/v206: Fishstick games reach here now, but only for the
+      // record words below — longest word, best word (v205) and
+      // ten-letter words (v206). Every other counter stays gated
+      // behind !isFish, so a Fishstick game still moves nothing else.
       const isFish = g.botType === 'fishstick';
       // Which side this player was: the row owner is 'human', the
       // recipient of a real-player game is 'bot'. Every stat below
@@ -650,7 +651,8 @@ async function profileStatsFor(userId) {
           if (ms >= 100) st.wordsOver100++;
         }
         // Longest + best word: every game counts, Fishstick included
-        // (v205). These are the only two stats a Fishstick game moves.
+        // (v205). Ten-letter words too (v206). These are the only
+        // three stats a Fishstick game moves.
         if (ms > st.highestWordScore) {
           st.highestWordScore = ms; st.highestWord = m.mainWord || '';
           const idx = findMoveIndex(g, mySide, (e) => e.mainWord === m.mainWord && (e.score || 0) === ms);
@@ -664,13 +666,14 @@ async function profileStatsFor(userId) {
             st.longestWordGameId = idx ? g.id : null;
             st.longestWordMoveIndex = idx;
           }
-          if (!isFish) {
-            if (w.word && w.word.length === 10 && !tenLetter.has(w.word)) {
-              const idx = findMoveIndex(g, mySide, (e) => (e.words || []).some((x) => x.word === w.word));
-              tenLetter.set(w.word, { gameId: idx ? g.id : null, moveIndex: idx });
-            }
-            uniq.add(w.word);
+          // Ten-letter words count for Fishstick too (v206) — the
+          // 10-letter row is a record list, like longest/best word.
+          // uniqueWords stays gated: it is a volume stat, not a record.
+          if (w.word && w.word.length === 10 && !tenLetter.has(w.word)) {
+            const idx = findMoveIndex(g, mySide, (e) => (e.words || []).some((x) => x.word === w.word));
+            tenLetter.set(w.word, { gameId: idx ? g.id : null, moveIndex: idx });
           }
+          if (!isFish) uniq.add(w.word);
         }
       }
     }

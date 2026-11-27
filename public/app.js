@@ -92,7 +92,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 205;
+const APP_VERSION = 206;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -5011,16 +5011,16 @@ function localScopeStats(records) {
           if (ms >= 100) st.wordsOver100++;
         }
         // Longest + best word: every game counts, Fishstick included
-        // (v205). A locally-finished Fishstick game merges ONLY these
-        // two — its gameId is null (not loadable), so the record rows
-        // render as plain text, never a dead tap.
+        // (v205). Ten-letter words too (v206). A locally-finished
+        // Fishstick game merges ONLY these three — its gameId is null
+        // (not loadable), so the record rows render as plain text,
+        // never a dead tap.
         if (ms > st.highestWordScore) { st.highestWordScore = ms; st.highestWord = m.mainWord || ''; st.highestWordGameId = null; st.highestWordMoveIndex = null; }
         for (const w of (m.words || [])) {
           if (w.word && w.word.length > st.longestWordLen) { st.longestWord = w.word; st.longestWordLen = w.word.length; st.longestWordGameId = null; st.longestWordMoveIndex = null; }
-          if (!isFish) {
-            if (w.word && w.word.length === 10 && !tenLetter.has(w.word)) tenLetter.set(w.word, { word: w.word, gameId: null, moveIndex: null });
-            uniq.add(w.word);
-          }
+          // Ten-letter words count for Fishstick too (v206).
+          if (w.word && w.word.length === 10 && !tenLetter.has(w.word)) tenLetter.set(w.word, { word: w.word, gameId: null, moveIndex: null });
+          if (!isFish) uniq.add(w.word);
         }
       }
     }

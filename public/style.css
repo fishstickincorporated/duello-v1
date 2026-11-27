@@ -559,6 +559,11 @@ same 52px column, right-aligned, on every row including your own
 .game-spacer{height:0;min-height:0;flex:none;margin:0;padding:0;border:0}
 
 html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+/* v203: kill the rubber-band bounce — the game screen fits exactly
+   (zero slack at 393x852), so any iOS bounce reads as "the screen
+   scrolls". Scrollable screens (puzzle log, Settings, profile) still
+   scroll; this only stops scroll chaining and the overscroll bounce. */
+html,body{overscroll-behavior:none}
 .cell.drop-target{outline:none}
 
 
@@ -900,7 +905,7 @@ squares are the premium colours, spread out across the whole screen. */
 #puzzleBoardScreen .board-wrap{position:relative;width:100%}
 #puzzleBoard{width:100%;aspect-ratio:1}
 #puzzleBoardScreen #puzzleRack{margin-top:auto}
-#puzzleDim>.controls{margin-bottom:40px}
+#puzzleDim>.controls{margin-bottom:calc(40px - min(env(safe-area-inset-bottom),10px))}
 /* v152: confetti that rains on a puzzle solve — the container covers
    the puzzle screen and ignores taps; pieces fall from the top and
    are removed once the animation ends. */

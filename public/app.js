@@ -92,7 +92,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 202;
+const APP_VERSION = 203;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -1744,6 +1744,11 @@ function show(id) {
   // opened halfway down.
   try { window.scrollTo(0, 0); } catch {}
   const shown = $(id); if (shown) shown.scrollTop = 0;
+  // v203: every Settings entry paints the photo thumbnail (photo
+  // only — the text values are untouched here). The drill-in Back
+  // buttons reach Settings without renderEditList, which left the
+  // thumbnail an empty dark circle even with the photo in hand.
+  if (id === 'profileEditScreen') { try { paintSettingsPhoto(); } catch {} }
 }
 function silhouetteSVG(size) { return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="12" cy="8" r="4" fill="#b3b2b1"/><path d="M4 21 C4 16 7 13 12 13 C17 13 20 16 20 21 Z" fill="#b3b2b1"/></svg>`; }
 function pfpHTML(userLike) {
@@ -4069,6 +4074,9 @@ function renderGame() {
   // captured tile mid-drag destroys it and can strand pointer capture,
   // which is how a drag froze the whole screen. The next render after the
   // drag ends will show any bot move that arrived in the meantime.
+  // v203: a FINISHED game is the exception — the end must render even
+  // mid-drag (see endLocalGame): cancel the drag, then render the end.
+  if (game.status !== 'active') cleanupStuckDrag();
   if (activeDragCleanup) return;
   // Out of time: any tiles placed but not yet played go straight
   // back to the rack, instead of sitting on the board unplayable
@@ -5228,6 +5236,14 @@ function finishLocalIfNeeded() {
   return false;
 }
 function endLocalGame(reason, winnerSide) {
+  // v203: cancel any live drag FIRST — renderGame() below returns
+  // early while a drag is live (it must not rebuild the board under
+  // a captured tile), so without this the end never rendered: the
+  // game sat 'finished' while the screen still showed a playable
+  // board, and Play kept applying moves to it (Jeff, Nov 27 — shot
+  // clock expired mid-drag, game glitched, had to forfeit). The
+  // human-clock-0 branch in tickClocks already does this.
+  cleanupStuckDrag();
   game.status = 'finished'; game.reason = reason; game.winner = winnerSide;
   const actual = winnerSide === 'human' ? 1 : winnerSide === 'bot' ? 0 : 0.5;
   // The delta is computed from the Elo at game start (playerEloAtStart),
@@ -5255,6 +5271,12 @@ function endLocalGame(reason, winnerSide) {
   renderGame();
 }
 async function doLocalPlay() {
+  // v203: a finished game takes no plays — after a mid-drag end the
+  // screen used to keep showing a live board (renderGame bailed on
+  // the live drag) and Play applied the pending word to the finished
+  // game. The button is hidden/disabled by the end render now, and
+  // this guard is the backstop.
+  if (!game || game.status !== 'active') return;
   // The dictionary may still be loading behind the countdown (v112):
   // wait for it here — validation cannot run without it — instead of
   // failing the play.
@@ -6810,6 +6832,11 @@ function enableRackDrag(el, idx) {
       return;
     }
     if (myDrop && myDrop.kind === 'rack' && myDrop.hoverIdx !== idx) {
+      // v203: never reorder the rack of a finished game (the drop
+      // used to run even after the game ended — the board drop above
+      // is guarded by canPlaceTiles, this one was not). Reordering
+      // on the opponent's turn during an ACTIVE game still works.
+      if (!game || game.status !== 'active') return;
       // Optimistic, synchronous reorder: the old code cleared the rack
       // shift in cleanup(), then awaited the server, then re-rendered —
       // so for that network round-trip the tiles sat back in their old
@@ -7068,7 +7095,7 @@ async function renderProfileUI(prefetched) {
   // v176: remember the photo this session already has before the
   // assignment below overwrites me — the cache fallback needs it.
   const prevPhoto = me && me.photoData;
-  profileData = d; me = d.user; persistMe();
+  profileData = d; me = d.user;
   // v176: a cached profile adopted offline can predate the current
   // photo (the cache is only rewritten on a fresh fetch). A fresh
   // fetch's null is authoritative — the photo really is gone — but
@@ -7076,6 +7103,10 @@ async function renderProfileUI(prefetched) {
   // already has, so the profile tab and the Settings row don't lose
   // a photo they already showed.
   if (fromCache && prevPhoto && me && !me.photoData) { me.photoData = prevPhoto; if (profileData && profileData.user) profileData.user.photoData = prevPhoto; }
+  // v203: persist AFTER the restore above — persisting first wrote a
+  // photo-less cached user over duello_me and destroyed the persisted
+  // photo on disk, so the next boot had no photo anywhere.
+  persistMe();
   if (!fromCache) cacheProfileData(d);
   // (v114: the "Last known profile" marker is gone — a cached
   // profile just shows, with no note. The hidden note element
@@ -7582,12 +7613,40 @@ document.querySelectorAll('.stats-tab').forEach(b => b.onclick = () => { statsSc
 document.querySelectorAll('.chart-toggle').forEach(b => b.onclick = () => { chartRange = b.dataset.range; document.querySelectorAll('.chart-toggle').forEach(x => x.classList.toggle('active', x === b)); drawEloChart(); });
 $('gearBtn').onclick = async () => {
   if (!profileData) await renderProfileUI();
-  if (!profileData) return;
-  renderEditList();
+  // v203: never dead-end on a failed profile load — Settings still
+  // opens (show() paints the photo from the persisted user) instead
+  // of the tap doing nothing. renderEditList only runs when profile
+  // data is in hand, so the text values stay exactly as they were
+  // (blank behind the drill-ins by design, per Jeff Nov 27). A
+  // missing token means renderProfileUI already routed to auth.
+  if (!token) return;
+  if (profileData) renderEditList();
   setPushNote('');
   refreshPushToggle();
   show('profileEditScreen');
 };
+// v203: the Settings Photo row's thumbnail, painted on EVERY entry to
+// Settings — not just the gear/save paths that run renderEditList.
+// The Pro screen's Back button (and every drill-in Back button) shows
+// Settings via show() without renderEditList, so the thumbnail sat as
+// an empty dark circle (the .settings-pfp span's own background) even
+// though the photo was in hand — Jeff's Nov 27 screenshot. This paints
+// ONLY the photo: the text values are NOT touched here (they stay as
+// renderEditList left them — blank behind the drill-ins by design, per
+// Jeff Nov 27). Sources in preference order: the live profile, this
+// session's me, the persisted me (v200 carries the photo), the cached
+// profile. A stalled decode still swaps to the silhouette (v200).
+function paintSettingsPhoto() {
+  const pfp = $('editRowPfp'); if (!pfp) return;
+  const candidates = [];
+  if (profileData && profileData.user) candidates.push(profileData.user);
+  if (me) candidates.push(me);
+  try { const stored = loadPersistedMe(); if (stored) candidates.push(stored); } catch {}
+  try { const cached = loadCachedProfileData(); if (cached && cached.user) candidates.push(cached.user); } catch {}
+  const u = candidates.find((c) => usablePhoto(c)) || null;
+  pfp.innerHTML = u ? `<img src="${u.photoData}" alt="">` : silhouetteSVG(32);
+  armPfpTimeouts();
+}
 // v147: the settings list shows the account's current values. The
 // email address is deliberately NOT shown here (Jeff: it appears
 // only when you tap the Email row).
@@ -7598,16 +7657,9 @@ function renderEditList() {
   $('editRowLastName').textContent = u.lastName || '';
   $('editRowUsername').textContent = '@' + (u.username || '');
   $('editRowPro').textContent = u.pro ? 'Duello Pro' : 'Duello Free';
-  // v176: the photo comes from whichever copy has one. profileData
-  // can be a stale payload adopted offline while me (this session's
-  // fresh /api/me, or a just-saved photo) has the current one — the
-  // row must not show the silhouette while the photo is in hand.
-  // Names, username and tier still come from u above.
-  const photoSrc = (u && u.photoData) || (me && me.photoData) || null;
-  $('editRowPfp').innerHTML = (photoSrc && !photoSrc.includes('picsum.photos')) ? `<img src="${photoSrc}" alt="">` : silhouetteSVG(32);
-  // v200: arm the stall swap for the row's photo too — a stalled
-  // decode sat as an empty dark circle until the next render.
-  armPfpTimeouts();
+  // v203: the photo paints via paintSettingsPhoto (same call show()
+  // makes on every Settings entry — broader fallback chain).
+  paintSettingsPhoto();
   // v180: repaint the Push row's status whenever Settings renders.
   refreshPushStatusRow();
 }
@@ -7822,6 +7874,9 @@ $('editPhotoRemoveBtn').onclick = async () => {
   try {
     const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify({ firstName: u.firstName, lastName: u.lastName, username: u.username, photoData: null }) });
     me = d.user; persistMe(); profileData = null;
+    // v203: the profile cache must not predate the photo removal —
+    // refresh the cached user (merging, so cached profileStats survive).
+    try { const cached = loadCachedProfileData(); cacheProfileData(cached ? { ...cached, user: d.user } : { user: d.user }); } catch {}
     renderEditList(); renderHomeHeader(); rewarmProfile();
     openPhotoScreen();
   } catch (err) { $('photoError').textContent = err.message || 'Could not remove the photo.'; }
@@ -7939,6 +7994,9 @@ $('cropUseBtn').onclick = async () => {
   try {
     const d = await api('/api/me/update', { method: 'POST', body: JSON.stringify({ firstName: u.firstName, lastName: u.lastName, username: u.username, photoData: data }) });
     me = d.user; persistMe(); profileData = null;
+    // v203: the profile cache must not predate the photo — refresh the
+    // cached user (merging, so cached profileStats survive).
+    try { const cached = loadCachedProfileData(); cacheProfileData(cached ? { ...cached, user: d.user } : { user: d.user }); } catch {}
     // v152: a photo exists now, so the button reads "Choose photo"
     // (openPhotoScreen only sets the label on open — without this the
     // button kept saying "Add photo" after a successful save).

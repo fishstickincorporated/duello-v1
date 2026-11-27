@@ -1,3 +1,13 @@
+/* v207 (Jeff, Nov 27, 2026): the status bar is hidden on every
+   screen (Info.plist UIStatusBarHidden), so the top safe-area
+   inset may shrink on a real phone. --sat is the top inset with
+   a per-device hardware floor (Dynamic Island / notch) at the
+   end of this file: while the bar is visible the floor is a
+   no-op, and if the inset drops after the bar is hidden the
+   layout keeps exactly the same top offset. Duo sizes get no
+   floor (their insets are unknown and their layout is meant
+   to change). All top-inset uses go through var(--sat). */
+:root{--sat:env(safe-area-inset-top)}
 *{box-sizing:border-box} body{margin:0;background:#1a1d24;color:#e8ecf1;font-family:"Comfortaa",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 /* v135: the dot texture is a FIXED layer so content scrolls over it.
    The fixed-attachment trick is unreliable on iOS Safari, so the
@@ -12,7 +22,7 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;ba
 /* v145: the game screen has no textured background — the dot grid
    stays everywhere else (home, tabs, puzzle) but hides on the board. */
 body.game-open::before{display:none}
-.screen{max-width:390px;margin:0 auto;padding:calc(28px + env(safe-area-inset-top)) 16px 40px;text-align:center}
+.screen{max-width:390px;margin:0 auto;padding:calc(28px + var(--sat)) 16px 40px;text-align:center}
 .hidden{display:none!important}
 .logo{font-size:56px;font-weight:900;letter-spacing:3px;color:#03eaff;line-height:1;margin:12px 0 4px}
 .logo.small-logo{font-size:36px}
@@ -383,10 +393,10 @@ same 52px column, right-aligned, on every row including your own
    matches the screen's top padding (28px + safe-area inset) and
    right:16px matches its horizontal padding. The pfp is centered
    and the gear is at the right edge, so they clear each other. */
-.gear-btn{position:absolute;top:calc(28px + env(safe-area-inset-top));right:16px;background:none;border:0;font-size:26px;cursor:pointer;margin-top:0}
+.gear-btn{position:absolute;top:calc(28px + var(--sat));right:16px;background:none;border:0;font-size:26px;cursor:pointer;margin-top:0}
 /* v187: the share icon mirrors the gear — same size, same top
    offset, opposite corner (left:16px instead of right:16px). */
-.share-btn{position:absolute;top:calc(28px + env(safe-area-inset-top));left:16px;background:none;border:0;font-size:26px;cursor:pointer;margin-top:0}
+.share-btn{position:absolute;top:calc(28px + var(--sat));left:16px;background:none;border:0;font-size:26px;cursor:pointer;margin-top:0}
 .elo-box{background:#262a33;border-radius:16px;padding:16px;margin:12px 0 16px;text-align:left}
 .elo-row{display:flex;gap:12px}
 .elo-row>div{flex:1}
@@ -543,7 +553,7 @@ same 52px column, right-aligned, on every row including your own
    and the rack sits at the bottom of the screen (margin-top:auto on
    #rack). svh last so the height stays stable when Safari's toolbar
    hides; dvh/vh are the fallbacks. */
-#gameScreen{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
+#gameScreen{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding:calc(4px + var(--sat)) 10px calc(12px + env(safe-area-inset-bottom))}
 #gameScreen #gameDim{flex:1;display:flex;flex-direction:column;min-height:0}
 #gameScreen #rack{margin-top:auto}
 /* The rack + buttons sit a little closer to the status line: the
@@ -561,7 +571,7 @@ same 52px column, right-aligned, on every row including your own
    env=0: the board, rack and buttons never move, only the dead gap
    below the buttons shrinks, and only once the auto margin is
    exhausted). At env=0 this is exactly 40px, unchanged. */
-#gameScreen #gameDim>.controls{margin-bottom:calc(40px - max(0px, env(safe-area-inset-top) + env(safe-area-inset-bottom) + 769.3px - 100svh))}
+#gameScreen #gameDim>.controls{margin-bottom:calc(40px - max(0px, var(--sat) + env(safe-area-inset-bottom) + 769.3px - 100svh))}
 #gameScreen .board,#gameScreen .rack,#gameScreen .controls,#gameScreen #endButtons{width:100%}
 /* v199: centering spacers — zero effect at the reference size
    (they only flex outside the reference envelope, in the media
@@ -880,8 +890,8 @@ squares are the premium colours, spread out across the whole screen. */
 /* Gear top = pfp top: the pfp starts 8px below the screen's top
    padding (its .profile-top padding), so the gear sits 8px lower
    than the v135 pin (which matched the screen padding itself). */
-.gear-btn{top:calc(28px + env(safe-area-inset-top) + 8px)}
-.share-btn{top:calc(28px + env(safe-area-inset-top) + 8px)}
+.gear-btn{top:calc(28px + var(--sat) + 8px)}
+.share-btn{top:calc(28px + var(--sat) + 8px)}
 /* The push section now lives inside the Edit Profile form, so its
    top margin must not leave a gap on web, where the row is hidden:
    the margin rides on the row itself (hidden = no space). */
@@ -912,7 +922,7 @@ squares are the premium colours, spread out across the whole screen. */
    exactly like #gameScreen. The v195 definite-height no-scroll fit
    (and puzzleFitBoard) is gone with the week strip; the board sits
    in flow at the game's position and size. */
-#puzzleBoardScreen{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding:calc(4px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom))}
+#puzzleBoardScreen{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;min-height:100svh;padding:calc(4px + var(--sat)) 10px calc(12px + env(safe-area-inset-bottom))}
 /* v154: the board sits in flow exactly like the game's — no flex
    centring, no container-query shrink. The v150 shrink kept the
    buttons on screen on short viewports, but it moved the board off
@@ -927,7 +937,7 @@ squares are the premium colours, spread out across the whole screen. */
 #puzzleBoardScreen .board-wrap{position:relative;width:100%}
 #puzzleBoard{width:100%;aspect-ratio:1}
 #puzzleBoardScreen #puzzleRack{margin-top:auto}
-#puzzleDim>.controls{margin-bottom:calc(40px - max(0px, env(safe-area-inset-top) + env(safe-area-inset-bottom) + 780.9px - 100svh))}
+#puzzleDim>.controls{margin-bottom:calc(40px - max(0px, var(--sat) + env(safe-area-inset-bottom) + 780.9px - 100svh))}
 /* v152: confetti that rains on a puzzle solve — the container covers
    the puzzle screen and ignores taps; pieces fall from the top and
    are removed once the animation ends. */
@@ -1116,7 +1126,7 @@ squares are the premium colours, spread out across the whole screen. */
    rematch screens are excluded (centred content). The first
    element's own top spacing is zeroed so it does not push the top
    pixel back down. */
-#friendsScreen,#profileScreen,#pastGamesScreen,#puzzleLogScreen,#profileEditScreen,#profileFieldScreen,#profilePhotoScreen,#profilePasswordScreen,#profileProScreen,#profilePrivacyScreen,#authScreen{padding-top:calc(4px + env(safe-area-inset-top))}
+#friendsScreen,#profileScreen,#pastGamesScreen,#puzzleLogScreen,#profileEditScreen,#profileFieldScreen,#profilePhotoScreen,#profilePasswordScreen,#profileProScreen,#profilePrivacyScreen,#authScreen{padding-top:calc(4px + var(--sat))}
 #friendsScreen .search-wrap{margin-top:0}
 #profileScreen .profile-top{padding-top:0}
 #profileEditScreen .auth-heading,#profileFieldScreen .auth-heading,#profilePhotoScreen .auth-heading,#profilePasswordScreen .auth-heading,#profileProScreen .auth-heading,#authScreen .auth-heading{margin-top:0}
@@ -1139,8 +1149,8 @@ squares are the premium colours, spread out across the whole screen. */
 #authScreen{
   min-height:100vh; min-height:100dvh;
   display:flex; flex-direction:column; justify-content:center;
-  padding-top:calc(16px + max(env(safe-area-inset-top),env(safe-area-inset-bottom)));
-  padding-bottom:calc(16px + max(env(safe-area-inset-top),env(safe-area-inset-bottom)));
+  padding-top:calc(16px + max(var(--sat),env(safe-area-inset-bottom)));
+  padding-bottom:calc(16px + max(var(--sat),env(safe-area-inset-bottom)));
 }
 #authScreen .error, #authScreen .success{margin:0 0 12px; min-height:20px}
 #authScreen .success:empty{display:none}
@@ -1148,8 +1158,8 @@ squares are the premium colours, spread out across the whole screen. */
 #profilePrivacyScreen #privacyBackBtn{margin-top:0}
 /* The profile gear sat at the old 28px top + the header's 8px,
    so it moves up with the screen. */
-.gear-btn{top:calc(4px + env(safe-area-inset-top))}
-.share-btn{top:calc(4px + env(safe-area-inset-top))}
+.gear-btn{top:calc(4px + var(--sat))}
+.share-btn{top:calc(4px + var(--sat))}
 /* (3) Strength knob is an oval now, so 100% has room on its
    sides: 44px wide (was a 30px circle), 15px radius, centred on
    the track. The clamp in puzzleUpdateStrengthBar moves from
@@ -1174,31 +1184,29 @@ squares are the premium colours, spread out across the whole screen. */
    toward it. The panel stays 79.2px (the clock's 35.2px line is
    still the tallest thing in the row). */
 .byoyomi{width:44px;height:30px}
-/* v163: the shot clock is 9 seconds now, so the badge only ever
-   holds one digit — it is 32px wide (was 44px), the same height as
-   the regular clock (35px, the clock's 35.2px line), and the numbers
-   are a bit smaller (28px, was 32px) so they sit inside the box
-   with room around them. The "9" is 16.3px wide at 28px, so 32px
-   leaves ~8px each side. The panel stays 79.2px (the clock's line
-   is still the tallest thing in the row). */
-.byoyomi{width:32px;height:35px;font-size:28px}
+/* v207 (Jeff, Nov 27, 2026): the shot clock is 12 seconds again, so
+   the badge holds two digits — back to 44px wide (v163 had shrunk
+   it to 32px for the single-digit 9s badge). "12" is ~31px at 28px,
+   so 44px leaves ~6.5px each side. Height stays 26px (v164). */
+.byoyomi{width:44px;height:35px;font-size:28px}
 /* v164: the badge is the same height as the clock's digits (26px —
    the clock's line box is 35.2px but the visible digits are 26px
    tall, so the 35px gold box looked taller than the clock). The
    28px numbers (22.75px glyphs) still fit, with ~1.6px above and
    below. The badge is centred between the clock and the pfp: the
-   gap is 70px at 390/393 (62.5px at 375), the badge is 32px, so
-   19px each side; the clock-row gap is 6px, so a 13px margin on the
-   badge's clock side makes it 19px. At 375 it is off by ~4px. */
+   gap is 70px at 390/393 (62.5px at 375), the badge is 44px (v207,
+   was 32px), so 13px each side; the clock-row gap is 6px, so a 7px
+   margin on the badge's clock side makes it 13px. At 375 it is off
+   by ~4px. */
 .byoyomi{height:26px}
-.player-panel .byoyomi{margin-right:13px}
-.bot-panel .byoyomi{margin-left:13px}
-/* The 13px margin centres the badge at 390/393 (the gap is 70px
-   there); at 375 the gap is 62.5px so the badge needs 9px instead.
+.player-panel .byoyomi{margin-right:7px}
+.bot-panel .byoyomi{margin-left:7px}
+/* The 7px margin centres the badge at 390/393 (the gap is 70px
+   there); at 375 the gap is 62.5px so the badge needs 3px instead.
    The screen is capped at 390px wide, so 390 and 393 are the same. */
 @media (max-width:375px){
-.player-panel .byoyomi{margin-right:9px}
-.bot-panel .byoyomi{margin-left:9px}
+.player-panel .byoyomi{margin-right:3px}
+.bot-panel .byoyomi{margin-left:3px}
 }
 
 /* v166: the searching-screen Cancel / Back to Friends button is
@@ -1240,8 +1248,8 @@ squares are the premium colours, spread out across the whole screen. */
      (Pro/Plus/Pro Max) the subtraction cannot move the board. */
   :root{
     --cw:calc(100vw - 20px);
-    --bw:min(var(--cw), calc((100svh - 257px - max(0px, env(safe-area-inset-top) + env(safe-area-inset-bottom) - 29px)) / 1.353));
-    --pbw:min(var(--cw), calc((100svh - 333px - max(0px, env(safe-area-inset-top) + env(safe-area-inset-bottom) - 24px)) / 1.167));
+    --bw:min(var(--cw), calc((100svh - 257px - max(0px, var(--sat) + env(safe-area-inset-bottom) - 29px)) / 1.353));
+    --pbw:min(var(--cw), calc((100svh - 333px - max(0px, var(--sat) + env(safe-area-inset-bottom) - 24px)) / 1.167));
     --gs:calc(var(--bw) / 370);
     --ps:calc(var(--pbw) / 370);
     --hs:calc((100vw - 20px) / 370);
@@ -1295,8 +1303,8 @@ squares are the premium colours, spread out across the whole screen. */
 }
 @media (max-height:719px){
   :root{
-    --bw:min(var(--cw), calc((100svh - 307px - max(0px, env(safe-area-inset-top) + env(safe-area-inset-bottom) - 29px)) / 1.167));
-    --pbw:min(var(--cw), calc((100svh - 342px - max(0px, env(safe-area-inset-top) + env(safe-area-inset-bottom) - 24px)) / 1.167));
+    --bw:min(var(--cw), calc((100svh - 307px - max(0px, var(--sat) + env(safe-area-inset-bottom) - 29px)) / 1.167));
+    --pbw:min(var(--cw), calc((100svh - 342px - max(0px, var(--sat) + env(safe-area-inset-bottom) - 24px)) / 1.167));
     /* v199: on short screens the width-scaled --hs would make the
        home buttons (and their text/icons) taller than the screen
        in landscape — the buttons flex-shrank but the text did not,
@@ -1312,3 +1320,128 @@ squares are the premium colours, spread out across the whole screen. */
   #gameLogo{display:none}
   #puzzleBoardScreen .puzzle-board-title{display:none}
 }
+
+/* ================================================================
+   v207: --sat floors (status-bar hide companion). Hiding the bar
+   may shrink env(safe-area-inset-top) on a real phone; each known
+   size floors --sat at its hardware top inset (Dynamic Island /
+   notch), so the layout keeps exactly the same top offset as with
+   the bar visible. While the bar is visible the floor is a no-op
+   (env already equals it). Duo sizes get NO floor — their insets
+   are unknown and their layout is meant to change. iPad is floored
+   only at the tested 820x1180 size. */
+@media (width:375px) and (height:667px){:root{--sat:max(env(safe-area-inset-top),20px)}}
+@media (width:390px) and (height:844px){:root{--sat:max(env(safe-area-inset-top),47px)}}
+@media (width:393px) and (height:852px){:root{--sat:max(env(safe-area-inset-top),59px)}}
+@media (width:402px) and (height:874px){:root{--sat:max(env(safe-area-inset-top),62px)}}
+@media (width:430px) and (height:932px){:root{--sat:max(env(safe-area-inset-top),59px)}}
+@media (width:440px) and (height:956px){:root{--sat:max(env(safe-area-inset-top),62px)}}
+@media (width:820px) and (height:1180px){:root{--sat:max(env(safe-area-inset-top),24px)}}
+
+/* ================================================================
+   v207: Duo-only proportional scaling (Jeff, Nov 27, 2026).
+   body.duo is toggled by updateDuoClass() in app.js when the
+   viewport is within ±4px of a Duo size (closed 466x678, open
+   portrait 669x951, open landscape 951x669). NOTHING in this block
+   applies to the iPhone 16 (393x852) — its layout is exactly v206.
+   Game chrome scales by --gs (= --bw/370), puzzle chrome by --ps
+   (= --pbw/370), so the scoreboard, pfp, badge, text and controls
+   all grow and shrink together and stay in the same relative
+   positions (the v206 shot-clock badge overlapped the pfp because
+   the panel shrank while its contents stayed fixed-pixel).
+   The game logo hides on Duo: Jeff's sim shows no logo there, and
+   hiding it frees ~107px for the scaled chrome. Trade-off to flag:
+   the Duo puzzle board shrinks a little (open portrait ~530 -> ~483)
+   because the puzzle chrome scales up ~1.3x — the board is still
+   ~30% bigger than the iPhone 16's. */
+body.duo{
+  /* Game stack (no logo): scoreboard 79.2gs + lastplay 18gs +
+     board B + status 34.2gs + rack (B-30gs)/6 + rack margins 16gs +
+     controls 46gs + scoreboard margin 4gs + status margins 6gs
+     = 1.167B + 198.4gs; gs=B/370, so 1.703B. Available height is
+     100svh minus the 16px screen padding, the 12px slack (the
+     spacers absorb it) and the safe-area insets. */
+  --bw:min(var(--cw), calc((100svh - 28px - var(--sat) - env(safe-area-inset-bottom)) / 1.703));
+  /* Puzzle stack: title 52.7ps + date 16ps + pill 58ps + strength
+     55ps + board P + status 37.2ps + rack (P-30ps)/6 + rack
+     margins 16ps + controls 46ps = 1.167P + 275.9ps; ps=P/370,
+     so 1.9127P. Same 28px + insets allowance as the game. */
+  --pbw:min(var(--cw), calc((100svh - 28px - var(--sat) - env(safe-area-inset-bottom)) / 1.9127));
+  /* --gs/--ps MUST be redefined here, not just inherited from
+     :root: a custom property's var() is resolved where it is
+     defined, so :root's --gs (= :root's --bw/370) is already a
+     fixed length by the time it reaches the body — the body.duo
+     --bw above would change the board but leave the chrome scaled
+     by the old :root value (measured: at Duo closed the chrome
+     scaled 0.86 while the board was 381.7). Defining them on the
+     body resolves var(--bw) against the body's --bw, so the chrome
+     and the board scale together. */
+  --gs:calc(var(--bw) / 370);
+  --ps:calc(var(--pbw) / 370);
+}
+body.duo #gameLogo{display:none}
+/* Game chrome, scaled by --gs. */
+body.duo .scoreboard{gap:calc(var(--gs) * 6);margin-top:calc(var(--gs) * 4)}
+body.duo .panel .identity-col{flex-basis:calc(var(--gs) * 92);padding:calc(var(--gs) * 4)}
+body.duo .player-panel .identity-col{padding-left:calc(var(--gs) * 6);padding-right:calc(var(--gs) * 2)}
+body.duo .bot-panel .identity-col{padding-right:calc(var(--gs) * 6);padding-left:calc(var(--gs) * 2)}
+body.duo .panel .clock-col{padding:calc(var(--gs) * 4);min-width:calc(var(--gs) * 50)}
+body.duo .player-panel .clock-col{padding-right:calc(var(--gs) * 6)}
+body.duo .bot-panel .clock-col{padding-left:calc(var(--gs) * 6)}
+body.duo .panel .pfp{width:calc(var(--gs) * 32);height:calc(var(--gs) * 32);flex-basis:calc(var(--gs) * 32);font-size:calc(var(--gs) * 20)}
+body.duo .panel .pfp img,body.duo .panel .pfp svg{width:calc(var(--gs) * 32);height:calc(var(--gs) * 32)}
+body.duo .panel .name{font-size:calc(var(--gs) * 10);margin-top:calc(var(--gs) * 3)}
+body.duo .panel .elo{font-size:calc(var(--gs) * 12)}
+body.duo .panel .elo.inf{font-size:calc(var(--gs) * 20);line-height:calc(var(--gs) * 15)}
+body.duo .panel .clock{font-size:calc(var(--gs) * 32)}
+body.duo .panel .game-score{font-size:calc(var(--gs) * 32)}
+body.duo .clock-row{gap:calc(var(--gs) * 6)}
+body.duo .byoyomi{width:calc(var(--gs) * 44);height:calc(var(--gs) * 26);font-size:calc(var(--gs) * 28);border-radius:calc(var(--gs) * 9)}
+body.duo .player-panel .byoyomi{margin-right:calc(var(--gs) * 7)}
+body.duo .bot-panel .byoyomi{margin-left:calc(var(--gs) * 7)}
+body.duo .lastplay{font-size:calc(var(--gs) * 11);line-height:calc(var(--gs) * 14);height:calc(var(--gs) * 18);padding:calc(var(--gs) * 2) calc(var(--gs) * 6)}
+body.duo .status{font-size:calc(var(--gs) * 14);min-height:calc(var(--gs) * 22);padding:calc(var(--gs) * 8) 0;margin:calc(var(--gs) * 3) 0}
+body.duo .rack{gap:calc(var(--gs) * 6);margin:calc(var(--gs) * 8) 0;min-height:0}
+body.duo .rack .tile{font-size:calc(var(--gs) * 30)}
+body.duo .controls{gap:calc(var(--gs) * 6);margin-top:calc(var(--gs) * 10)}
+body.duo .controls button{height:calc(var(--gs) * 46);font-size:calc(var(--gs) * 14);border-radius:calc(var(--gs) * 14)}
+body.duo .controls button .penalty{font-size:calc(var(--gs) * 11)}
+body.duo .board{gap:calc(var(--gs) * 3);padding:calc(var(--gs) * 3);border-radius:calc(var(--gs) * 10)}
+body.duo .cell{border-radius:calc(var(--gs) * 8)}
+body.duo .tile{border-radius:calc(var(--gs) * 8)}
+/* Puzzle chrome, scaled by --ps (the ID rules below beat the
+   shared .board/.rack/.status/.controls rules above). */
+body.duo .puzzle-board-title{font-size:calc(var(--ps) * 22);margin-top:calc(var(--ps) * 28.7)}
+body.duo .puzzle-board-date{font-size:calc(var(--ps) * 13);margin-top:calc(var(--ps) * 2)}
+body.duo .puzzle-timer-pill{padding:calc(var(--ps) * 10) calc(var(--ps) * 28);gap:calc(var(--ps) * 18);margin-top:calc(var(--ps) * 10)}
+body.duo .puzzle-timer-pill span{font-size:calc(var(--ps) * 28)}
+body.duo .puzzle-final-score{font-size:calc(var(--ps) * 28);padding:calc(var(--ps) * 13) 0 calc(var(--ps) * 7);margin-top:calc(var(--ps) * 10)}
+body.duo .puzzle-final-score-label{font-size:calc(var(--ps) * 13)}
+body.duo .puzzle-strength{height:calc(var(--ps) * 30);margin:calc(var(--ps) * 12) 0}
+body.duo .puzzle-strength-track{height:calc(var(--ps) * 12);border-radius:calc(var(--ps) * 6)}
+body.duo .puzzle-strength-knob{width:calc(var(--ps) * 44);height:calc(var(--ps) * 30);border-radius:calc(var(--ps) * 15);font-size:calc(var(--ps) * 11)}
+body.duo #puzzleBoard{gap:calc(var(--ps) * 3);padding:calc(var(--ps) * 3);border-radius:calc(var(--ps) * 10)}
+body.duo #puzzleBoard .cell{border-radius:calc(var(--ps) * 8)}
+body.duo #puzzleBoard .tile{border-radius:calc(var(--ps) * 8)}
+body.duo #puzzleBoardStatus{font-size:calc(var(--ps) * 14);min-height:calc(var(--ps) * 22);padding:calc(var(--ps) * 8) 0;margin:calc(var(--ps) * 3) 0}
+body.duo #puzzleRack{gap:calc(var(--ps) * 6);margin:calc(var(--ps) * 8) 0;min-height:0}
+body.duo #puzzleRack .tile{font-size:calc(var(--ps) * 30)}
+body.duo #puzzleDim .controls{gap:calc(var(--ps) * 6);margin-top:calc(var(--ps) * 10)}
+body.duo #puzzleDim .controls button{height:calc(var(--ps) * 46);font-size:calc(var(--ps) * 14);border-radius:calc(var(--ps) * 14)}
+body.duo #puzzleDim .controls button .penalty{font-size:calc(var(--ps) * 11)}
+/* Tab dock ~40% shorter on Duo only: 64px -> 38px (+ bottom inset).
+   The screens' bottom padding shrinks to match, and the floating
+   challenge button / mask ride up by the same 27px. */
+body.duo .tab-bar{padding:8px 0 calc(6px + env(safe-area-inset-bottom))}
+body.duo .tab-btn{height:24px;padding:4px 12px}
+body.duo .tab-btn svg,body.duo .tab-btn img{width:17px;height:17px}
+body.duo .screen{padding-bottom:calc(54px + env(safe-area-inset-bottom))}
+body.duo #homeScreen{padding-bottom:calc(54px + env(safe-area-inset-bottom))}
+body.duo .challenge-text-btn{bottom:calc(38px + env(safe-area-inset-bottom) + 24px)}
+body.duo .ct-mask{bottom:calc(38px + env(safe-area-inset-bottom))}
+body.duo #friendsScreen.ct-visible{padding-bottom:calc(159px + env(safe-area-inset-bottom))}
+/* A few pixels of buffer at the top on Duo only: the screens sit
+   6px lower, and the gear/share buttons move down with them. */
+body.duo .screen{padding-top:calc(34px + var(--sat))}
+body.duo #friendsScreen,body.duo #profileScreen,body.duo #pastGamesScreen,body.duo #puzzleLogScreen,body.duo #profileEditScreen,body.duo #profileFieldScreen,body.duo #profilePhotoScreen,body.duo #profilePasswordScreen,body.duo #profileProScreen,body.duo #profilePrivacyScreen,body.duo #authScreen{padding-top:calc(10px + var(--sat))}
+body.duo .gear-btn,body.duo .share-btn{top:calc(10px + var(--sat))}

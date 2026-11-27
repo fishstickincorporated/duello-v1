@@ -92,7 +92,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 206;
+const APP_VERSION = 207;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -786,7 +786,12 @@ function puzzleUpdateStrengthBar() {
   if (fill) fill.style.width = Math.min(100, p) + '%';
   if (knob) {
     knob.textContent = Math.round(p) + '%';
-    knob.style.left = 'clamp(22px, ' + Math.min(100, p) + '%, calc(100% - 22px))';
+    // v207: the clamp is the knob's own half-width, read live — the
+    // knob is 44px wide on the iPhone 16 (22px clamp, as before) and
+    // scales with --ps on the Duo, so a hardcoded 22px would let it
+    // hang off the track ends there.
+    const half = Math.round(knob.offsetWidth / 2) || 22;
+    knob.style.left = 'clamp(' + half + 'px, ' + Math.min(100, p) + '%, calc(100% - ' + half + 'px))';
   }
 }
 function puzzleHideBubble() { document.querySelectorAll('#puzzleBoard .play-bubble').forEach(e => { if (e.parentElement) e.parentElement.style.zIndex = ''; e.remove(); }); }
@@ -4095,12 +4100,16 @@ function renderGame() {
   }
   $('playerName').textContent = me && me.firstName ? me.firstName : 'You';
   try { const pp = document.querySelector('.player-panel .pfp'); pp.innerHTML = pfpHTML(me); pp.classList.toggle('no-photo', !usablePhoto(me)); const sp = document.querySelector('.stat-pfp .pfp'); sp.innerHTML = pfpHTML(me); sp.classList.toggle('no-photo', !usablePhoto(me)); } catch {}
-  $('playerElo').textContent = (game.player && game.player.elo != null) ? game.player.elo : (me ? me.elo : '');
+  // v207: in a review (a finished game opened from Game History) the
+  // scoreboard shows each player's Elo as of that game — the snapshot
+  // taken at finish — not their current Elo. Live games still show
+  // the current Elo. Legacy rows have no snapshot and fall back.
+  $('playerElo').textContent = (reviewMode && game.eloBeforeHuman != null) ? game.eloBeforeHuman : ((game.player && game.player.elo != null) ? game.player.elo : (me ? me.elo : ''));
   const isFish = game.botType === 'fishstick';
   const isPersonaGame = game.botType === 'persona';
   const isHumanGame = game.botType === 'human';
   $('botName').textContent = isFish ? 'Fishstick' : isPersonaGame ? (game.persona?.firstName || 'Player') : isHumanGame ? (game.opponent?.firstName || 'Player') : 'Doppelgänger';
-  $('botElo').textContent = isFish ? '∞' : game.botElo;
+  $('botElo').textContent = isFish ? '∞' : ((reviewMode && game.eloBeforeBot != null) ? game.eloBeforeBot : game.botElo);
   $('botElo').classList.toggle('inf', isFish);
   if (isFish) $('botPfp').innerHTML = '<img src="/assets/fishstick.png?v=1" alt="Fishstick">';
   else if (isPersonaGame && usablePhoto(game.persona)) $('botPfp').innerHTML = `<img src="${game.persona.photoData}" alt="">`;
@@ -4316,15 +4325,19 @@ function renderGame() {
 }
 let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastAttempt = 0, timeoutFlipUnconfirmed = false;
 // Byoyomi (v157): when one main clock hits 0, the player who still has
-// time gets a 9s countdown on their scoreboard (red, outside the
+// time gets a 12s countdown on their scoreboard (red, outside the
 // regular clock toward the PFP). byoyomiSide is the side with the
 // countdown ('human' | 'bot' | null); byoyomiEndsAt is when the
-// current 9s window expires. It resets on every move by the
+// current 12s window expires. It resets on every move by the
 // countdown player; the game ends when it hits 0. The at-0 player
 // keeps skipping turns exactly as before — the countdown only
 // time-pressures the player who still has time, so rushing no
 // longer buys free, unhurried solo moves.
-const BYOYOMI_MS = 9000;
+// v207 (Jeff, Nov 27, 2026): the shot clock is 12 seconds again
+// (was 9s in v163-v206). Bots still think 5s, then run off the
+// remaining 7s — a 12s move cycle. The countdown resets on every
+// move by the countdown player; the game ends when it hits 0.
+const BYOYOMI_MS = 12000;
 let byoyomiSide = null, byoyomiEndsAt = 0, byoyomiLastLogLen = 0;
 function armByoyomi(side) {
   if (byoyomiSide) return;
@@ -4350,10 +4363,10 @@ function clearByoyomi() {
 // keep playing it offline and must NOT end it locally: the server
 // is the only authority (it ends a real match after 30s of no
 // presence; a persona game simply waits for the next poll). The
-// dropped state freezes the board, stops the 9s countdown from
+// dropped state freezes the board, stops the 12s countdown from
 // re-arming (the old code re-armed it forever: the time-expired
 // POST failed, the catch re-rendered, the tick re-armed a fresh
-// 9s), and shows "Connection lost. Reconnecting…". Any successful
+// 12s), and shows "Connection lost. Reconnecting…". Any successful
 // game fetch clears it and the game resumes from the server's
 // state. Scoped to the game id, so a new game never inherits a
 // stale dropped flag.
@@ -4401,7 +4414,7 @@ function updateByoyomiDisplay() {
   // when it goes away.
 }
 // End the game because the byoyomi countdown expired: the countdown
-// player took more than 9s to move. Winner by score (the clocks
+// player took more than 12s to move. Winner by score (the clocks
 // are end conditions, not a win/loss decider — same as the both-0
 // 'Final score' end). Offline games end locally; online games end
 // through the server so both phones and the ratings agree.
@@ -4516,7 +4529,7 @@ function tickClocks() {
   // stepped value and flicker over the animation.
   if (replayIndex === null && Date.now() >= runoffUntil) $('clockBot').textContent = fmtClock(b);
   // v157 byoyomi: one clock at 0 and the other still running — the
-  // player with time gets a 9s countdown on their scoreboard.
+  // player with time gets a 12s countdown on their scoreboard.
   // Armed once (guarded by byoyomiSide), so the window is not
   // re-armed every tick. Both clocks at 0 is the both-0 end below,
   // not a countdown. The at-0 player's skip behaviour is unchanged.
@@ -4554,7 +4567,7 @@ function tickClocks() {
   // the flip stays unconfirmed and the retry below re-fires it, so
   // the game can never stall on a failed fetch.
   if (game.status === 'active' && game.clocks.turn === 'human' && h <= 0) {
-    $('status').textContent = 'Times up. Opponent has 9 seconds per move.'; updateForfeitLabel();
+    $('status').textContent = 'Times up. Opponent has 12 seconds per move.'; updateForfeitLabel();
     // The human clock is out: zero the stored value at once (v148).
     // After the flip below, the tick displays game.clocks.human, and
     // the stale pre-timeout value (e.g. 1500ms) would otherwise sit
@@ -4828,7 +4841,7 @@ function botWatchdog() {
 // real player's first name, Fishstick, Doppelgänger) keep their name.
 function waitingStatus() {
   if (!game) return 'Waiting for your opponent.';
-  if (game.clocks.human <= 0) return 'Times up. Opponent has 9 seconds per move.';
+  if (game.clocks.human <= 0) return 'Times up. Opponent has 12 seconds per move.';
   if (game.botType === 'fishstick') return 'Waiting for Fishstick.';
   if (game.botType === 'competitive') return 'Waiting for Doppelgänger.';
   if (game.botType === 'persona' && game.persona) return `Waiting for ${game.persona.firstName}.`;
@@ -5436,7 +5449,7 @@ function startLocalBotTurn() {
   const botHasShotClock = game.clocks.human <= 0 && game.clocks.bot > 0;
   game.botThinkMs = (game.clocks.human <= 0 && !(botHasShotClock && (game.botType === 'fishstick' || game.botType === 'competitive'))) ? 2000 : 5000;
   game.botThinkUntil = Date.now() + game.botThinkMs;
-  // v182: Doppelgänger shot-clock skip — 1 in 6 moves he lets the 9s
+  // v182: Doppelgänger shot-clock skip — 1 in 6 moves he lets the 12s
   // run out without playing (random per move, not a sequence). The
   // roll happens once per turn, here; the flag stays set for the whole
   // turn because the watchdog re-invokes the turn while the countdown
@@ -5557,7 +5570,7 @@ async function doLocalPlay() {
     settleLocalClock();
     offlinePlays.push({ side: 'human', rack: rackBefore, placements: placements.map((p) => ({ row: p.row, col: p.col, letter: p.letter })) });
     applyLocalMove('human', v, bestScore);
-    resetByoyomi('human'); // v157: a move by the countdown player refreshes the 9s.
+    resetByoyomi('human'); // v157: a move by the countdown player refreshes the 12s.
     pending = []; selectedRack = null;
     if (game.clocks.bot <= 0) { game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); }
     else startLocalBotTurn();
@@ -5660,7 +5673,7 @@ async function runLocalBotTurnInner() {
   // the tick's byoyomi expiry ends the game (winner by score).
   // The flag is NOT cleared here: the watchdog re-invokes this turn
   // while the countdown runs, and every invocation must skip, or
-  // the bot would play before the 9s expires.
+  // the bot would play before the 12s expires.
   if (game.botShotClockSkip) { renderGame(); return; }
   if (!localWords) { try { await ensureLocalWords(); } catch {} }
   if (!localEngine || !localWords) { $('status').textContent = 'Offline play needs the dictionary — connect once to download it.'; return; }
@@ -5689,7 +5702,7 @@ async function runLocalBotTurnInner() {
     game.clocks.bot = Math.max(0, game.clocks.bot - 30000);
     game.lastBot = { word: null, points: 0, passed: true, auto: true, noMoves: true };
     game.lastBy = 'bot'; game.lastCells = [];
-    resetByoyomi('bot'); // v157: an auto-pass is the bot acting — refresh the 9s.
+    resetByoyomi('bot'); // v157: an auto-pass is the bot acting — refresh the 12s.
     game.clocks.turn = 'human'; game.clocks.turnStartedAt = Date.now(); gameFetchAt = Date.now(); game.botThinkUntil = null; game.botThinkMs = null;
     const humanMoves = await solveMoves(game.board, game.humanRack, isFirst, false).catch(() => []);
     if (!humanMoves.length || game.consecutiveNoMoves >= 2) game._pendingNoMovesEnd = true;
@@ -5704,15 +5717,15 @@ async function runLocalBotTurnInner() {
   const move = game.botType === 'fishstick' ? moves[0] : localEngine.pickCompetitiveMove(moves, game.botElo);
   offlinePlays.push({ side: 'bot', rack: offlineBotRack.slice(), placements: move.placements.map((p) => ({ row: p.row, col: p.col, letter: p.letter })) });
   applyLocalMove('bot', move, bestScore);
-  resetByoyomi('bot'); // v157: a move by the countdown player refreshes the 9s.
-  // v161: in shot-clock mode Fishstick drains exactly 9s off the
+  resetByoyomi('bot'); // v157: a move by the countdown player refreshes the 12s.
+  // v161: in shot-clock mode Fishstick drains exactly 12s off the
   // clock per move instead of the normal 20s step. v182: Doppelgänger
-  // does the same (5s think + the rest of the 9s as runoff).
+  // does the same (5s think + the rest of the 12s as runoff).
   // The think + solve already drained E = preThinkBot - fromMs in
   // real time (folded by the settles above), so the animated runoff
   // is the remainder (BYOYOMI_MS - E) — the move lands ~5s after the
   // turn starts (5s think + a fast solve) and the clock still drops
-  // 9s total. Measured off the clock itself: settleLocalClock resets
+  // 12s total. Measured off the clock itself: settleLocalClock resets
   // turnStartedAt, so a timestamp would read ~0 elapsed and
   // double-count the think.
   // Outside shot-clock mode, the normal 20s step stands.
@@ -5725,7 +5738,7 @@ async function runLocalBotTurnInner() {
   }
   // Re-stamp the clocks on the move just logged (v126): the inline
   // capture in applyLocalMove ran before the step-down, so the
-  // bot clock there is up to 20s high (9s in shot-clock mode).
+  // bot clock there is up to 20s high (12s in shot-clock mode).
   // After the step-down these are the exact post-move values the
   // replay must show.
   if (game.moveLog && game.moveLog.length) game.moveLog[game.moveLog.length - 1].clocks = { human: game.clocks.human, bot: game.clocks.bot };
@@ -5918,6 +5931,28 @@ if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('beforeunload', () => { try { pauseOfflineClocks(); } catch {} });
 }
 
+// v207 (Jeff, Nov 27, 2026): Duo-only layout. The three Duo modes
+// (closed 466x678, open portrait 669x951, open landscape 951x669)
+// get proportionally scaled game/puzzle chrome, a shorter tab dock
+// and a top buffer (see the body.duo rules in style.css). The class
+// is size-based, not device-based: any viewport of exactly a Duo
+// size gets the Duo treatment, and the iPhone 16 (393x852) never
+// matches, so its layout is untouched. Re-checked on resize and
+// orientation change (fold/unfold, rotate). The ±4px tolerance
+// absorbs sub-pixel viewport rounding, not a different device.
+function updateDuoClass() {
+  const w = window.innerWidth, h = window.innerHeight;
+  const isDuo = (Math.abs(w - 466) <= 4 && Math.abs(h - 678) <= 4) ||
+    (Math.abs(w - 669) <= 4 && Math.abs(h - 951) <= 4) ||
+    (Math.abs(w - 951) <= 4 && Math.abs(h - 669) <= 4);
+  document.body.classList.toggle('duo', isDuo);
+}
+if (typeof window !== 'undefined' && window.addEventListener) {
+  updateDuoClass();
+  window.addEventListener('resize', updateDuoClass);
+  window.addEventListener('orientationchange', updateDuoClass);
+}
+
 // ---------- Sync drain ----------
 // The exact payload the server's POST /api/games/sync replays:
 // {offlineId, botType, botElo, playerEloAtStart, eloDelta, startedAt,
@@ -6031,8 +6066,11 @@ async function drainOutbox() {
       if (res && res.freeExit) {
         // Nothing to fold: the server refused the game as a free exit.
       } else if (me) {
-        // v199: a duplicate re-submit carries no eloAfter, so the
-        // delta is added to the persisted copy — except for
+        // v207: a duplicate re-submit now carries eloAfter (the
+        // server reconciles the Elo against the elo_history ledger
+        // instead of assuming the row means applied), so the exact
+        // server Elo is used. The add-delta fallback below stays
+        // for older servers that return no eloAfter — except for
         // Fishstick, whose delta is always 0 (an older client's
         // pre-freeze record must not move the local Elo here when
         // the server applied 0).
@@ -6498,7 +6536,7 @@ async function doPlay() {
   const clientElapsedMs = Math.max(0, tapAt - gameFetchAt);
   const prevHuman = game.clocks.human, prevFetchAt = gameFetchAt;
   const prevScore = game.scores.human, prevLastHuman = game.lastHuman, prevRack = game.humanRack.slice();
-  // v157: the move is committed at the tap — refresh the 9s now, not
+  // v157: the move is committed at the tap — refresh the 12s now, not
   // when the POST returns, or a slow round-trip could expire a
   // countdown the player had already beaten. A failed Play restores
   // the pre-tap state below, and the fresh window stands for the
@@ -6732,13 +6770,13 @@ function showStatWindow(stats) {
   if (humanNameEl && me) {
     humanNameEl.style.cursor = 'pointer';
     const humanFullName = [me.firstName, me.lastName].filter(Boolean).join(' ') || humanLabel;
-    humanNameEl.onclick = () => openPersonModal({ name: humanFullName, username: me.username, elo: game.player ? game.player.elo : me.elo, photoData: me.photoData || null, isYou: true, isPersona: false });
+    humanNameEl.onclick = () => openPersonModal({ name: humanFullName, username: me.username, elo: (reviewMode && game.eloBeforeHuman != null) ? game.eloBeforeHuman : (game.player ? game.player.elo : me.elo), photoData: me.photoData || null, isYou: true, isPersona: false });
   }
   const botUsername = isPersonaGame ? game.persona?.username : isHumanGame ? game.opponent?.username : null;
   if (botUsername) {
     const oppInfo = isHumanGame ? game.opponent : game.persona;
     const botFullName = [oppInfo.firstName, oppInfo.lastName].filter(Boolean).join(' ') || botLabel;
-    const oppPerson = { name: botFullName, username: botUsername, elo: game.botElo, photoData: oppInfo?.photoData || null, isYou: false, isPersona: isPersonaGame };
+    const oppPerson = { name: botFullName, username: botUsername, elo: (reviewMode && game.eloBeforeBot != null) ? game.eloBeforeBot : game.botElo, photoData: oppInfo?.photoData || null, isYou: false, isPersona: isPersonaGame };
     const oppNameEl = boxes[1] && boxes[1].querySelector('.stat-box-name');
     if (oppNameEl) {
       oppNameEl.style.cursor = 'pointer';

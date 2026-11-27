@@ -744,6 +744,11 @@ function newGame(user, botType, persona, opponent) {
     lastCells: [], lastWord: null, lastScore: null, lastBy: null,
     lastHuman: null, lastBot: null,
     eloDeltaHuman: null, eloDeltaBot: null, eloAfterHuman: null, eloAfterBot: null,
+    // v207 (Jeff, Nov 27, 2026): the Elo each side carried INTO this
+    // game (pre-game Elo). Set at finish time, before the Elo update
+    // is applied, and rendered by the Game History review instead of
+    // the players' current Elo. Legacy rows have nulls and fall back.
+    eloBeforeHuman: null, eloBeforeBot: null,
   };
   // A real opponent never thinks: no bot think is ever armed for a
   // human game, whichever side starts.
@@ -806,6 +811,8 @@ function serializeGame(game, user) {
     eloDeltaBot: isOpponent ? game.eloDeltaHuman : game.eloDeltaBot,
     eloAfterHuman: isOpponent ? game.eloAfterBot : game.eloAfterHuman,
     eloAfterBot: isOpponent ? game.eloAfterHuman : game.eloAfterBot,
+    eloBeforeHuman: isOpponent ? game.eloBeforeBot : game.eloBeforeHuman,
+    eloBeforeBot: isOpponent ? game.eloBeforeHuman : game.eloBeforeBot,
     isFirst: boardIsEmpty(game.board),
     player: { firstName: user.first_name, username: user.username, elo: user.elo },
     // The shared countdown (real-player games): how long until the
@@ -1025,6 +1032,93 @@ function loadGameRow(row) {
   g.board.__premiums = g.premiums;
   return g;
 }
+// v207 (Jeff, Nov 27, 2026): apply a synced game's Elo exactly
+// once, with elo_history as the ledger. The sync's duplicate path
+// used to assume "row exists = Elo applied" — false when the first
+// attempt died between the game INSERT and the Elo UPDATE (Jeff's
+// two Doppelganger wins, ~1:55-2:02 PM Nov 27: rows in History,
+// Elo still 1208; the Render logs for that window are clean, so no
+// crash or redeploy — a silent hiccup on the first save, most
+// likely a hung query: q() is a bare pool.query with no statement
+// timeout). The retry got a clean 200, the client deleted the
+// outbox, and the +16 was lost. This function is the single place
+// a synced game's Elo is applied — the normal path and the
+// duplicate/race reconciles both call it — so the invariant holds
+// everywhere: each game's delta is applied exactly once.
+// Safety: the whole apply runs in one transaction holding a row
+// lock on the game. There is NO unique guard on elo_history
+// (user_id, game_id) — the schema has none — so the lock, not a
+// constraint, serializes concurrent applies for the same game: a
+// 23505 loser blocks here until the winner commits, then sees the
+// ledger row and moves nothing. Fishstick applies delta 0 and
+// writes no ledger row (v199), so it skips the ledger check.
+// storedState is patched in place (id, deltas, afters, befores,
+// botElo) and written back, exactly as the normal path did inline
+// before v207 — including the v169 id fix (the stored state
+// arrives with the client-side placeholder id 'offline-<id>').
+// Returns { applied, eloAfter }.
+async function applySyncedGameElo(user, gameId, delta, botType, botElo, playerEloAtStart, storedState) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT id FROM games WHERE id=$1 FOR UPDATE', [gameId]);
+    let applied = true;
+    let newElo;
+    if (botType !== 'fishstick') {
+      const led = await client.query('SELECT id FROM elo_history WHERE user_id=$1 AND game_id=$2', [user.id, gameId]);
+      if (led.rows[0]) {
+        // Already applied — by the winner, or by an earlier
+        // reconcile. Read the current Elo (exact under the lock)
+        // and move nothing.
+        const cur = await client.query('SELECT * FROM users WHERE id=$1', [user.id]);
+        newElo = Number(cur.rows[0].elo);
+        applied = false;
+      }
+    }
+    if (applied) {
+      const eloRow = await client.query('UPDATE users SET elo = elo + $1, elo_high = GREATEST(elo_high, elo + $1) WHERE id = $2 RETURNING elo', [delta, user.id]);
+      newElo = Number(eloRow.rows[0].elo);
+      storedState.id = gameId;
+      storedState.eloDeltaHuman = delta;
+      storedState.eloDeltaBot = -delta;
+      storedState.eloAfterHuman = newElo;
+      storedState.eloAfterBot = botElo - delta;
+      // v207 Elo snapshot (history rows show the pre-game Elo):
+      // the payload's playerEloAtStart is the human's Elo at game
+      // start and its botElo is the bot's original Elo.
+      storedState.eloBeforeHuman = playerEloAtStart;
+      storedState.eloBeforeBot = botElo;
+      storedState.botElo = botElo - delta;
+      await client.query('UPDATE games SET state=$1::jsonb WHERE id=$2', [JSON.stringify(storedState), gameId]);
+      if (botType !== 'fishstick') await client.query('INSERT INTO elo_history (user_id, game_id, elo_after, delta) VALUES ($1,$2,$3,$4)', [user.id, gameId, newElo, delta]);
+    }
+    await client.query('COMMIT');
+    return { applied, eloAfter: newElo };
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw e;
+  } finally { client.release(); }
+}
+// v207: the duplicate / 23505-race half of the sync Elo fix (see
+// applySyncedGameElo). A row exists for this offlineId, so the
+// game already landed — but its Elo may not have. The retry
+// payload is re-validated in full (the same replay the normal
+// path runs) before its delta is trusted: the stored state's
+// eloDeltaHuman was never the validated field, so it must not be
+// used. The row must belong to the caller — a foreign offlineId
+// is a 404, not a 200. Returns { status, body } for the response.
+async function reconcileDuplicateSync(engine, user, gameId, b) {
+  const check = validateOfflineSync(engine, b);
+  if (!check.ok) return { status: 422, body: { error: check.error } };
+  const row = await q('SELECT id, user_id, state FROM games WHERE id=$1', [gameId]);
+  if (!row.rows[0] || row.rows[0].user_id !== user.id) return { status: 404, body: { error: 'Game not found.' } };
+  const storedState = typeof row.rows[0].state === 'string' ? JSON.parse(row.rows[0].state) : row.rows[0].state;
+  storedState.userId = user.id;
+  storedState.botType = b.botType;
+  const delta = b.botType === 'fishstick' ? 0 : b.eloDelta;
+  const { eloAfter } = await applySyncedGameElo(user, gameId, delta, b.botType, b.botElo, b.playerEloAtStart, storedState);
+  return { status: 200, body: { synced: true, gameId, duplicate: true, eloAfter, delta } };
+}
 function settleClock(game, clientElapsedMs) {
   if (game.status !== 'active') return;
   const now = Date.now();
@@ -1112,6 +1206,9 @@ async function endGame(game, user, reason, winnerSide) {
     const challenger = (await q('SELECT * FROM users WHERE id=$1', [game.userId])).rows[0];
     const opponent = (await q('SELECT * FROM users WHERE id=$1', [game.opponentId])).rows[0];
     if (challenger && opponent) {
+      // v207: snapshot both sides' pre-game Elo before the update.
+      game.eloBeforeHuman = challenger.elo;
+      game.eloBeforeBot = game.botElo;
       const delta = eloDelta(challenger.elo, game.botElo, actual);
       game.eloDeltaHuman = delta;
       game.eloDeltaBot = -delta;
@@ -1130,6 +1227,9 @@ async function endGame(game, user, reason, winnerSide) {
     game.eloDeltaHuman = 0; game.eloDeltaBot = 0;
     game.eloAfterHuman = challenger ? challenger.elo : null;
     game.eloAfterBot = opponent ? opponent.elo : game.botElo;
+    // v207: snapshot (no Elo moves, so before == after here).
+    game.eloBeforeHuman = challenger ? challenger.elo : null;
+    game.eloBeforeBot = game.botElo;
     await saveGameRow(game);
     return game;
   }
@@ -1142,9 +1242,16 @@ async function endGame(game, user, reason, winnerSide) {
     game.eloDeltaHuman = 0; game.eloDeltaBot = 0;
     game.eloAfterHuman = user.elo;
     game.eloAfterBot = game.botElo;
+    // v207: snapshot (no Elo moves, so before == after here — the
+    // player's Elo still matters, since it drifts with later games).
+    game.eloBeforeHuman = user.elo;
+    game.eloBeforeBot = game.botElo;
     await saveGameRow(game);
     return game;
   }
+  // v207: snapshot both sides' pre-game Elo before the update.
+  game.eloBeforeHuman = user.elo;
+  game.eloBeforeBot = game.botElo;
   const delta = eloDelta(user.elo, game.botElo, actual);
   game.eloDeltaHuman = delta;
   game.eloDeltaBot = -delta;
@@ -1181,6 +1288,10 @@ async function applyLeave(game, leaverSide, leaverName) {
   const challenger = (await q('SELECT * FROM users WHERE id=$1', [game.userId])).rows[0];
   const opponent = (await q('SELECT * FROM users WHERE id=$1', [game.opponentId])).rows[0];
   if (challenger && opponent) {
+    // v207: snapshot both sides' pre-game Elo before the update —
+    // the Elo moves at Leave time, not when the game finalizes.
+    game.eloBeforeHuman = challenger.elo;
+    game.eloBeforeBot = game.botElo;
     const delta = eloDelta(challenger.elo, game.botElo, actual);
     game.eloDeltaHuman = delta;
     game.eloDeltaBot = -delta;
@@ -1196,6 +1307,9 @@ async function applyLeave(game, leaverSide, leaverName) {
     game.eloDeltaHuman = 0; game.eloDeltaBot = 0;
     game.eloAfterHuman = challenger ? challenger.elo : null;
     game.eloAfterBot = opponent ? opponent.elo : game.botElo;
+    // v207: snapshot (no Elo moves, so before == after here).
+    game.eloBeforeHuman = challenger ? challenger.elo : null;
+    game.eloBeforeBot = game.botElo;
     await saveGameRow(game);
   }
   broadcastGame(game);
@@ -1454,7 +1568,7 @@ function scheduleBotMove(game) {
             : first;
         } else if (g2.clocks.human <= 0 && Number.isFinite(g2.personaShotClockThinkMs)) {
           // v160 shot clock: the think rolled once in startBotTurn —
-          // easy moves, ~6s average; 1 in 8 it runs past the 9s
+          // easy moves, ~6s average; 1 in 8 it runs past the 12s
           // window so the countdown expires first. Capped by the
           // persona's own clock, like every other think.
           g2.botThinkMs = Math.max(3000, Math.min(g2.personaShotClockThinkMs, g2.clocks.bot - 1000));
@@ -1463,7 +1577,7 @@ function scheduleBotMove(game) {
           // v157 byoyomi: the revised think is the one that actually
           // lands the move, so cap it here too — when the human clock
           // is at 0 the persona is the countdown player and must move
-          // inside 9s (7s cap, 2s margin).
+          // inside 12s (7s cap, 5s margin).
           if (g2.clocks.human <= 0) g2.botThinkMs = Math.min(g2.botThinkMs, 7000);
         }
         g2.botThinkUntil = g2.turnStartedAt + g2.botThinkMs;
@@ -1481,7 +1595,7 @@ function botThinkMsFor(game) {
   if (game.botType === 'persona') {
     // v160 byoyomi: when the human clock is at 0, the persona is the
     // countdown player — easy moves, averaging 6s, and 1 in 8 times
-    // it lets the 9s countdown expire. The think was rolled once
+    // it lets the 12s countdown expire. The think was rolled once
     // in startBotTurn (personaShotClockThinkMs), so this placeholder
     // and the scheduleBotMove revision agree on one value; two
     // independent rolls would play the earlier of the two. The
@@ -1507,7 +1621,7 @@ function startBotTurn(game) {
   // under 20s and the final move has not been spent yet.
   if (game.botType === 'persona' && game.clocks.bot < 20000 && !game.personaFinalMoveDone) game.personaFinalMovePending = true;
   // v160 shot clock: when the human clock is at 0 the persona plays
-  // on the 9s countdown — roll the turn's think ONCE here, so the
+  // on the 12s countdown — roll the turn's think ONCE here, so the
   // placeholder (botThinkMsFor) and the revision (scheduleBotMove)
   // agree. Easy moves, 4-8s (averaging 6s); 1 in 8 the think runs
   // past the window (15s), so the countdown expires first and the
@@ -3255,7 +3369,16 @@ const server = http.createServer(async (req, res) => {
         && b.state.scores && b.state.scores.human === 0 && b.state.scores.bot === 0;
       if (noMoveForfeitSync) return sendJson(res, 200, { synced: true, freeExit: true });
       const dup = await q('SELECT id FROM games WHERE client_game_id=$1', [b.offlineId]);
-      if (dup.rows[0]) return sendJson(res, 200, { synced: true, gameId: Number(dup.rows[0].id), duplicate: true });
+      if (dup.rows[0]) {
+        // v207: a row exists but its Elo may never have been applied
+        // (see applySyncedGameElo) — reconcile against the ledger
+        // instead of assuming the row means applied. The response
+        // now carries eloAfter + delta, so the client folds the
+        // exact server Elo instead of adding the delta to a
+        // possibly-stale local copy.
+        const rec = await reconcileDuplicateSync(engine, user, Number(dup.rows[0].id), b);
+        return sendJson(res, rec.status, rec.body);
+      }
       const check = validateOfflineSync(engine, b);
       if (!check.ok) return sendJson(res, 422, { error: check.error });
       // v199: Fishstick moves nobody's Elo — the applied delta is 0
@@ -3279,25 +3402,21 @@ const server = http.createServer(async (req, res) => {
         // insert is a no-op 200, not a 500.
         if (e && e.code === '23505') {
           const raced = await q('SELECT id FROM games WHERE client_game_id=$1', [b.offlineId]);
-          if (raced.rows[0]) return sendJson(res, 200, { synced: true, gameId: Number(raced.rows[0].id), duplicate: true });
+          if (raced.rows[0]) {
+            // v207: same reconcile as the duplicate path — the
+            // winner may still be applying its Elo, and the row
+            // lock in applySyncedGameElo makes this wait for it.
+            const rec = await reconcileDuplicateSync(engine, user, Number(raced.rows[0].id), b);
+            return sendJson(res, rec.status, rec.body);
+          }
         }
         throw e;
       }
-      const eloRow = await q('UPDATE users SET elo = elo + $1, elo_high = GREATEST(elo_high, elo + $1) WHERE id = $2 RETURNING elo', [delta, user.id]);
-      const newElo = Number(eloRow.rows[0].elo);
-      // v169: the stored state arrives with the client-side placeholder
-      // id 'offline-<id>' — replace it with the real row id, so no
-      // later reader of the stored state can mistake the placeholder
-      // for a loadable game id (that is what broke the profile record
-      // words; profileStatsFor now also takes the row id directly).
-      storedState.id = gameId;
-      storedState.eloDeltaHuman = delta;
-      storedState.eloDeltaBot = -delta;
-      storedState.eloAfterHuman = newElo;
-      storedState.eloAfterBot = b.botElo - delta;
-      storedState.botElo = b.botElo - delta;
-      await q('UPDATE games SET state=$1::jsonb WHERE id=$2', [JSON.stringify(storedState), gameId]);
-      if (b.botType !== 'fishstick') await q('INSERT INTO elo_history (user_id, game_id, elo_after, delta) VALUES ($1,$2,$3,$4)', [user.id, gameId, newElo, delta]);
+      // v207: the Elo apply lives in applySyncedGameElo now (same
+      // queries, same results — wrapped in a transaction holding a
+      // row lock, with the elo_history ledger check, so a racing
+      // duplicate reconcile cannot double-apply it).
+      const { eloAfter: newElo } = await applySyncedGameElo(user, gameId, delta, b.botType, b.botElo, b.playerEloAtStart, storedState);
       return sendJson(res, 200, { synced: true, gameId, eloAfter: newElo, delta });
     }
     // Live updates for real-player games (SSE): EventSource cannot send
@@ -3662,13 +3781,13 @@ const server = http.createServer(async (req, res) => {
         out.stats = gameStatsPayload(game, isOpp);
         return sendJson(res, 200, out);
       }
-      // v157 byoyomi: the countdown player's 9s ran out. The client
-      // enforces the 9s (it displays the countdown and calls this
+      // v157 byoyomi: the countdown player's 12s ran out. The client
+      // enforces the 12s (it displays the countdown and calls this
       // when it expires); the server validates the clock state so a
       // stray or early call cannot end a game where both clocks are
       // still running. Winner by score — the clocks are end
       // conditions, not a win/loss decider (same as the both-0
-      // 'Final score' end). The exact 9s is enforced by the honest
+      // 'Final score' end). The exact 12s is enforced by the honest
       // client; the server only checks that one clock is at 0 and
       // the other is still running, which is the byoyomi state.
       if (req.method === 'POST' && action === 'time-expired') {

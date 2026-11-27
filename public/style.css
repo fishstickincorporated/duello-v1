@@ -550,7 +550,18 @@ same 52px column, right-aligned, on every row including your own
    auto margin above the rack absorbs 40px less free space, so the
    whole deck-and-buttons block shifts up 40px and the space below
    the buttons grows by the same amount. */
-#gameScreen #gameDim>.controls{margin-bottom:40px}
+/* v204: the 40px below the buttons is dead space, and it is the
+   only safe place to absorb the safe-area load: the rack's auto
+   margin absorbs insets until it hits 0, then every further inset
+   px overflowed the screen (v203 assumed the iPhone 16 top inset
+   was 47 — it is 59, Dynamic Island — so 10px overflowed the game
+   screen and 12px the puzzle on Jeff's phone, even though the
+   headless check passed). The margin now shrinks 1:1 with the inset
+   load beyond the layout's slack (measured content 769.3px at
+   env=0: the board, rack and buttons never move, only the dead gap
+   below the buttons shrinks, and only once the auto margin is
+   exhausted). At env=0 this is exactly 40px, unchanged. */
+#gameScreen #gameDim>.controls{margin-bottom:calc(40px - max(0px, env(safe-area-inset-top) + env(safe-area-inset-bottom) + 769.3px - 100svh))}
 #gameScreen .board,#gameScreen .rack,#gameScreen .controls,#gameScreen #endButtons{width:100%}
 /* v199: centering spacers — zero effect at the reference size
    (they only flex outside the reference envelope, in the media
@@ -564,6 +575,17 @@ html,body,#board,.cell,.scoreboard,.rack,.tile,.status{user-select:none;-webkit-
    scrolls". Scrollable screens (puzzle log, Settings, profile) still
    scroll; this only stops scroll chaining and the overscroll bounce. */
 html,body{overscroll-behavior:none}
+/* v204: the game/puzzle screens themselves cannot scroll — the
+   fit fixes above make the content fit exactly at real insets, and
+   this is the backstop so a few px of overflow on an unmeasured
+   size can never scroll: max-height pins the box to the viewport
+   (min-height alone would grow it), overflow:hidden clips the
+   excess, and touch-action:none means no scroll/bounce gesture can
+   even start on these screens (overscroll-behavior alone did not
+   stop the WKWebView bounce). Anything clipped is dead bottom
+   padding — the board, rack and buttons sit above it. Scrollable
+   screens (puzzle log, Settings, profile) are untouched. */
+#gameScreen,#puzzleBoardScreen{height:100dvh;height:100svh;max-height:100dvh;max-height:100svh;overflow:hidden;touch-action:none}
 .cell.drop-target{outline:none}
 
 
@@ -905,7 +927,7 @@ squares are the premium colours, spread out across the whole screen. */
 #puzzleBoardScreen .board-wrap{position:relative;width:100%}
 #puzzleBoard{width:100%;aspect-ratio:1}
 #puzzleBoardScreen #puzzleRack{margin-top:auto}
-#puzzleDim>.controls{margin-bottom:calc(40px - min(env(safe-area-inset-bottom),10px))}
+#puzzleDim>.controls{margin-bottom:calc(40px - max(0px, env(safe-area-inset-top) + env(safe-area-inset-bottom) + 780.9px - 100svh))}
 /* v152: confetti that rains on a puzzle solve — the container covers
    the puzzle screen and ignores taps; pieces fall from the top and
    are removed once the animation ends. */
@@ -1211,10 +1233,15 @@ squares are the premium colours, spread out across the whole screen. */
    342) are the fixed chrome + 32px slack measured from the live
    layout. ================================================================ */
 @media (min-width:395px), (max-height:719px){
+  /* v204: the height caps shrink by the safe-area load beyond the
+     layout's free space (29px game / 24px puzzle, measured on iPad
+     at env=0 — the caps' built-in slack). Below the threshold the
+     term is 0 and the caps are unchanged; where the width cap binds
+     (Pro/Plus/Pro Max) the subtraction cannot move the board. */
   :root{
     --cw:calc(100vw - 20px);
-    --bw:min(var(--cw), calc((100svh - 257px) / 1.353));
-    --pbw:min(var(--cw), calc((100svh - 333px) / 1.167));
+    --bw:min(var(--cw), calc((100svh - 257px - max(0px, env(safe-area-inset-top) + env(safe-area-inset-bottom) - 29px)) / 1.353));
+    --pbw:min(var(--cw), calc((100svh - 333px - max(0px, env(safe-area-inset-top) + env(safe-area-inset-bottom) - 24px)) / 1.167));
     --gs:calc(var(--bw) / 370);
     --ps:calc(var(--pbw) / 370);
     --hs:calc((100vw - 20px) / 370);
@@ -1268,8 +1295,8 @@ squares are the premium colours, spread out across the whole screen. */
 }
 @media (max-height:719px){
   :root{
-    --bw:min(var(--cw), calc((100svh - 307px) / 1.167));
-    --pbw:min(var(--cw), calc((100svh - 342px) / 1.167));
+    --bw:min(var(--cw), calc((100svh - 307px - max(0px, env(safe-area-inset-top) + env(safe-area-inset-bottom) - 29px)) / 1.167));
+    --pbw:min(var(--cw), calc((100svh - 342px - max(0px, env(safe-area-inset-top) + env(safe-area-inset-bottom) - 24px)) / 1.167));
     /* v199: on short screens the width-scaled --hs would make the
        home buttons (and their text/icons) taller than the screen
        in landscape — the buttons flex-shrank but the text did not,

@@ -92,7 +92,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 203;
+const APP_VERSION = 204;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -4327,6 +4327,32 @@ function clearByoyomi() {
   byoyomiSide = null; byoyomiEndsAt = 0;
   updateByoyomiDisplay();
 }
+// v204: a dropped online game (Jeff, Nov 27 — persona games must
+// require internet, indistinguishable from a real online match).
+// When an online game loses its connection, the client must NOT
+// keep playing it offline and must NOT end it locally: the server
+// is the only authority (it ends a real match after 30s of no
+// presence; a persona game simply waits for the next poll). The
+// dropped state freezes the board, stops the 9s countdown from
+// re-arming (the old code re-armed it forever: the time-expired
+// POST failed, the catch re-rendered, the tick re-armed a fresh
+// 9s), and shows "Connection lost. Reconnecting…". Any successful
+// game fetch clears it and the game resumes from the server's
+// state. Scoped to the game id, so a new game never inherits a
+// stale dropped flag.
+let onlineGameDroppedId = null, droppedFetchAt = 0;
+function isOnlineGameDropped() { return !!game && onlineGameDroppedId !== null && game.id === onlineGameDroppedId; }
+function isNetworkError(e) { return !!e && /couldn't reach duello|failed to fetch|network|load failed/i.test((e && e.message) || ''); }
+function enterDroppedOnlineGame() {
+  if (!game || game.offline || game.status !== 'active' || isOnlineGameDropped()) return;
+  onlineGameDroppedId = game.id; droppedFetchAt = 0;
+  clearByoyomi();
+  // Unplayed placements cannot be played offline: recall them, the
+  // way the human-timeout branch does.
+  if (pending.length > 0) { pending = []; selectedRack = null; }
+  renderGame();
+}
+function clearDroppedOnlineGame() { onlineGameDroppedId = null; }
 function updateByoyomiDisplay() {
   // Show the countdown on the side that has it, hide the other.
   // The remaining seconds, ceiled, from the live deadline — the
@@ -4371,10 +4397,14 @@ async function endByoyomiGame() {
     const out = await api(`/api/games/${game.id}/time-expired`, { method: 'POST' });
     game = out; gameAppliedSeq = gameFetchSeq; gameFetchAt = Date.now(); renderGame();
   } catch (e) {
-    // The server rejected it (e.g. the clocks moved on, or the game
-    // already ended there): re-render from the fresh state. The
-    // tick's arming check re-arms the countdown if a clock is
-    // still at 0, so the game continues instead of hanging.
+    // v204: a NETWORK failure means the connection is gone — the
+    // game is dropped, not ended: freeze the board and wait for the
+    // connection (the tick must not re-arm the countdown — see
+    // enterDroppedOnlineGame). A SERVER rejection (e.g. the clocks
+    // moved on, or the game already ended there) is the old path:
+    // re-render from the fresh state and let the tick re-arm if a
+    // clock is still at 0, so the game continues instead of hanging.
+    if (isNetworkError(e) || isOffline()) { enterDroppedOnlineGame(); return; }
     renderGame();
   }
 }
@@ -4383,7 +4413,7 @@ let countdownInterval = null, countdownActive = false;
 // saved when the app hides mid-countdown so it resumes on return.
 let countdownTargetMs = 0, countdownPaused = false, countdownPausedRemainingMs = 0;
 let clockHoldUntil = 0;
-function canPlaceTiles() { return !!game && game.status === 'active' && game.clocks.turn === 'human' && !playInFlight && !countdownActive; }
+function canPlaceTiles() { return !!game && game.status === 'active' && game.clocks.turn === 'human' && !playInFlight && !countdownActive && !isOnlineGameDropped(); }
 async function handleTimeoutFetch() {
   if (game && game.offline) return; // offline games have no server to fetch
   if (!game || game.status !== 'active' || timeoutFetching || playInFlight) return;
@@ -4398,7 +4428,11 @@ async function handleTimeoutFetch() {
     // check catches it when the play has already finished.
     if (playInFlight) return;
     if (mySeq <= gameAppliedSeq) return;
-    game = next; gameAppliedSeq = mySeq; gameFetchAt = Date.now(); pending = []; selectedRack = null; timeoutFlipUnconfirmed = false; renderGame();
+    game = next; gameAppliedSeq = mySeq; gameFetchAt = Date.now(); pending = []; selectedRack = null; timeoutFlipUnconfirmed = false;
+    // v204: a successful fetch means the connection is back — clear
+    // the dropped state BEFORE renderGame, so updateStatus shows the
+    // resumed state instead of "Connection lost."
+    clearDroppedOnlineGame(); renderGame();
     if (game.status === 'active' && game.clocks.turn === 'bot') { botTurnTapTime = 0; beginBotTurn(); }
   } catch {} finally { timeoutFetching = false; }
 }
@@ -4407,6 +4441,16 @@ function tickClocks() {
   // v157: a finished game carries no countdown — clear the state so
   // it cannot leak into the next game.
   if (game.status !== 'active' && byoyomiSide) clearByoyomi();
+  // v204: a finished game is never dropped — the flag belongs to the
+  // live game only (the id scope already prevents leaks into a new
+  // game; this covers a game the server ended while it was dropped).
+  if (game.status !== 'active' && onlineGameDroppedId !== null) onlineGameDroppedId = null;
+  // v204: while dropped, retry the game fetch every 5s so the game
+  // resumes (or shows the server's verdict) as soon as the
+  // connection is back, even on the human turn where no poll loop
+  // runs. handleTimeoutFetch throttles itself and fails silently
+  // while still offline.
+  if (isOnlineGameDropped() && Date.now() - droppedFetchAt > 5000) { droppedFetchAt = Date.now(); handleTimeoutFetch(); }
   // Offline pause (v107): while the app is hidden, no wall-clock time
   // may accumulate — reset the turn timer on every tick so the elapsed
   // never grows, and run none of the timeout/end logic. v106 only
@@ -4459,7 +4503,7 @@ function tickClocks() {
   // Armed once (guarded by byoyomiSide), so the window is not
   // re-armed every tick. Both clocks at 0 is the both-0 end below,
   // not a countdown. The at-0 player's skip behaviour is unchanged.
-  if (game.status === 'active' && byoyomiSide === null) {
+  if (game.status === 'active' && byoyomiSide === null && !isOnlineGameDropped()) {
     if (h <= 0 && b > 0) armByoyomi('bot');
     else if (b <= 0 && h > 0) armByoyomi('human');
   }
@@ -4710,6 +4754,10 @@ async function pollBotTurn() {
     if (mySeq <= gameAppliedSeq) return;
     const botMoved = (next.lastBot ? JSON.stringify(next.lastBot) : '') !== prevBot || (next.scores && next.scores.bot !== prevBotScore);
     game = next; gameAppliedSeq = mySeq; gameFetchAt = Date.now(); pending = []; selectedRack = null;
+    // v204: a successful fetch means the connection is back — the
+    // game resumes from the server's state (which may have ended
+    // it while it was dropped).
+    clearDroppedOnlineGame();
     // v194: the server voided this game while it was open.
     if (next.status === 'void') { exitVoidGame(next); return; }
     // v154: start the runoff BEFORE the render — renderGame's tick
@@ -4772,7 +4820,10 @@ function waitingStatus() {
 }
 function beginBotTurn() {
   if (!game || game.status !== 'active' || game.clocks.turn !== 'bot') return;
-  $('status').textContent = waitingStatus();
+  // v204: the dropped state owns the status line while the game is
+  // dropped — the poll scheduling below still runs (it is the
+  // recovery path), but it must not overwrite "Connection lost."
+  if (!isOnlineGameDropped()) $('status').textContent = waitingStatus();
   if (botTimer) clearTimeout(botTimer);
   // Offline games drive the local bot instead of polling the server.
   if (game.offline) { scheduleLocalBotTurn(); return; }
@@ -5659,8 +5710,8 @@ if (typeof document !== 'undefined' && document.addEventListener) {
   });
 }
 if (typeof window !== 'undefined' && window.addEventListener) {
-  window.addEventListener('online', () => { try { drainOutbox(); refreshOnlineButtons(); checkPersonasVersion(); } catch {} });
-  window.addEventListener('offline', () => { try { refreshOnlineButtons(); } catch {} });
+  window.addEventListener('online', () => { try { drainOutbox(); refreshOnlineButtons(); checkPersonasVersion(); if (isOnlineGameDropped()) handleTimeoutFetch(); } catch {} });
+  window.addEventListener('offline', () => { try { refreshOnlineButtons(); if (game && !game.offline && game.status === 'active') enterDroppedOnlineGame(); } catch {} });
   window.addEventListener('pagehide', () => { try { pauseOfflineClocks(); } catch {} });
   window.addEventListener('beforeunload', () => { try { pauseOfflineClocks(); } catch {} });
 }
@@ -5926,6 +5977,9 @@ function invalidWordsStatus(w) {
 }
 async function updateStatus() {
   if (!game) return;
+  // v204: a dropped online game shows the connection state, not a
+  // move prompt — and never fires the server validation below.
+  if (isOnlineGameDropped()) { $('status').textContent = 'Connection lost. Reconnecting…'; setPlayState('off'); return; }
   if (game.status === 'finished') { $('status').textContent = sentence(game.reason || 'Game over'); return; }
   if (game.clocks.turn !== 'human') { $('status').textContent = waitingStatus(); setPlayState('off'); return; }
   if (!pending.length) { $('status').textContent = game.isFirst ? 'First word must fit inside the glowing 6×6.' : 'Your move.'; setPlayState('off'); lastValidate = null; lastValidatePlacements = null; return; }
@@ -6203,7 +6257,7 @@ async function doPlay() {
   // and the Play tap itself was the thing that had to wait for a
   // validation round-trip to show any feedback.
   cleanupStuckDrag(); suppressNextClick = false;
-  if (!game || game.clocks.turn !== 'human' || !pending.length || playInFlight) return;
+  if (!game || game.clocks.turn !== 'human' || !pending.length || playInFlight || isOnlineGameDropped()) return;
   // A real Play — the guard above already filtered out taps that do
   // nothing (not your turn, no tiles placed, already in flight).
   hapticLight();

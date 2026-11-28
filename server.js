@@ -737,6 +737,13 @@ function newGame(user, botType, persona, opponent) {
     // applyMove (server) and applyLocalMove (client, offline games).
     // Old games have no log; their replay arrows are disabled.
     moveLog: [],
+    // v211: the online shot-clock reset signal — an incrementing
+    // sequence + the mover's side, stamped by applyMove (plays) and
+    // the pass endpoint (manual passes). serializeGame always sends
+    // both (flipped per viewer); the client's tick resets the 12s
+    // countdown when the sequence grows with the countdown side as
+    // the mover. Old rows have neither field (read as 0 / null).
+    moveSeq: 0, lastMoveSide: null,
     // Leave (v123): when a player Leaves (out of time + losing), the
     // leaver is recorded here and the game stays active for the
     // opponent to play out. Null until someone leaves.
@@ -803,6 +810,12 @@ function serializeGame(game, user) {
     // (skew there added a second poll and pushed the perceived think to ~7s).
     botThinkRemainingMs: game.botType === 'human' ? null : (game.botThinkUntil ? Math.max(0, game.botThinkUntil - now) : null),
     botThinkMs: game.botType === 'human' ? null : (game.botThinkMs || null),
+    // v211: the move sequence (see newGame) — always sent, even for
+    // active games, so the client's tick can reset the shot clock
+    // when the countdown player moves. The side flips per viewer,
+    // like lastBy/scores/clocks above; old rows read as 0 / null.
+    moveSeq: game.moveSeq || 0,
+    lastMoveSide: game.lastMoveSide ? flipSide(game.lastMoveSide) : null,
     reason: game.reason,
     lastCells: game.lastCells, lastWord: game.lastWord, lastScore: game.lastScore, lastBy: game.lastBy ? flipSide(game.lastBy) : null,
     lastHuman: isOpponent ? game.lastBot : game.lastHuman,
@@ -1358,6 +1371,10 @@ function applyMove(game, side, move, bestScoreBefore) {
   // played. settleClock already ran before applyMove in every path
   // (human play, bot turn), so these are the settled post-move values.
   (game.moveLog = game.moveLog || []).push({ side, placements: (move.placements || []).map((p) => ({ row: p.row, col: p.col, letter: p.letter })), words: (move.words || []).map((w) => ({ word: w.word, score: w.score })), score: move.score, mainWord: move.mainWord, clocks: { human: game.clocks.human, bot: game.clocks.bot } });
+  // v211: stamp the move sequence (see newGame) — every
+  // server-applied move, human or bot, increments it.
+  game.moveSeq = (game.moveSeq || 0) + 1;
+  game.lastMoveSide = side;
   const allWords = (move.words || []).map(w => w.word);
   if (isHuman) game.lastHuman = { word: move.mainWord, points: move.score, bonus: move.bonus, isDuello: move.isDuello, bingo: move.bingo, words: allWords };
   else game.lastBot = { word: move.mainWord, points: move.score, bonus: move.bonus, isDuello: move.isDuello, bingo: move.bingo, words: allWords };
@@ -3717,6 +3734,12 @@ const server = http.createServer(async (req, res) => {
         game.consecutivePasses++;
         game.consecutiveNoMoves = 0;
         game[mySide === 'human' ? 'lastHuman' : 'lastBot'] = { word: null, points: 0, passed: true };
+        // v211: a manual pass is a move-sequence event too (same stamp
+        // as applyMove). A pass can never land while a countdown is
+        // live (rejected above when either clock is 0), so this never
+        // resets a running countdown.
+        game.moveSeq = (game.moveSeq || 0) + 1;
+        game.lastMoveSide = mySide;
         if (game.consecutivePasses >= 2) {
           game.botThinkUntil = null;
           const winner = game.scores.human > game.scores.bot ? 'human' : game.scores.bot > game.scores.human ? 'bot' : 'draw';

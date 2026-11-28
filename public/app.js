@@ -92,7 +92,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 210;
+const APP_VERSION = 211;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -4338,11 +4338,12 @@ let runoffUntil = 0, humanRunoffUntil = 0, timeoutFetching = false, timeoutLastA
 // remaining 7s — a 12s move cycle. The countdown resets on every
 // move by the countdown player; the game ends when it hits 0.
 const BYOYOMI_MS = 12000;
-let byoyomiSide = null, byoyomiEndsAt = 0, byoyomiLastLogLen = 0;
+let byoyomiSide = null, byoyomiEndsAt = 0, byoyomiLastLogLen = 0, byoyomiLastMoveSeq = 0;
 function armByoyomi(side) {
   if (byoyomiSide) return;
   byoyomiSide = side; byoyomiEndsAt = Date.now() + BYOYOMI_MS;
   byoyomiLastLogLen = (game && Array.isArray(game.moveLog)) ? game.moveLog.length : 0;
+  byoyomiLastMoveSeq = (game && typeof game.moveSeq === 'number') ? game.moveSeq : 0;
   updateByoyomiDisplay();
 }
 function resetByoyomi(side) {
@@ -4523,11 +4524,11 @@ function tickClocks() {
   // tick must not overwrite the rewound step clocks with the final
   // values. The rest of the tick (timeout/end logic) only runs for
   // an active game, so it is unaffected.
-  if (replayIndex === null && Date.now() >= humanRunoffUntil) $('clockHuman').textContent = fmtClock(h);
+  if (replayIndex === null && Date.now() >= humanRunoffUntil) setClockText($('clockHuman'), h);
   // During a runoff animation the bot clock is driven by the animation,
   // not by this 100ms tick — the tick used to jump it straight to the
   // stepped value and flicker over the animation.
-  if (replayIndex === null && Date.now() >= runoffUntil) $('clockBot').textContent = fmtClock(b);
+  if (replayIndex === null && Date.now() >= runoffUntil) setClockText($('clockBot'), b);
   // v157 byoyomi: one clock at 0 and the other still running — the
   // player with time gets a 12s countdown on their scoreboard.
   // Armed once (guarded by byoyomiSide), so the window is not
@@ -4553,6 +4554,23 @@ function tickClocks() {
       const last = game.moveLog[game.moveLog.length - 1];
       if (last && last.side === byoyomiSide) resetByoyomi(byoyomiSide);
       byoyomiLastLogLen = game.moveLog.length;
+    }
+    // v211: the same reset, off the server's move sequence — the
+    // log watch above is dead code in an ACTIVE online game (the
+    // server only serializes moveLog once the game is finished), so
+    // the countdown never reset when the opponent moved on the
+    // server (real-player AND persona games — both are server games
+    // with the same serialization). serializeGame always sends
+    // moveSeq + lastMoveSide (flipped per viewer), so a growth in
+    // the sequence with the countdown side as the mover is the
+    // signal. Offline games have no moveSeq (the local engine does
+    // not stamp one) and keep the log watch; the two watches never
+    // double-fire there because this one only runs when moveSeq is
+    // a number. The human's own Play also resets directly in doPlay;
+    // this watch is what catches the OPPONENT's move.
+    if (typeof game.moveSeq === 'number' && game.moveSeq !== byoyomiLastMoveSeq) {
+      if (game.lastMoveSide === byoyomiSide) resetByoyomi(byoyomiSide);
+      byoyomiLastMoveSeq = game.moveSeq;
     }
     updateByoyomiDisplay();
     if (game.status === 'active' && Date.now() >= byoyomiEndsAt) endByoyomiGame();
@@ -4661,11 +4679,49 @@ setInterval(async () => {
 
 let botTimer = null, suppressNextClick = false, botTurnTapTime = 0;
 function parseClockText(txt) { const m = /^([0-9]+):([0-9]{2})$/.exec((txt || '').trim()); return m ? Number(m[1]) * 60000 + Number(m[2]) * 1000 : null; }
+// v211 (Jeff, Nov 28): the live clocks must NEVER count up a second.
+// The root cause (online matches): every new server state (SSE push,
+// 1s poll, play/pass reply) re-baselines gameFetchAt = Date.now()
+// with a clock value the server stamped at request time, so a slow
+// response re-baselines the display UP by the extra latency — up to
+// hundreds of ms, which flips the floored second upward across a
+// boundary and then drains back down ("briefly counting up"). The
+// play-reply path already avoided this by keeping gameFetchAt at the
+// tap time; the SSE/poll paths did not. And the runoff early-return
+// below had the same shape: an over-drained live estimate (fromMs)
+// below the server's frozen post-move value (toMs) wrote toMs, jumping
+// the display up by the over-drain. The single choke point is the
+// WRITE: a new value is only written if its second does not exceed
+// the second currently on screen (parseClockText reads the display,
+// second-truncated, so the comparison is exact). A held second drains
+// again within the latency at worst — a sub-second pause, never a
+// count-up. The hold/countdown pins ('4:00') and the replay clocks
+// are not live clocks and bypass this (they only ever step down).
+function setClockText(el, ms) {
+  if (!el) return;
+  // v211: a displayed second never increases WHILE THAT CLOCK IS
+  // RUNNING (its side's turn, game active) — a slow server response
+  // re-baselines the display up by the latency, so the running clock
+  // holds the old second instead of counting up. A clock that is NOT
+  // running (the other side's, or a fresh state render) may be set to
+  // any value: a stored clock legitimately renders higher than the
+  // stale display (T1: a bot clock stored at 1400ms renders 0:01
+  // even after the element showed 0:00 — the tick is the only writer
+  // of the live clocks, so clamping a static clock would freeze it
+  // at the stale value forever).
+  const side = el.id === 'clockHuman' ? 'human' : el.id === 'clockBot' ? 'bot' : null;
+  const running = side && game && game.status === 'active' && game.clocks && game.clocks.turn === side;
+  if (running) {
+    const cur = parseClockText(el.textContent);
+    if (cur !== null && parseClockText(fmtClock(ms)) > cur) return;
+  }
+  el.textContent = fmtClock(ms);
+}
 let runoffIv = null, humanRunoffIv = null;
 function animateClockRunoff(fromMs, toMs) {
   if (runoffIv) { clearInterval(runoffIv); runoffIv = null; }
   if (fromMs !== null && toMs !== null) fromMs = Math.min(fromMs, toMs + 20000);
-  if (fromMs === null || toMs === null || fromMs <= toMs) { if (toMs !== null) $('clockBot').textContent = fmtClock(toMs); return; }
+  if (fromMs === null || toMs === null || fromMs <= toMs) { if (toMs !== null) setClockText($('clockBot'), toMs); return; }
   const steps = Math.max(1, Math.round((fromMs - toMs) / 1000));
   // 50ms per displayed second = ~750ms for the 15s runoff to the 20s mark.
   runoffUntil = Date.now() + steps * 50 + 100;
@@ -4673,22 +4729,22 @@ function animateClockRunoff(fromMs, toMs) {
   runoffIv = setInterval(() => {
     i++;
     const v = fromMs - Math.round((fromMs - toMs) * i / steps);
-    $('clockBot').textContent = fmtClock(Math.max(toMs, v));
-    if (i >= steps) { clearInterval(runoffIv); runoffIv = null; $('clockBot').textContent = fmtClock(toMs); runoffUntil = 0; }
+    setClockText($('clockBot'), Math.max(toMs, v));
+    if (i >= steps) { clearInterval(runoffIv); runoffIv = null; setClockText($('clockBot'), toMs); runoffUntil = 0; }
   }, 50);
 }
 function animateHumanRunoff(fromMs, toMs) {
   if (humanRunoffIv) { clearInterval(humanRunoffIv); humanRunoffIv = null; }
-  if (fromMs === null || toMs === null || fromMs <= toMs) { if (toMs !== null) $('clockHuman').textContent = fmtClock(toMs); return; }
+  if (fromMs === null || toMs === null || fromMs <= toMs) { if (toMs !== null) setClockText($('clockHuman'), toMs); return; }
   const steps = Math.max(1, Math.round((fromMs - toMs) / 1000));
   humanRunoffUntil = Date.now() + steps * 20 + 100;
-  $('clockHuman').textContent = fmtClock(fromMs);
+  setClockText($('clockHuman'), fromMs);
   let i = 0;
   humanRunoffIv = setInterval(() => {
     i++;
     const v = fromMs - Math.round((fromMs - toMs) * i / steps);
-    $('clockHuman').textContent = fmtClock(Math.max(toMs, v));
-    if (i >= steps) { clearInterval(humanRunoffIv); humanRunoffIv = null; $('clockHuman').textContent = fmtClock(toMs); humanRunoffUntil = 0; }
+    setClockText($('clockHuman'), Math.max(toMs, v));
+    if (i >= steps) { clearInterval(humanRunoffIv); humanRunoffIv = null; setClockText($('clockHuman'), toMs); humanRunoffUntil = 0; }
   }, 20);
 }
 let lastBotPollAt = 0;

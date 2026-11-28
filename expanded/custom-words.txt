@@ -1,0 +1,47 @@
+# Duello custom words — EXEMPT from the NWL2023 audit (v211, Nov 28, 2026)
+# These words are in Duello's dictionary by Jeff's decision even though they
+# are NOT in NWL2023 (US Scrabble). A future NWL audit must NOT remove them.
+# Format: one word per line, sorted. The reason is in the comment groups.
+# DUELLO — Jeff's own word (the game). ELO/ELOS — Jeff, Nov 28, 2026.
+# XRAY/XRAYS/XRAYED/XRAYING — Jeff, Nov 28, 2026. NOTE: XRAY is NOT in
+# NWL2023 (verified against the authoritative 196,601-word file: 0 matches
+# for "XRAY" anywhere) nor in CSW — it is a custom addition, NOT audit-safe,
+# despite the brief's premise. Same for its inflections.
+# GIFFED/GIFFING — Jeff, Nov 28, 2026. GIFS is NWL-valid (audit-safe) and
+# is NOT listed here; GIFFED/GIFFING are not in NWL2023 (GIF is noun-only
+# there: "GIF a computer file in a format for images [n GIFS]"), so they
+# are custom. The 9 months are not in NWL2023 (proper nouns). The 12
+# two-letter words are CSW-only customs Jeff deliberately kept. TEENED /
+# TEENING are CSW-only verb forms of TEEN ("to provoke or vex") Jeff kept.
+APRIL
+DECEMBER
+DUELLO
+EE
+ELO
+ELOS
+EO
+FEBRUARY
+FI
+FU
+GIFFED
+GIFFING
+IO
+JA
+JANUARY
+JE
+JULY
+JUNE
+NOVEMBER
+OCTOBER
+OO
+OU
+PH
+SEPTEMBER
+TEENED
+TEENING
+VU
+XRAY
+XRAYED
+XRAYING
+XRAYS
+YI

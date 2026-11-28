@@ -138,9 +138,27 @@
   }
   // Validate a set of placements against board/rack. Returns {valid, error, invalidWords, words, score, mainWord, mainCells, placements}
 
-  // ---------- Bot skill / think ----------
+  // v211 (Jeff, Nov 28): calibrated so a Doppelganger at Elo E averages
+  // the same game/move score as a persona at Elo E (measured head-to-head,
+  // n=100 games/band). Round 1 (good 2/22/38%) overshot at the top:
+  // gaps +5.1 at 1000, +6.0 at 1188, +18.9 at 1200, +17.8 at 1400
+  // (dopp too strong). Round 2 lowers the plateau to 32% and 1000 to
+  // 20%: measured sensitivity is ~0.13 move-score pts per 1% good, so
+  // -6% at the plateau cuts ~0.8 move pts. Round 2 still left all six
+  // 1188+ measurements positive (avg gaps +10 to +12), so round 3
+  // lowers the plateau to 26% and 1000 to 18%. The persona's strength
+  // rises steeply with Elo (its reach tightens 60%->20% from 800 to
+  // 1200, topN 0->3) then plateaus, while the old rates rose only
+  // slowly (good 9%->14%), so the dopp was too strong at 800 and far
+  // too weak at 1000+ before. The good rate now tracks the persona:
+  // ~2% at 800 (weak, like the persona's 60% reach), 18% at 1000,
+  // 26% at 1200 and flat to 2000 (the persona plateaus at 1200), then
+  // up to the Fishstick-level 90% at 3000.
+  // Only the bad/good split moves; avg stays 50% through the
+  // mid-range. The bucket logic is untouched — the dopp still plays
+  // obscure words freely.
   function botSkillRates(elo) {
-    const anchors = [[0, 60, 35, 5], [1000, 40, 50, 10], [2000, 20, 50, 30], [3000, 0, 10, 90]];
+    const anchors = [[0, 63, 35, 2], [800, 48, 50, 2], [1000, 32, 50, 18], [1200, 24, 50, 26], [2000, 24, 50, 26], [3000, 0, 10, 90]];
     const e = Math.max(0, Math.min(3000, elo));
     for (let i = 0; i < anchors.length - 1; i++) {
       const [e0, b0, a0, g0] = anchors[i];

@@ -131,8 +131,8 @@ name or a big score never reflows the board. Names never wrap. */
    old 76px identity column (68px of text room), so it ellipsized.
    The column is now 92px (84px of text room) and the name 10px
    (76.0px), so the full word fits with room to spare. The clock
-   ("4:00" = 64px at 32px Arial bold) still fits in what is left of
-   the panel down to a 375px-wide phone. */
+   ("4:00" = 64.05px of text at 32px Arial bold, in a fixed 66px box)
+   still fits in what is left of the panel down to a 375px-wide phone. */
 /* v159: a name longer than the 92px identity column is NOT cut off
    with an ellipsis at the column edge — it extends visibly under
    the red countdown numbers. The name sits lower than the countdown
@@ -153,7 +153,19 @@ name or a big score never reflows the board. Names never wrap. */
    full row width (the .panel .clock width:100% rule below would),
    or the countdown is pushed out. Red #ff1303: urgent at a glance. */
 .clock-row{display:flex;flex-direction:row;align-items:center;gap:6px}
-.panel .clock-row .clock{width:auto;flex:0 0 auto}
+/* v211 (Jeff, Nov 28): the clock is a FIXED 66px wide — the widest
+   string it ever shows ("4:00"/"0:00", render-measured 64.05px at
+   32px Arial bold; "1:11" is only 62.3px, the narrow "1" — and
+   narrower still in Helvetica on the phone). 64px was tried first
+   and TRUNCATED the clock ("4:..." — 64.05px of text in a 64px box
+   trips the ellipsis by 0.05px), so 66px gives ~2px of margin. The
+   old width:auto let the span shrink with narrow digits, and the
+   in-flow badge slid with it (1.7px in headless, more on iOS).
+   Fixed width + the clock-col's text-align (right human, left bot)
+   anchors the digits to the outer edge, so the badge — centred by
+   the 7px/3px margin + 6px gap — never moves. Duo scales it with
+   --gs (see the v211 block). */
+.panel .clock-row .clock{width:66px;flex:0 0 auto}
 /* v158: the countdown is the same size and font as the regular
    clock (32px Arial bold), just red — no more 22px countdown.
    min-width:2ch keeps the box two digits wide, so as it ticks
@@ -161,7 +173,7 @@ name or a big score never reflows the board. Names never wrap. */
    below (right for the human, left for the opponent) anchors the
    number to the clock, so the gap to the clock stays constant
    and the number does not jump. "12" at 32px Arial bold is ~36px,
-   so the clock-row needs ~106px (clock 64 + gap 6 + 36). v159:
+   so the clock-row needs ~108px (clock 66 + gap 6 + 36). v159:
    the name is back in the 92px identity column (the v158
    name-under-clocks row is reverted), so the clock-row is wider
    than the clock column and its countdown end extends into the
@@ -1644,3 +1656,28 @@ body.duo-open-p .tab-btn svg,body.duo-open-p .tab-btn img,body.duo-closed .tab-b
 body.duo-open-p .gear-btn,body.duo-open-p .share-btn{top:calc(22px + var(--sat))}
 body.duo-open-p .gear-btn{right:30px}
 body.duo-open-p .share-btn{left:30px}
+
+/* === v211 (Jeff, Nov 28, 2026) === */
+/* Item 1 — the status-line gap is a fixed PROPORTION on every phone:
+   5% of the viewport height (40px on the 16, 38.2 on the 13 mini,
+   33.4 on the SE, 44.9 on the Pro Max). Before, the gap was the
+   status strip (40.2px) PLUS whatever slack the screen had — 100.7px
+   on the 13 mini, 67.9 on the 16e, 63.9 on the 16 (headless, inset 0)
+   — because in the reference envelope the rack rode margin-top:auto
+   and all the slack pooled above it, inside the gap, with the status
+   text pinned to the top of the gap (30.3px off-centre on the mini).
+   Now the two .game-spacer strips flex in BOTH regimes, so the slack
+   splits equally above the scoreboard and below the controls (the
+   board/scoreboard move down, the rack/buttons move up — exactly as
+   Jeff described), the rack loses margin-top:auto, and the status
+   strip IS the gap: its height is 5% of 100svh with no margin or
+   padding, and its flex centring puts the text in the middle of it.
+   The 40px controls margin + its inset-absorbing formula are
+   untouched (they sit below the controls, outside the gap), and the
+   puzzle screen is untouched (scoped to #gameScreen only). */
+#gameScreen #gameDim .game-spacer{flex:1 1 0;min-height:0}
+#gameScreen #rack{margin-top:0}
+#gameScreen #status{height:calc(100svh * 0.05);min-height:0;margin:0;padding:0}
+/* Item 3a — the clock's fixed width scales with the board on Duo
+   (the 66px above is the 370px-reference width). */
+body.duo .panel .clock-row .clock{width:calc(var(--gs) * 66px)}

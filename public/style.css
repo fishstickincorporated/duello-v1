@@ -296,7 +296,7 @@ present again; a flex-shared cell previously squeezed them to half width. */
 .drag-ghost{position:fixed;width:92px;height:92px;border-radius:12px;overflow:hidden;background:linear-gradient(180deg,#7df3ff 0%,#03eaff 50%,#00b8d2 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.65),inset 0 -2px 0 rgba(0,90,110,.35);color:#1a1d24;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;z-index:60;pointer-events:none;transform:translate(-50%,-90%)}
 
 /* Bottom tabs: main menu only, no text under icons */
-.tab-bar{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:390px;display:flex;justify-content:space-around;align-items:center;background:#1a1d24;border-top:1px solid #2a2f3a;padding:14px 0 calc(10px + env(safe-area-inset-bottom));z-index:40}
+.tab-bar{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:390px;display:flex;justify-content:space-around;align-items:center;background:#1a1d24;border-top:1px solid #2a2f3a;padding:calc(12px + env(safe-area-inset-bottom) / 2) 0 calc(12px + env(safe-area-inset-bottom) / 2);z-index:40}
 /* v146: every tab button is exactly 40px tall with its icon centered,
    so the top pixel of all three tabs sits at the same height; the active
    ring is an inset shadow, not an outline — the 2px outline used to poke
@@ -1573,3 +1573,74 @@ body.duo-open-p .puzzle-final-score{margin-top:calc(var(--ps) * 10 + 16px)}
   .puzzle-timer-pill{margin-top:26px}
   .puzzle-final-score{margin-top:26px}
 }
+
+/* ================================================================
+   v210 (Jeff, Nov 28, 2026) — Duo layout only. iPhone 16 untouched.
+   Everything here is scoped to body.duo-closed / body.duo-open-p,
+   so the reference layout and Duo open landscape are unchanged.
+   Measured from Jeff's Nov 28 sim screenshots (see the v210 probe):
+   the closed Duo's camera cutout is a ~36pt circle whose LEFT edge
+   sits at x=400.3pt, y=29.5..64.9pt; the v209 game column ran
+   38.6..427.4, so the cutout covered the right scoreboard's edge
+   (the "k" in "Fishstick"). The closed sim reports a ~22px bottom
+   safe-area inset and the open-p sim ~31px; both insets shrank the
+   boards below their headless size and left the dead space Jeff
+   saw below the buttons. */
+
+/* --- Closed game: clear the cutout, hug the lower-left. ---
+   The height term drops env(safe-area-inset-bottom): the board no
+   longer shrinks with the inset, so device == headless and the
+   controls end ~652, still 26pt above the viewport edge (the home
+   indicator clears by ~21pt). The 380px width cap + the left
+   anchor put the column at 10..390 — 10.3pt clear of the cutout's
+   left edge (400.3). The column is left-anchored (margin 0, not
+   auto) so it reads as lower-left, not centred. */
+body.duo-closed{--bw:min(var(--cw), calc((100svh - 16px - var(--sat)) / 1.703), 380px)}
+body.duo-closed #gameScreen #gameDim{margin-left:0;margin-right:0}
+
+/* --- Closed puzzle: maximise, still centred. ---
+   The title is hidden at 678px height (max-height:719px rule), so
+   its 52.7ps term is dead weight in the v207 divisor; the true
+   no-title stack ratio is ~1.81 (measured from the v209 probe:
+   content 616.4pt at P=339.8). Divisor 1.82 + the game's 16px
+   allowance (was 28) grows the board 339.8 -> ~364 headless and
+   on-device (the env term is dropped here too), controls ending
+   ~664 with the spacers near 0. Width never binds (364 < 446). */
+body.duo-closed{--pbw:min(var(--cw), calc((100svh - 16px - var(--sat)) / 1.82))}
+
+/* --- Open portrait game: maximise. ---
+   Same env drop as closed: the board stops shrinking with the
+   ~31px inset, 531 -> 549 on the sim (headless already 549, so
+   the headless probe cannot see this change — the inset-override
+   probe verifies it). Controls end ~940, 11pt above the edge. */
+body.duo-open-p{--bw:min(var(--cw), calc((100svh - 16px - var(--sat)) / 1.703))}
+
+/* --- Tab icons: centred + larger, open portrait + closed. ---
+   The v208 dock is 39px + the bottom safe area, with the safe area
+   as bottom padding — so the 40px buttons sat in the 39px band at
+   the TOP of the dock and the safe-area strip below them read as
+   dead space (Jeff's home screenshot). Padding 0 centres the
+   buttons in the FULL dock height (align-items:center is on the
+   base .tab-bar); the dock height itself is unchanged. Icons
+   28 -> 32px with the button's vertical padding 6 -> 4px, so the
+   button stays 40px. Scoped to open-p + closed only; open
+   landscape keeps the v208 dock.
+   v210 follow-up (Jeff, Nov 28): the CENTRING is for ALL models,
+   not Duo-only — the same top-alignment happens on the iPhone 16
+   (14px top vs 10px+34px bottom padding on-device) and iPad, so
+   the BASE .tab-bar padding is now symmetric too: 12px + half the
+   bottom inset on each side, which centres the 40px button in the
+   dock at any inset (headless the button moves 2px up, 802 -> 800
+   at the 16 — the only 16 change in v210). The larger 32px icons
+   stay Duo-only (open-p + closed, above). */
+body.duo-open-p .tab-bar,body.duo-closed .tab-bar{padding:0}
+body.duo-open-p .tab-btn,body.duo-closed .tab-btn{padding:4px 18px}
+body.duo-open-p .tab-btn svg,body.duo-open-p .tab-btn img,body.duo-closed .tab-btn svg,body.duo-closed .tab-btn img{width:32px;height:32px}
+
+/* --- Gear/share nudge: OPEN PORTRAIT only (Jeff, Nov 28). ---
+   In 8px (22 -> 30px from the side) and down 6px (top 16 -> 22px
+   + sat) from the v208 open values; size stays 30px. Closed keeps
+   the v208 item-6 positions exactly (top 34px+sat, 84px in). */
+body.duo-open-p .gear-btn,body.duo-open-p .share-btn{top:calc(22px + var(--sat))}
+body.duo-open-p .gear-btn{right:30px}
+body.duo-open-p .share-btn{left:30px}

@@ -92,7 +92,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 209;
+const APP_VERSION = 210;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -4921,7 +4921,7 @@ let offlineMeta = null; // {offlineId, playerEloAtStart, startedAt, finishedAt, 
 let pendingEloSum = 0; // deltas from finished-but-unsynced offline games
 let pendingGamesCount = 0; // finished offline games waiting to sync
 let pendingOutboxRecs = []; // finished-but-unsynced offline games (v209): rendered as ordinary games in Game History until they land
-let rejectedOutboxRecs = []; // server-rejected offline games (v208): kept in the stats merge + Game History as ordinary games until the silent retry lands them
+let rejectedOutboxRecs = []; // server-rejected offline games (v208/v210): kept in Game History as ordinary games only — v210: NEVER in the stats merge, never retried
 let outboxMayBeNonEmpty = false;
 let drainRunning = false, drainScheduled = false;
 let resumeSkipCountdown = false;
@@ -4966,9 +4966,9 @@ function localElo() {
 // frozen at the first profile visit of the session (loadMe is
 // cached-only). So a game that just ended, or one still sitting in
 // the outbox, was invisible until the next app restart. The merge
-// below is computed from the local outbox records (finished +
-// retry-eligible rejected) and layered OVER the server stats at
-// display time only: it is never cached and never written back, so
+// below is computed from the local outbox records (finished
+// records only — v210: rejected games are terminal and never merge)
+// and layered OVER the server stats at display time only: it is never cached and never written back, so
 // when the game syncs and a server refresh lands, the server values
 // replace the merged ones — never add to them, never double-count.
 //
@@ -5093,18 +5093,21 @@ function mergeProfileStats(server, local) {
   return st;
 }
 
-// ---------- Guarded retry for server-rejected offline games (v205, v208) ----------
-// A game the server 422s used to stay 'rejected' forever (the v168
-// one-time flip already ran). Some rejections are stale-client
-// artefacts — a word the server's dictionary did not know yet, a
-// replay check the client has since fixed — so a genuinely valid
-// game could sit rejected forever. The retry is guarded: it only
-// happens when something may have changed — the client version
-// advanced, or the reason was transient and a day has passed. A
-// deterministic rejection under the current version never retries
-// on its own (v209 removed the manual retry UI: sync is silent now —
-// the drain, the version flips and the periodic retry are the only
-// retry paths, and the user never sees any of them).
+// ---------- Guarded retry for server-rejected offline games (v205, v208, v210) ----------
+// A game the server 422s is 'rejected'. v210 (Jeff, Nov 28: "ignore
+// the sync issue for the past and start fresh"): a rejection is
+// terminal, with ONE forward-looking exception — a game THIS version
+// rejected for a TRANSIENT reason retries once a day, in case the
+// server has caught up since. The old rescue paths are gone: no
+// one-time retry for pre-v205 records with no metadata, no rescue
+// on a version bump, and no v209 one-time re-flip (removed from
+// refreshOfflineTotals below) — those are what kept resurrecting
+// SALUTE and the other old 422s on every new version, and what let
+// their deltas inflate the displayed Elo above the server's
+// best-ever. A deterministic rejection never retries on its own
+// (v209 removed the manual retry UI: sync is silent now — the drain
+// and the daily transient retry are the only retry paths, and the
+// user never sees any of them).
 // v208 (SALUTE): the old 2-attempt cap is gone for transient
 // reasons — Jeff's Nov 25 99-point Doppelgänger game burned both
 // attempts on version bumps, hit the cap, and vanished from stats
@@ -5118,9 +5121,8 @@ function isTransientRejectReason(reason) {
 }
 function isRejectRetryEligible(rec) {
   if (!rec || rec.status !== 'rejected') return false;
-  if (rec.rejectAppVersion == null) return true; // rejected before v205 (no metadata): one guarded retry
-  if (rec.rejectAppVersion < APP_VERSION) return true; // a new client version may have fixed the cause: one retry per version
-  if (isTransientRejectReason(rec.rejectReason) && rec.rejectedAt && (Date.now() - new Date(rec.rejectedAt).getTime() > REJECT_RETRY_TRANSIENT_MS)) return true; // transient: once a day, no cap (v208)
+  if (rec.rejectAppVersion !== APP_VERSION) return false; // v210: rejected by an older version (or with no metadata): the past is terminal — never retried
+  if (isTransientRejectReason(rec.rejectReason) && rec.rejectedAt && (Date.now() - new Date(rec.rejectedAt).getTime() > REJECT_RETRY_TRANSIENT_MS)) return true; // transient, this version, over a day old: once a day, no cap (v208)
   return false; // deterministic rejection under the current version: no auto-retry
 }
 
@@ -5218,20 +5220,12 @@ async function refreshOfflineTotals() {
   // version so the same version never flips the same record twice;
   // the drain stamps rejectCount/rejectedAt if it 422s again.
   let flipped205 = false;
-  // v209: one-time retry of every game the server rejected before
-  // the replay fixes (single-tile main-word + burst duplicates).
-  // Flip them all back to 'finished' once; the drain re-sends them
-  // to the fixed server (buildSyncPayload normalizes burst payloads
-  // on the way out), and a game that is genuinely invalid is
-  // rejected again and stays rejected (the flag stops a second flip).
-  try {
-    if (!storeGet('duello_rejected_retry_v209')) {
-      const rejected = recs.filter((r) => r.status === 'rejected');
-      for (const r of rejected) { r.status = 'finished'; try { await offlineStorePut(r); } catch {} }
-      storeSet('duello_rejected_retry_v209', '1');
-      if (rejected.length > 0) flippedAny = true;
-    }
-  } catch {}
+  // v210: the v209 one-time re-flip is REMOVED, not replaced.
+  // Jeff (Nov 28): "ignore the sync issue for the past and start
+  // fresh" — the old 422s (SALUTE and the rest) are terminal and
+  // must never be re-sent, so there is no v210 re-flip flag and the
+  // v209 flag is never read again. A device that skipped v209
+  // simply keeps its rejected records rejected.
   try {
     const rejected = recs.filter((r) => r.status === 'rejected' && isRejectRetryEligible(r));
     for (const r of rejected) {
@@ -5248,18 +5242,20 @@ async function refreshOfflineTotals() {
   // The flip above runs before the flag is set here, so schedule the
   // retry drain now that the outbox is known non-empty.
   if (flippedAny || flipped205) { try { scheduleDrain(); } catch {} }
-  // v208 (SALUTE): the local stats merge keeps EVERY rejected
-  // record, not just retry-eligible ones — those games happened,
-  // and dropping them made a real 99-point game vanish from the
-  // profile as if it never existed. The merge is display-only and
-  // the server replaces it on sync, so a game that later syncs
-  // never double-counts. v209: the rejected + finished records are
-  // also kept for Game History, where they render as ordinary games
-  // (no sync state anywhere — the drain retries silently).
+  // v210 (Jeff, Nov 28: "ignore the sync issue for the past and
+  // start fresh"): the local stats merge keeps FINISHED (pending)
+  // records only — NEVER rejected ones. v208 kept rejected records
+  // in the merge so a real 99-point game would not vanish, but that
+  // is exactly what made SALUTE flash in Best Word for a second and
+  // then vanish when the server refresh landed, and what let
+  // rejected deltas inflate the displayed Elo above best-ever.
+  // A rejected game is terminal: it counts for nothing. v209's
+  // rule stands for Game History, where rejected + finished records
+  // both render as ordinary games (no sync state anywhere).
   rejectedOutboxRecs = recs.filter((r) => r.status === 'rejected');
   pendingOutboxRecs = recs.filter((r) => r.status === 'finished');
   try {
-    const mergeable = recs.filter((r) => r.status === 'finished' || r.status === 'rejected');
+    const mergeable = recs.filter((r) => r.status === 'finished');
     localProfileStats = localScopeStats(mergeable);
   } catch { localProfileStats = null; }
   // The profile count line updates with the totals (renderStatsList
@@ -6112,6 +6108,7 @@ function scheduleDrain() {
 async function drainOutbox() {
   if (drainRunning) return;
   drainRunning = true;
+  let syncedCount = 0; // v210: a profile refresh runs after the drain only if something actually synced
   try {
     // navigator.onLine alone lies; the /api/me below is the real check.
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
@@ -6126,15 +6123,15 @@ async function drainOutbox() {
         res = await api('/api/games/sync', { method: 'POST', body: JSON.stringify(buildSyncPayload(rec)) });
       } catch (e) {
         // 422: the server replay rejected this game — mark it rejected
-        // and roll its delta out of the local Elo. The rejection is
-        // recorded (reason, count, version, time) so the guarded
-        // retry can tell a stale-client rejection from a genuinely
-        // invalid game; it is never retried unconditionally. v208:
-        // the record stays in the stats merge and in Game History as
-        // an ordinary game — it must never vanish silently again.
-        // v209: no manual retry any more; the silent paths (version
-        // flips, the daily transient retry, the periodic drain) are
-        // the only retries, and the user never sees any of them.
+        // and roll its delta out of the local Elo. v210: the
+        // rejection is terminal — the record is never retried (no
+        // version-bump rescue, no re-flip) and never merges into
+        // stats, so it can never flash in Best Word or inflate the
+        // displayed Elo again. The one exception is a TRANSIENT
+        // reason under the current version, which the guarded retry
+        // (isRejectRetryEligible) retries once a day. The record
+        // stays in Game History as an ordinary game (v209) — it
+        // must never vanish silently.
         if (e && e.status === 422) {
           try {
             rec.status = 'rejected';
@@ -6184,8 +6181,15 @@ async function drainOutbox() {
         if (stored) { stored.elo = newElo; try { storeSet('duello_me', JSON.stringify(stored)); } catch {} }
       }
       if (game && game.offline && game.id === 'offline-' + rec.offlineId) game.offlinePending = false;
+      if (!(res && res.freeExit)) syncedCount++;
     }
     await refreshOfflineTotals();
+    // v210: a successful sync moves the game off the local merge and
+    // onto the server — refresh the profile stats from the server
+    // so the display stays constantly current instead of showing
+    // the pre-sync server stats until the next tab visit. Guarded:
+    // a failed refresh never breaks the drain.
+    if (syncedCount > 0) { try { await refreshProfileStats(); } catch {} }
   } finally {
     drainRunning = false;
   }
@@ -7524,7 +7528,13 @@ async function renderProfileUI(prefetched) {
   $('profileName').textContent = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
   $('profileUsername').textContent = '@' + u.username;
   $('profileElo').textContent = localElo(); // instant offline: includes unsynced deltas (v111), not just the last synced Elo
-  $('profileEloHigh').textContent = u.eloHigh;
+  // v210: displayed best is the max of the server's all-time high
+  // and the displayed Elo — pending deltas can legitimately push
+  // the displayed Elo above the server's elo_high (the server only
+  // learns the new high when the game syncs), and the old merge
+  // let rejected deltas push it further still. Current can never
+  // read higher than best.
+  $('profileEloHigh').textContent = Math.max(typeof u.eloHigh === 'number' ? u.eloHigh : 0, localElo());
   // Global Rank sits above the chart with Elo and All-time high.
   // Show the cached rank at once when it is there (v75 cache), else
   // fetch it once and cache it, like the profile modal does. On a
@@ -7591,8 +7601,9 @@ function fmt1(v) { return (Number(v) || 0).toFixed(1); }
 function renderStatsList() {
   if (!profileData || !profileData.profileStats) return;
   const server = profileData.profileStats[statsScope] || profileData.profileStats.aggregate;
-  // v208: layer the local outbox stats (finished + rejected games)
-  // over the server stats at display time only.
+  // v210: layer the local outbox stats (finished games only —
+  // rejected games are terminal and never merge) over the server
+  // stats at display time only.
   // The merge is never cached or written back, so a server refresh
   // after sync replaces it — never adds to it, never double-counts.
   // Offline it works from local data alone (no fetch here at all).

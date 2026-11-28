@@ -1744,7 +1744,20 @@ function replayOfflineSync(eng, payload) {
     const rec = state.moves[side][moveIdx[side]];
     if (!rec) return fail(`More ${side} plays than recorded moves.`);
     if (res.score !== rec.score) return fail(`${side} move ${moveIdx[side] + 1}: replayed score ${res.score} does not match recorded ${rec.score}.`);
-    if (res.mainWord !== rec.mainWord) return fail(`${side} move ${moveIdx[side] + 1}: replayed main word ${res.mainWord} does not match recorded ${rec.mainWord}.`);
+    if (res.mainWord !== rec.mainWord) {
+      // v209: a single-tile play forms two words (one per direction) and
+      // the solver records the span word while validatePlay reports the
+      // higher-scoring one — the same legal play has two honest names
+      // (Doppelganger's pick is random inside its score bucket, so no
+      // deterministic rule reproduces it). Accept the recorded word
+      // when it is one of the words the play actually formed; the
+      // score, board, winner and Elo checks below still bind the game.
+      // Multi-tile plays have one unambiguous main word, so the exact
+      // check still applies to them.
+      const singleTile = play.placements.length === 1;
+      const formed = singleTile && (res.words || []).some((w) => w.word === rec.mainWord);
+      if (!formed) return fail(`${side} move ${moveIdx[side] + 1}: replayed main word ${res.mainWord} does not match recorded ${rec.mainWord}.`);
+    }
     moveIdx[side]++;
     if (side === 'bot') {
       // Bot moves are checked against the solver on the board BEFORE

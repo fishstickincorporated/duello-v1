@@ -1057,7 +1057,14 @@ squares are the premium colours, spread out across the whole screen. */
 /* v154: the check always occupies the same 20px slot, checked or
    not — the row height no longer changes when the check appears. */
 .settings-check{flex:0 0 20px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;color:#03eaff;font-size:18px;font-weight:700}
-#fieldInput{flex:1;background:none;border:0;color:#fff;font-size:16px;font-family:inherit;outline:none;min-width:0;padding:0}
+#fieldInput{flex:1;background:none;border:0;color:#fff;font-size:16px;font-family:inherit;outline:none;min-width:0;padding:0 0 0 8px}
+/* v209: 8px left padding — Comfortaa's lowercase "j" has ink (its hook)
+   extending left of the glyph origin, and padding:0 clipped it at the
+   content-box edge, so "jeff" rendered as "ieff". Scroll pins were
+   never the cause (scrollLeft was already 0); the padding is the fix.
+   The 6-digit code input gets the same left padding for consistency
+   (digits have no left overhang, but both editor inputs match). */
+#fieldEmailCodeInput{padding-left:8px}
 /* v151: the change-password fields and criteria bullets sit inside
    the grey box with a 16px inset, not flush against its edges. */
 #profilePasswordScreen .settings-group{padding:10px 16px}

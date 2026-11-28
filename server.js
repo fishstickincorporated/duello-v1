@@ -1109,7 +1109,7 @@ async function applySyncedGameElo(user, gameId, delta, botType, botElo, playerEl
 // is a 404, not a 200. Returns { status, body } for the response.
 async function reconcileDuplicateSync(engine, user, gameId, b) {
   const check = validateOfflineSync(engine, b);
-  if (!check.ok) return { status: 422, body: { error: check.error } };
+  if (!check.ok) { console.error('[sync-422] user=' + user.id + ' offlineId=' + (b && b.offlineId) + ' reason=' + check.error); return { status: 422, body: { error: check.error } }; }
   const row = await q('SELECT id, user_id, state FROM games WHERE id=$1', [gameId]);
   if (!row.rows[0] || row.rows[0].user_id !== user.id) return { status: 404, body: { error: 'Game not found.' } };
   const storedState = typeof row.rows[0].state === 'string' ? JSON.parse(row.rows[0].state) : row.rows[0].state;
@@ -3358,7 +3358,7 @@ const server = http.createServer(async (req, res) => {
       if (!user) return sendJson(res, 401, { error: 'Not signed in.' });
       const b = await readBody(req);
       const shape = validateOfflineSync(engine, b, { shapeOnly: true });
-      if (!shape.ok) return sendJson(res, 422, { error: shape.error });
+      if (!shape.ok) { console.error('[sync-422] user=' + user.id + ' offlineId=' + (b && b.offlineId) + ' reason=' + shape.error); return sendJson(res, 422, { error: shape.error }); }
       // v138: a no-move bot forfeit is a free exit — the client never
       // syncs one, but a stale/racing client might. Record nothing:
       // no game row, no Elo move, no elo_history. Answer success so
@@ -3380,7 +3380,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, rec.status, rec.body);
       }
       const check = validateOfflineSync(engine, b);
-      if (!check.ok) return sendJson(res, 422, { error: check.error });
+      if (!check.ok) { console.error('[sync-422] user=' + user.id + ' offlineId=' + (b && b.offlineId) + ' reason=' + check.error); return sendJson(res, 422, { error: check.error }); }
       // v199: Fishstick moves nobody's Elo — the applied delta is 0
       // whatever the client submitted (older clients still send the
       // pre-freeze delta; it is ignored, not rejected, so their

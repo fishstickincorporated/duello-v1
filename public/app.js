@@ -92,7 +92,7 @@ const IS_CAPACITOR = (typeof window !== 'undefined' && !!window.Capacitor);
 // App version (v115): the ?v=N cache-buster in index.html. The local
 // definitions bundle is versioned with the same number so a rebuilt
 // bundle is fetched fresh instead of served stale from the cache.
-const APP_VERSION = 207;
+const APP_VERSION = 208;
 // v192: transient failures are retried, not surfaced. On iOS a
 // dead connection throws TypeError('Load failed') (WebKit) —
 // Jeff saw that literal text on sign-in and on the challenge
@@ -4920,6 +4920,7 @@ let offlinePlays = [];
 let offlineMeta = null; // {offlineId, playerEloAtStart, startedAt, finishedAt, eloDelta, botType, botElo}
 let pendingEloSum = 0; // deltas from finished-but-unsynced offline games
 let pendingGamesCount = 0; // finished offline games waiting to sync
+let rejectedOutboxRecs = []; // server-rejected offline games (v208): kept visible in stats + Game History with a manual retry
 let outboxMayBeNonEmpty = false;
 let drainRunning = false, drainScheduled = false;
 let resumeSkipCountdown = false;
@@ -5091,20 +5092,22 @@ function mergeProfileStats(server, local) {
   return st;
 }
 
-// ---------- Guarded retry for server-rejected offline games (v205) ----------
+// ---------- Guarded retry for server-rejected offline games (v205, v208) ----------
 // A game the server 422s used to stay 'rejected' forever (the v168
 // one-time flip already ran). Some rejections are stale-client
 // artefacts — a word the server's dictionary did not know yet, a
 // replay check the client has since fixed — so a genuinely valid
-// game (Jeff's Nov 25 99-point Doppelgänger game, which never
-// appeared in History and never moved Elo) could sit rejected
-// forever. The retry is guarded: at most 2 attempts ever, and a
-// retry only happens when something may have changed — the client
-// version advanced, or the reason was transient and a day has
-// passed. A deterministic rejection under the current version never
-// retries. The strict server replay is untouched: a game that is
-// genuinely invalid fails again and stays rejected.
-const REJECT_RETRY_MAX = 2;
+// game could sit rejected forever. The retry is guarded: it only
+// happens when something may have changed — the client version
+// advanced, or the reason was transient and a day has passed. A
+// deterministic rejection under the current version never retries
+// on its own (a manual retry still works — see retryRejectedSync).
+// v208 (SALUTE): the old 2-attempt cap is gone for transient
+// reasons — Jeff's Nov 25 99-point Doppelgänger game burned both
+// attempts on version bumps, hit the cap, and vanished from stats
+// entirely. Transient rejections now retry once a day, uncapped;
+// the strict server replay is untouched: a game that is genuinely
+// invalid fails again and stays rejected.
 const REJECT_RETRY_TRANSIENT_MS = 24 * 60 * 60 * 1000;
 function isTransientRejectReason(reason) {
   const r = String(reason || '');
@@ -5112,12 +5115,10 @@ function isTransientRejectReason(reason) {
 }
 function isRejectRetryEligible(rec) {
   if (!rec || rec.status !== 'rejected') return false;
-  const count = rec.rejectCount || 0;
-  if (count >= REJECT_RETRY_MAX) return false;
   if (rec.rejectAppVersion == null) return true; // rejected before v205 (no metadata): one guarded retry
-  if (rec.rejectAppVersion < APP_VERSION) return true;
-  if (isTransientRejectReason(rec.rejectReason) && rec.rejectedAt && (Date.now() - new Date(rec.rejectedAt).getTime() > REJECT_RETRY_TRANSIENT_MS)) return true;
-  return false;
+  if (rec.rejectAppVersion < APP_VERSION) return true; // a new client version may have fixed the cause: one retry per version
+  if (isTransientRejectReason(rec.rejectReason) && rec.rejectedAt && (Date.now() - new Date(rec.rejectedAt).getTime() > REJECT_RETRY_TRANSIENT_MS)) return true; // transient: once a day, no cap (v208)
+  return false; // deterministic rejection under the current version: no auto-retry
 }
 
 // ---------- IndexedDB outbox (localStorage fallback) ----------
@@ -5230,19 +5231,68 @@ async function refreshOfflineTotals() {
   // The flip above runs before the flag is set here, so schedule the
   // retry drain now that the outbox is known non-empty.
   if (flippedAny || flipped205) { try { scheduleDrain(); } catch {} }
-  // v205: recompute the local stats merge from the finished records
-  // plus any rejected records still eligible for a guarded retry —
-  // those games happened, and the profile must show them while their
-  // sync is pending. Ineligible rejected games (genuinely invalid)
-  // are excluded: their stats must not be invented.
+  // v208 (SALUTE): the local stats merge keeps EVERY rejected
+  // record, not just retry-eligible ones — those games happened,
+  // and dropping them made a real 99-point game vanish from the
+  // profile as if it never existed. The merge is display-only and
+  // the server replaces it on sync, so a game that later syncs
+  // never double-counts. The rejected games are also kept in
+  // rejectedOutboxRecs so Game History can show them with a
+  // "couldn't sync" state and a manual retry.
+  rejectedOutboxRecs = recs.filter((r) => r.status === 'rejected');
   try {
-    const mergeable = recs.filter((r) => r.status === 'finished' || (r.status === 'rejected' && isRejectRetryEligible(r)));
+    const mergeable = recs.filter((r) => r.status === 'finished' || r.status === 'rejected');
     localProfileStats = localScopeStats(mergeable);
   } catch { localProfileStats = null; }
   // The profile count line updates with the totals (renderStatsList
   // no-ops when no profile is loaded).
   try { renderStatsList(); } catch {}
   return { pendingGamesCount, pendingEloSum };
+}
+
+// ---------- Manual retry for server-rejected games (v208, SALUTE) ----------
+// The guarded auto-retry never retries a deterministic rejection
+// under the current version, so a game the server rejected for a
+// reason the client has since fixed — or one the user simply wants
+// to push again — would sit rejected forever, invisible. A manual
+// retry resets the rejection budget (rejectCount 0) and flips the
+// record back to finished; the drain re-validates it in full, so a
+// genuinely invalid game is rejected again and stays rejected.
+// The Game History row and the profile "Couldn't sync" line both
+// call this (per game, or all at once).
+async function retryRejectedSync(offlineId) {
+  try {
+    const recs = await offlineStoreGetAll();
+    const rec = recs.find((r) => r && r.offlineId === offlineId && r.status === 'rejected');
+    if (!rec) return false;
+    rec.status = 'finished';
+    rec.rejectCount = 0;
+    rec.rejectAppVersion = APP_VERSION;
+    rec.rejectedAt = null;
+    rec.rejectReason = '';
+    await offlineStorePut(rec);
+    await refreshOfflineTotals();
+    scheduleDrain();
+    try { const st = historyScopeState(); if (st && st.games) renderPastGamesList(st.games); } catch {}
+    return true;
+  } catch { return false; }
+}
+async function retryAllRejectedSync() {
+  try {
+    const recs = await offlineStoreGetAll();
+    const rejected = recs.filter((r) => r && r.status === 'rejected');
+    for (const rec of rejected) {
+      rec.status = 'finished';
+      rec.rejectCount = 0;
+      rec.rejectAppVersion = APP_VERSION;
+      rec.rejectedAt = null;
+      rec.rejectReason = '';
+      try { await offlineStorePut(rec); } catch {}
+    }
+    if (rejected.length) { await refreshOfflineTotals(); scheduleDrain(); }
+    try { const st = historyScopeState(); if (st && st.games) renderPastGamesList(st.games); } catch {}
+    return rejected.length;
+  } catch { return 0; }
 }
 
 // The record for the current offline game, in the persisted shape.
@@ -5940,12 +5990,21 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 // matches, so its layout is untouched. Re-checked on resize and
 // orientation change (fold/unfold, rotate). The ±4px tolerance
 // absorbs sub-pixel viewport rounding, not a different device.
+// v208: the per-mode classes below let the CSS target one mode at a
+// time — duo-open-p (portrait home, item 3), duo-open (share/gear
+// when open, item 5), duo-closed (share/gear when closed, item 6),
+// duo-open-l (bot buttons + Invite on landscape, item 4).
 function updateDuoClass() {
   const w = window.innerWidth, h = window.innerHeight;
-  const isDuo = (Math.abs(w - 466) <= 4 && Math.abs(h - 678) <= 4) ||
-    (Math.abs(w - 669) <= 4 && Math.abs(h - 951) <= 4) ||
-    (Math.abs(w - 951) <= 4 && Math.abs(h - 669) <= 4);
+  const isClosed = Math.abs(w - 466) <= 4 && Math.abs(h - 678) <= 4;
+  const isOpenP = Math.abs(w - 669) <= 4 && Math.abs(h - 951) <= 4;
+  const isOpenL = Math.abs(w - 951) <= 4 && Math.abs(h - 669) <= 4;
+  const isDuo = isClosed || isOpenP || isOpenL;
   document.body.classList.toggle('duo', isDuo);
+  document.body.classList.toggle('duo-closed', isClosed);
+  document.body.classList.toggle('duo-open', isOpenP || isOpenL);
+  document.body.classList.toggle('duo-open-p', isOpenP);
+  document.body.classList.toggle('duo-open-l', isOpenL);
 }
 if (typeof window !== 'undefined' && window.addEventListener) {
   updateDuoClass();
@@ -6029,9 +6088,11 @@ async function drainOutbox() {
       } catch (e) {
         // 422: the server replay rejected this game — mark it rejected
         // and roll its delta out of the local Elo. The rejection is
-        // recorded (reason, count, version, time) so the v205 guarded
+        // recorded (reason, count, version, time) so the guarded
         // retry can tell a stale-client rejection from a genuinely
-        // invalid game; it is never retried unconditionally.
+        // invalid game; it is never retried unconditionally. v208:
+        // the record stays in the stats merge and in Game History
+        // with a manual retry — it must never vanish silently again.
         if (e && e.status === 422) {
           try {
             rec.status = 'rejected';
@@ -7478,8 +7539,8 @@ function fmt1(v) { return (Number(v) || 0).toFixed(1); }
 function renderStatsList() {
   if (!profileData || !profileData.profileStats) return;
   const server = profileData.profileStats[statsScope] || profileData.profileStats.aggregate;
-  // v205: layer the local outbox stats (finished + retry-eligible
-  // rejected games) over the server stats at display time only.
+  // v208: layer the local outbox stats (finished + rejected games)
+  // over the server stats at display time only.
   // The merge is never cached or written back, so a server refresh
   // after sync replaces it — never adds to it, never double-counts.
   // Offline it works from local data alone (no fetch here at all).
@@ -7505,7 +7566,10 @@ function renderStatsList() {
   // Offline games waiting to sync (v106): shown while the outbox is
   // non-empty, cleared when it drains.
   if (pendingGamesCount > 0) lines.push(['Games waiting to sync', pendingGamesCount]);
-  $('statsList').innerHTML = lines.map(([k, v]) => `<div class="stat-line"${k === '10 letter words' ? ' data-ten-letter="1"' : ''}${k === 'Highest word score' ? ' data-highest-word="1"' : ''}${k === 'Longest word' ? ' data-longest-word="1"' : ''}><span>${k}</span><b>${numify(v)}</b></div>`).join('');
+  // v208 (SALUTE): games the server rejected stay visible here
+  // with a tap-to-retry — they used to vanish silently.
+  if (rejectedOutboxRecs.length > 0) lines.push(["Couldn't sync — tap to retry", rejectedOutboxRecs.length]);
+  $('statsList').innerHTML = lines.map(([k, v]) => `<div class="stat-line"${k === '10 letter words' ? ' data-ten-letter="1"' : ''}${k === 'Highest word score' ? ' data-highest-word="1"' : ''}${k === 'Longest word' ? ' data-longest-word="1"' : ''}${k === "Couldn't sync — tap to retry" ? ' data-retry-sync="1"' : ''}><span>${k}</span><b>${numify(v)}</b></div>`).join('');
   const tenRow = $('statsList').querySelector('[data-ten-letter]');
   if (tenRow) tenRow.onclick = () => openTenLetterModal(st.tenLetterWords || []);
   // Click a record word to open its board (v128, item 6): the stats
@@ -7524,6 +7588,10 @@ function renderStatsList() {
     loRow.classList.add('stat-line-clickable');
     loRow.onclick = () => openStatWordBoard(st.longestWordGameId, st.longestWordMoveIndex, st.longestWord);
   }
+  // v208 (SALUTE): the "couldn't sync" line retries every rejected
+  // game at once.
+  const retryRow = $('statsList').querySelector('[data-retry-sync]');
+  if (retryRow) { retryRow.classList.add('stat-line-clickable'); retryRow.onclick = () => retryAllRejectedSync(); }
   // v175: warm the cache for both record games now, while the user
   // is still reading the stats — the tap then opens the review with
   // no network wait (see openStatWordBoard).
@@ -7734,10 +7802,46 @@ function pastGameRowEl(g) {
   row.onclick = () => openPastGameDetail(g.id);
   return row;
 }
+// A server-rejected offline game (v208, SALUTE): the same row shape
+// as a synced game, but the date slot carries the rejection — the
+// reason the server gave — and a tap retries the sync instead of
+// opening a review (there is no server row to review yet).
+function pastGameRejectedRowEl(rec) {
+  const row = document.createElement('button');
+  row.className = 'past-game-row past-game-row-rejected';
+  const g = (rec && rec.game) || {};
+  const scores = g.scores || {};
+  const myScore = scores.human || 0, oppScore = scores.bot || 0;
+  const picEl = document.createElement('span');
+  picEl.className = 'past-game-pic past-game-pic-plain';
+  if (rec.botType === 'fishstick') picEl.innerHTML = '<img src="/assets/fishstick.png?v=1" alt="Fishstick">';
+  else picEl.textContent = '🤖';
+  const oppEl = document.createElement('span');
+  oppEl.className = 'past-game-opp';
+  oppEl.textContent = rec.botType === 'fishstick' ? 'Fishstick' : 'Doppelgänger';
+  const scoreEl = document.createElement('span');
+  scoreEl.className = 'past-game-score num ' + (myScore > oppScore ? 'past-game-score-win' : 'past-game-score-loss');
+  scoreEl.textContent = `${myScore}–${oppScore}`;
+  const dateEl = document.createElement('span');
+  dateEl.className = 'past-game-date';
+  dateEl.textContent = rec.finishedAt ? new Date(rec.finishedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+  const reasonEl = document.createElement('span');
+  reasonEl.className = 'past-game-reject-reason';
+  reasonEl.textContent = `Couldn't sync — ${rec.rejectReason || 'rejected by server'} (tap to retry)`;
+  row.append(picEl, oppEl, scoreEl, dateEl, reasonEl);
+  row.onclick = () => retryRejectedSync(rec.offlineId);
+  return row;
+}
 function renderPastGamesList(games) {
   const list = $('pastGamesList');
   list.innerHTML = '';
-  if (!games.length) {
+  // v208 (SALUTE): rejected offline games stay visible at the top
+  // of the list with a "couldn't sync" state — tap one to retry
+  // its sync. They are local records (no server row yet), so they
+  // render from the outbox, not from the fetched games.
+  const rejected = rejectedOutboxRecs.filter((r) => r && r.status === 'rejected');
+  rejected.forEach((rec) => list.appendChild(pastGameRejectedRowEl(rec)));
+  if (!games.length && !rejected.length) {
     const note = document.createElement('div');
     note.className = 'past-games-note';
     note.textContent = 'No finished games yet.';

@@ -431,6 +431,8 @@ same 52px column, right-aligned, on every row including your own
 /* Past Games list (v123, item 6): one row per finished game. */
 .past-games-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .past-game-row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#1e222b;border:1px solid #333;border-radius:10px;padding:10px 12px;color:#fff;font-family:"Comfortaa",sans-serif;font-size:15px;cursor:pointer}
+.past-game-row-rejected{flex-wrap:wrap;border-color:#7a5a12}
+.past-game-reject-reason{flex:1 1 100%;font-size:12px;color:#ff8d03;text-align:left}
 .past-game-pic{flex:0 0 28px;width:28px;height:28px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#262a33;font-size:18px}
 .past-game-pic img{width:100%;height:100%;object-fit:cover;display:block}
 /* Fishstick (v126): the transparent PNG sits directly on the dark
@@ -816,7 +818,7 @@ squares are the premium colours, spread out across the whole screen. */
    row is visible anywhere below the dissolve. The screen's bottom
    padding stays 186px + safe-area (65 tab + 24 gap + 69 button +
    12 gap + 16) so the last row can scroll clear of the mask's top edge. */
-.challenge-text-btn{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(65px + env(safe-area-inset-bottom) + 24px);width:calc(100% - 32px);max-width:358px;height:69px;font-size:22px;z-index:41;background:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(180deg,rgba(50,227,30,.8) 0%,rgba(40,168,28,.8) 100%);background-size:22px 22px,22px 22px,100% 100%}
+.challenge-text-btn{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(65px + env(safe-area-inset-bottom) + 24px);width:calc(100% - 20px);max-width:358px;height:69px;font-size:22px;z-index:41;background:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(180deg,rgba(50,227,30,.8) 0%,rgba(40,168,28,.8) 100%);background-size:22px 22px,22px 22px,100% 100%}
 .challenge-text-btn .sym svg{width:48px;height:48px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35));transform:translateY(3px)}
 /* v190: the bubble GLYPH is centred, not just its box. The path
    spans y=3..18 in the 24-unit viewBox, so its visual centre is
@@ -1359,13 +1361,31 @@ body.duo{
      board B + status 34.2gs + rack (B-30gs)/6 + rack margins 16gs +
      controls 46gs + scoreboard margin 4gs + status margins 6gs
      = 1.167B + 198.4gs; gs=B/370, so 1.703B. Available height is
-     100svh minus the 16px screen padding, the 12px slack (the
-     spacers absorb it) and the safe-area insets. */
-  --bw:min(var(--cw), calc((100svh - 28px - var(--sat) - env(safe-area-inset-bottom)) / 1.703));
+     100svh minus the 16px screen padding (4px top + 12px bottom)
+     and the safe-area insets.
+     v208 (item 2, Jeff, Nov 27, 2026): the 12px slack the v207
+     formula reserved is dropped (28px -> 16px), so the board grows
+     ~7px (542 -> ~549 open portrait). The spacers now run at ~0
+     and the controls sit ~5px above the viewport edge headless
+     (~46px on a real Duo once the ~41px bottom safe area is added
+     — Jeff's ~59pt device gap is almost entirely that safe-area
+     padding plus the 12px bottom padding, not slack the board can
+     reclaim; the headless spacers were only 5.5px). The measured
+     true stack ratio is ~1.715 (vs the 1.703 divisor); the divisor
+     is kept and the probe verifies the outcome, so the controls
+     stay on-screen. */
+  --bw:min(var(--cw), calc((100svh - 16px - var(--sat) - env(safe-area-inset-bottom)) / 1.703));
   /* Puzzle stack: title 52.7ps + date 16ps + pill 58ps + strength
      55ps + board P + status 37.2ps + rack (P-30ps)/6 + rack
      margins 16ps + controls 46ps = 1.167P + 275.9ps; ps=P/370,
-     so 1.9127P. Same 28px + insets allowance as the game. */
+     so 1.9127P. Same 28px + insets allowance as the game.
+     v208: the puzzle formula is UNCHANGED — the puzzle board is
+     already flush (controls 0.6px from the viewport edge headless,
+     spacers 0/0) and any growth would clip the controls. The
+     ~99pt gap Jeff saw below the puzzle Share buttons is the
+     counting state (timer pill hidden, ~75px more slack) or the
+     Pro Max's width-capped board (47.5px spacers), not slack on
+     the Duo's playing board. */
   --pbw:min(var(--cw), calc((100svh - 28px - var(--sat) - env(safe-area-inset-bottom)) / 1.9127));
   /* --gs/--ps MUST be redefined here, not just inherited from
      :root: a custom property's var() is resolved where it is
@@ -1431,10 +1451,18 @@ body.duo #puzzleDim .controls button{height:calc(var(--ps) * 46);font-size:calc(
 body.duo #puzzleDim .controls button .penalty{font-size:calc(var(--ps) * 11)}
 /* Tab dock ~40% shorter on Duo only: 64px -> 38px (+ bottom inset).
    The screens' bottom padding shrinks to match, and the floating
-   challenge button / mask ride up by the same 27px. */
-body.duo .tab-bar{padding:8px 0 calc(6px + env(safe-area-inset-bottom))}
-body.duo .tab-btn{height:24px;padding:4px 12px}
-body.duo .tab-btn svg,body.duo .tab-btn img{width:17px;height:17px}
+   challenge button / mask ride up by the same 27px.
+   v208 (item 1): the dock STAYS 39px, but the tab buttons/icons go
+   back to the iPhone 16's size (40px buttons, 28px icons, vertically
+   centred). The bar's height is 39px + the bottom safe area, with
+   the safe area as bottom padding, so the buttons sit in the 39px
+   band above the home indicator; at 40px in a 38px content box they
+   overflow ~1px each side, which is invisible — the dock has no
+   visible background and only the selected tab's blue pill outline
+   shows. */
+body.duo .tab-bar{height:calc(39px + env(safe-area-inset-bottom));padding:0 0 env(safe-area-inset-bottom)}
+body.duo .tab-btn{height:40px;padding:6px 18px}
+body.duo .tab-btn svg,body.duo .tab-btn img{width:28px;height:28px}
 body.duo .screen{padding-bottom:calc(54px + env(safe-area-inset-bottom))}
 body.duo #homeScreen{padding-bottom:calc(54px + env(safe-area-inset-bottom))}
 body.duo .challenge-text-btn{bottom:calc(38px + env(safe-area-inset-bottom) + 24px)}
@@ -1445,3 +1473,96 @@ body.duo #friendsScreen.ct-visible{padding-bottom:calc(159px + env(safe-area-ins
 body.duo .screen{padding-top:calc(34px + var(--sat))}
 body.duo #friendsScreen,body.duo #profileScreen,body.duo #pastGamesScreen,body.duo #puzzleLogScreen,body.duo #profileEditScreen,body.duo #profileFieldScreen,body.duo #profilePhotoScreen,body.duo #profilePasswordScreen,body.duo #profileProScreen,body.duo #profilePrivacyScreen,body.duo #authScreen{padding-top:calc(10px + var(--sat))}
 body.duo .gear-btn,body.duo .share-btn{top:calc(10px + var(--sat))}
+
+/* ================================================================
+   v208 (Jeff, Nov 27, 2026) — Duo + Pro Max layout items.
+   Everything here is scoped to body.duo* or to the two Pro Max
+   sizes, so the iPhone 16 (393x852) is untouched. The per-mode
+   classes (duo-open-p / duo-open-l / duo-closed) come from
+   updateDuoClass() in app.js. */
+
+/* --- Item 3: open Duo portrait home. Buttons slightly shorter
+   (flex-basis 92hs -> 76hs, 161.4 -> 133.3) with smaller text/icons,
+   so the spacers get ~30px more breathing room; pfp/Elo/streak
+   smaller; Upgrade to Pro bigger. --- */
+body.duo-open-p #homeScreen .mode{flex:0 1 calc(var(--hs) * 76);font-size:calc(var(--hs) * 19)}
+body.duo-open-p #homeScreen .mode .sym svg{width:calc(var(--hs) * 42);height:calc(var(--hs) * 42)}
+body.duo-open-p #homeScreen .mode .label-col .sub{font-size:calc(var(--hs) * 11)}
+body.duo-open-p .home-pfp{width:calc(var(--hs) * 45);height:calc(var(--hs) * 45);flex:0 0 calc(var(--hs) * 45);font-size:calc(var(--hs) * 23)}
+body.duo-open-p .home-stat-value{font-size:calc(var(--hs) * 17)}
+body.duo-open-p .home-stat-label{font-size:calc(var(--hs) * 11)}
+body.duo-open-p .home-upgrade-pill{padding:11px 18px;font-size:14px}
+
+/* --- Item 4: Invite Friends (Duo + Pro Max) + bot buttons + search.
+   Invite: the base width is now calc(100% - 20px) with max-width
+   358px (the cap keeps the 16/iPad at 358); the Duo and Pro Max
+   rules lift the cap so the button is exactly as wide as the home
+   buttons (Duo closed 446 / open-p 649 / open-l 931; Pro Max
+   410 / 420). Heights: slightly shorter than v207 (closed 65.7 ->
+   60 — --hs is capped to 1.026 on the short closed screen, so the
+   v207 height was 64x1.026, not 64x1.205; open-p 112.3 -> 100 =
+   0.75x the new home button, Pro Max 72.6/70.9 -> 64); open
+   landscape stays 50px — the 48px icon is the floor, it cannot go
+   shorter. --- */
+body.duo #challengeTextBtn{max-width:none}
+body.duo-closed #challengeTextBtn{height:60px}
+body.duo-open-p #challengeTextBtn{height:100px}
+body.duo-open-l #challengeTextBtn{height:50px}
+@media (width:430px) and (height:932px), (width:440px) and (height:956px){
+  #challengeTextBtn{max-width:none;height:64px}
+}
+/* Bot selector buttons: exact same dimensions as the home buttons
+   on the same Duo mode. The bot screen's side padding drops 16px ->
+   10px (as the home screen's) so the widths match (446 / 649 /
+   931); the heights are the home buttons' measured heights —
+   open-p 133.3 is the v208 item-3 height (flex-basis 76hs, no
+   shrink at that size), closed 92.4 and open-l 70.7 are the v207
+   shrunk heights. Font/icons/chevron/sub already scale with --hs
+   exactly like the home buttons (media block), so only the height
+   and the button font-size need setting here. If the home buttons
+   ever change height, these three numbers must be re-measured. */
+body.duo #botScreen{padding-left:10px;padding-right:10px}
+body.duo-closed #botScreen .bot-opt{flex:0 1 92.4px;height:92.4px;min-height:0;font-size:calc(var(--hs) * 22)}
+body.duo-open-p #botScreen .bot-opt{flex:0 1 133.3px;height:133.3px;min-height:0;font-size:calc(var(--hs) * 22)}
+body.duo-open-l #botScreen .bot-opt{flex:0 1 70.7px;height:70.7px;min-height:0;font-size:calc(var(--hs) * 22)}
+/* Search bar taller on Duo: 48px -> ~64px (bigger padding + input,
+   icon 18 -> 22). */
+body.duo .search-wrap{padding:8px 12px}
+body.duo .search-wrap input{padding:12px 4px;font-size:17px}
+body.duo .search-wrap .search-icon svg{width:22px;height:22px}
+
+/* --- Item 5: share + gear when OPEN — slightly bigger (26 -> 30px
+   SVG, font 26 -> 30px), down 6px and in 6px, away from the large
+   bezeled corners. --- */
+body.duo-open .gear-btn,body.duo-open .share-btn{top:calc(16px + var(--sat));font-size:30px}
+body.duo-open .gear-btn{right:22px}
+body.duo-open .share-btn{left:22px}
+body.duo-open .gear-btn svg,body.duo-open .share-btn svg{width:30px;height:30px}
+
+/* --- Item 6: share + gear when CLOSED — SAME size, vertically
+   centred with the 84px pfp (pfp top 10px+sat, centre 52px+sat;
+   icon 35px tall -> top 34px+sat) and halfway between the pfp edge
+   and the stat-box edge horizontally (pfp edge x191 / stat-box
+   edge x16 -> centre x103.5 -> left 84px; mirrored on the right).
+   The halfway is horizontal: a vertical reading would contradict
+   the pfp-centring. Keeps the gear away from the camera cutout. --- */
+body.duo-closed .gear-btn,body.duo-closed .share-btn{top:calc(34px + var(--sat))}
+body.duo-closed .gear-btn{right:84px}
+body.duo-closed .share-btn{left:84px}
+
+/* --- Item 8: Daily Puzzle title + date up 16px (closer to the
+   Dynamic Island, further from the scoreboard pill) on Duo + the
+   Pro Max line. The title's margin shrinks 16px and the pill's
+   (and final score's) margin grows by the same 16px, so the pill
+   and everything below it stay exactly where they were — only the
+   title/date move. Scoped to duo-open-p on Duo: the title is hidden
+   on closed/open-l, so shifting the pill there would only push the
+   board down for nothing. --- */
+body.duo-open-p .puzzle-board-title{margin-top:calc(var(--ps) * 28.7 - 16px)}
+body.duo-open-p .puzzle-timer-pill{margin-top:calc(var(--ps) * 10 + 16px)}
+body.duo-open-p .puzzle-final-score{margin-top:calc(var(--ps) * 10 + 16px)}
+@media (width:430px) and (height:932px), (width:440px) and (height:956px){
+  .puzzle-board-title{margin-top:12.7px}
+  .puzzle-timer-pill{margin-top:26px}
+  .puzzle-final-score{margin-top:26px}
+}
